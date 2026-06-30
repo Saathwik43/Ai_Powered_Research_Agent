@@ -2,6 +2,7 @@
 
 An AI-powered application designed to streamline the academic research and publishing process. This platform helps researchers discover topics, conduct literature surveys, draft manuscripts, and find the perfect publication venue—all in one place.
 
+**🔴 Live Site:** [https://ai-powered-research-agent-live.onrender.com](https://ai-powered-research-agent-live.onrender.com)
 ## 🚀 Features
 
 *   **Dashboard & Topic Discovery:** Find trending research areas by leveraging OpenRouter AI and GitHub data.

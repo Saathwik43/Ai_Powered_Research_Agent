@@ -17,15 +17,22 @@ HF_MODEL = os.getenv("HUGGINGFACE_MANUSCRIPT_MODEL", "mistralai/Mixtral-8x7B-Ins
 
 prompt_template = PromptTemplate(
     input_variables=["topic", "section", "context"],
-    template="""You are an expert academic writer and researcher.
-You are writing a research paper on the topic: "{topic}".
-Your current task is to write the "{section}" section of the paper.
+    template="""You are an expert, highly-cited academic researcher and writer.
+You are writing a formal, peer-reviewed research paper on the topic: "{topic}".
+Your current task is exclusively to write the "{section}" section of the paper.
 
-Background context and literature survey information to incorporate:
+Here is the background context and literature survey information you MUST incorporate and synthesize:
+<context>
 {context}
+</context>
 
-Write a well-structured, formal, academic "{section}" section.
-Use markdown formatting. Do not include the section title. Keep claims appropriately cautious."""
+Instructions:
+1. Write a highly rigorous, well-structured, and formal academic "{section}" section.
+2. DO NOT include a title or heading for the section. Start directly with the content.
+3. Seamlessly weave the provided literature and context into your arguments. Do not just list them.
+4. Keep all claims appropriately cautious and academically sound (e.g., use "suggests", "indicates", "may").
+5. Format the output in clean Markdown, using paragraphs, lists, or bold text only where academically appropriate.
+6. Make it comprehensive, detailed, and at least 3-4 paragraphs long."""
 )
 
 _executor = ThreadPoolExecutor(max_workers=4)
