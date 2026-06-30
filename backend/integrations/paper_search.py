@@ -1,6 +1,7 @@
 import asyncio
 from integrations.openalex import search_papers as openalex_search
 from integrations.arxiv import search_papers as arxiv_search
+from integrations.semanticscholar import search_papers as s2_search
 from integrations.github_knowledge import search_github_knowledge
 
 
@@ -30,10 +31,11 @@ async def search_all(query: str, limit: int = 8) -> list:
     - arXiv: sorted by relevance / newest
     - GitHub: matched links from awesome repos
     """
-    openalex_results, arxiv_results, github_results = await asyncio.gather(
+    openalex_results, arxiv_results, github_results, s2_results = await asyncio.gather(
         openalex_search(query, limit=limit),
         arxiv_search(query, limit=limit),
         asyncio.to_thread(search_github_knowledge, query),
+        s2_search(query, limit=limit)
     )
 
     # Tag sources that don't already have one
@@ -43,9 +45,10 @@ async def search_all(query: str, limit: int = 8) -> list:
         p.setdefault("source", "arXiv")
     for p in github_results:
         p.setdefault("source", p.get("source", "GitHub"))
+    # Semantic Scholar already tags its own in semanticscholar.py
 
-    # Merge: OpenAlex first (most cited), then arXiv (newest), then GitHub
-    merged = openalex_results + arxiv_results + github_results
+    # Merge: Semantic Scholar first (highest relevance), then OpenAlex, then arXiv, then GitHub
+    merged = s2_results + openalex_results + arxiv_results + github_results
 
     # Deduplicate
     unique = _deduplicate(merged)

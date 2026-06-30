@@ -15,8 +15,7 @@ async def search_papers(query: str, limit: int = 5):
     url = "https://api.openalex.org/works"
     params = {
         "search": query,
-        "per-page": limit,
-        "sort": "cited_by_count:desc"
+        "per-page": limit
     }
 
     async with httpx.AsyncClient(headers=headers) as client:
