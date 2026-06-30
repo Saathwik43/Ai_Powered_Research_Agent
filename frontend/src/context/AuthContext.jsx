@@ -1,0 +1,52 @@
+import React, { createContext, useCallback, useContext, useMemo, useState, useEffect } from 'react';
+
+const AuthContext = createContext(null);
+
+export const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(null);
+  const [token, setToken] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const storedToken = localStorage.getItem('ra_token');
+    const storedUser = localStorage.getItem('ra_user');
+    if (storedToken && storedUser) {
+      setToken(storedToken);
+      setUser(JSON.parse(storedUser));
+    }
+    setLoading(false);
+  }, []);
+
+  const login = useCallback((tokenVal, userVal) => {
+    localStorage.setItem('ra_token', tokenVal);
+    localStorage.setItem('ra_user', JSON.stringify(userVal));
+    setToken(tokenVal);
+    setUser(userVal);
+  }, []);
+
+  const logout = useCallback(() => {
+    localStorage.removeItem('ra_token');
+    localStorage.removeItem('ra_user');
+    setToken(null);
+    setUser(null);
+  }, []);
+
+  const authFetch = useCallback(async (url, options = {}) => {
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers || {}),
+    };
+    return fetch(url, { ...options, headers });
+  }, [token]);
+
+  const value = useMemo(() => ({ user, token, login, logout, authFetch, loading }), [user, token, login, logout, authFetch, loading]);
+
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+export const useAuth = () => useContext(AuthContext);

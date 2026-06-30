@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+motor
+langchain
+langchain-core
+langchain-huggingface
+huggingface-hub
+requests
+httpx
+python-dotenv
+pydantic
+python-jose[cryptography]
+bcrypt

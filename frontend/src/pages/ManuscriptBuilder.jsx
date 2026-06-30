@@ -1,0 +1,231 @@
+import React, { useEffect, useState } from 'react';
+import { CheckCircle, Circle, Save, FileText, Wand2, FolderOpen, X, Search } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { Player } from '@lottiefiles/react-lottie-player';
+import loadingAnimation from '../assets/groovyWalk.json';
+const STEPS = [
+  { id: 'abstract',    label: 'Abstract' },
+  { id: 'lit_review',  label: 'Literature Review' },
+  { id: 'methodology', label: 'Methodology' },
+  { id: 'results',     label: 'Results' },
+  { id: 'references',  label: 'References' },
+];
+
+export default function ManuscriptBuilder() {
+  const { authFetch } = useAuth();
+  const [active, setActive]         = useState('abstract');
+  const [topic, setTopic]           = useState('');
+  const [content, setContent]       = useState({});
+  const [generating, setGenerating] = useState(false);
+  const [saveStatus, setSaveStatus] = useState('');
+  const [showLoad, setShowLoad]     = useState(false);
+  const [drafts, setDrafts]         = useState([]);
+  const [draftFilter, setDraftFilter] = useState('');
+  const [draftLoading, setDraftLoading] = useState(false);
+  const [loadError, setLoadError]   = useState('');
+
+  const done = STEPS.filter(s => content[s.id]?.trim()).map(s => s.id);
+
+  const generate = async () => {
+    if (!topic.trim()) return;
+    setGenerating(true);
+    try {
+      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript`, {
+        method: 'POST',
+        body: JSON.stringify({ topic, section: active, context: 'Use latest research trends and cite recent advancements.' }),
+      });
+      const data = await res.json();
+      setContent(prev => ({ ...prev, [active]: data.content }));
+    } catch (e) { console.error(e); }
+    finally { setGenerating(false); }
+  };
+
+  const save = async () => {
+    if (!topic || !Object.keys(content).length) return;
+    setSaveStatus('saving');
+    try {
+      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/save`, { method: 'POST', body: JSON.stringify({ topic, content }) });
+      setSaveStatus(res.ok ? 'saved' : 'error');
+      if (res.ok) setTimeout(() => setSaveStatus(''), 3000);
+    } catch { setSaveStatus('error'); }
+  };
+
+  useEffect(() => {
+    if (!showLoad) return;
+    const fetchDrafts = async () => {
+      setDraftLoading(true);
+      setLoadError('');
+      try {
+        const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/list`);
+        const data = await res.json();
+        setDrafts(Array.isArray(data.data) ? data.data : []);
+      } catch {
+        setLoadError('Could not load saved drafts.');
+      } finally {
+        setDraftLoading(false);
+      }
+    };
+    fetchDrafts();
+  }, [authFetch, showLoad]);
+
+  const load = async (draftTopic) => {
+    const t = draftTopic.trim();
+    if (!t) return;
+    setLoadError('');
+    try {
+      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/load?topic=${encodeURIComponent(t)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setContent(data.data.content || {});
+        setTopic(data.data.topic || t);
+        setShowLoad(false);
+        setDraftFilter('');
+      } else { setLoadError('No draft found for this topic.'); }
+    } catch { setLoadError('Could not connect.'); }
+  };
+
+  const exportDoc = () => {
+    if (!topic || !Object.keys(content).length) return;
+    const md = [`# ${topic}\n`, ...STEPS.filter(s => content[s.id]).flatMap(s => [`\n## ${s.label}\n`, content[s.id]])].join('\n');
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `${topic.replace(/\s+/g, '-')}.md`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const currentStep = STEPS.find(s => s.id === active);
+  const visibleDrafts = drafts.filter(draft =>
+    draft.topic?.toLowerCase().includes(draftFilter.trim().toLowerCase())
+  );
+
+  return (
+    <div className="animate-fade-in">
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
+        <div>
+          <h1>Manuscript Builder</h1>
+          <p className="text-muted">Write your research paper section by section with AI assistance.</p>
+          <div className="marquee-container" style={{ marginTop: '0.75rem', color: 'var(--warning)', fontSize: '0.85rem' }}>
+            <div className="marquee-content" style={{ fontWeight: '500' }}>
+              <span style={{ fontSize: '1.1rem' }}>⚠️</span>
+              <span><strong>Note:</strong> The underlying model is still under active development. Generated text may contain inaccuracies or formatting issues. These will be improved soon.</span>
+            </div>
+          </div>
+        </div>
+        <div className="responsive-actions" style={{ display: 'flex', gap: '0.5rem' }}>
+          <button className="btn btn-secondary" onClick={() => { setShowLoad(true); setLoadError(''); setDraftFilter(''); }}>
+            <FolderOpen size={14} /> Load Draft
+          </button>
+          <button className="btn btn-primary" onClick={exportDoc} disabled={!Object.keys(content).length}>
+            <FileText size={14} /> Export
+          </button>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: '1.25rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+
+        {/* Sidebar stepper */}
+        <div style={{ flex: '0 0 210px', minWidth: '180px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.25rem', position: 'sticky', top: '1.5rem' }}>
+          <p style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text-subtle)', marginBottom: '0.875rem' }}>Sections</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+            {STEPS.map(step => {
+              const isDone   = done.includes(step.id);
+              const isActive = active === step.id;
+              return (
+                <div key={step.id} onClick={() => setActive(step.id)}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.6rem 0.75rem', borderRadius: 'var(--radius-md)', cursor: 'pointer', fontSize: '0.88rem', fontWeight: isActive ? 700 : 500, color: isActive ? 'var(--primary)' : isDone ? 'var(--text)' : 'var(--text-muted)', background: isActive ? 'var(--primary-light)' : 'transparent', border: `1px solid ${isActive ? 'rgba(0,87,255,0.22)' : 'transparent'}`, transition: 'var(--transition)' }}
+                >
+                  {isDone
+                    ? <CheckCircle size={15} color={isActive ? 'var(--primary)' : 'var(--success)'} />
+                    : <Circle size={15} />}
+                  {step.label}
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ marginTop: '1rem', paddingTop: '0.875rem', borderTop: '1px solid var(--border)', fontSize: '0.75rem', color: 'var(--text-subtle)', textAlign: 'center' }}>
+            {done.length} of {STEPS.length} written
+          </div>
+        </div>
+
+        {/* Editor */}
+        <div style={{ flex: 1, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.5rem', minWidth: 0 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+            <h2 style={{ margin: 0, fontSize: '1.1rem' }}>{currentStep?.label}</h2>
+            <div className="responsive-actions" style={{ display: 'flex', gap: '0.5rem' }}>
+              <button className="btn btn-secondary" onClick={generate} disabled={generating || !topic.trim()}>
+                {generating ? <><Spin /> Writing...</> : <><Wand2 size={14} /> Generate</>}
+              </button>
+              <button className="btn btn-ghost" onClick={save} disabled={!topic || !Object.keys(content).length || saveStatus === 'saving'}>
+                <Save size={14} /> {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : 'Save'}
+              </button>
+            </div>
+          </div>
+
+          <input
+            placeholder="Enter your research topic..."
+            value={topic}
+            onChange={e => setTopic(e.target.value)}
+            style={{ marginBottom: '1rem' }}
+          />
+
+          <textarea
+            placeholder={`Write your ${currentStep?.label.toLowerCase()} here, or click Generate for AI assistance...`}
+            value={content[active] || ''}
+            onChange={e => setContent(prev => ({ ...prev, [active]: e.target.value }))}
+            style={{ width: '100%', minHeight: '420px', padding: '1rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', color: 'var(--text)', fontFamily: 'inherit', fontSize: '0.93rem', resize: 'vertical', outline: 'none', lineHeight: 1.75, transition: 'var(--transition)', boxSizing: 'border-box' }}
+            onFocus={e => { e.target.style.borderColor = 'var(--border-focus)'; e.target.style.boxShadow = '0 0 0 3px var(--primary-light)'; }}
+            onBlur={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.boxShadow = 'none'; }}
+          />
+        </div>
+      </div>
+
+      {/* Load modal */}
+      {showLoad && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' }} onClick={() => setShowLoad(false)}>
+          <div className="animate-scale-in" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: '2rem', width: '100%', maxWidth: '400px' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ margin: 0 }}>Load Draft</h3>
+              <button onClick={() => setShowLoad(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', display: 'flex' }}><X size={17} /></button>
+            </div>
+            <p style={{ fontSize: '0.85rem', marginBottom: '0.875rem' }}>Choose one of your saved manuscript drafts.</p>
+            <div style={{ position: 'relative', marginBottom: '0.9rem' }}>
+              <Search size={15} style={{ position: 'absolute', left: '0.9rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-subtle)', pointerEvents: 'none' }} />
+              <input placeholder="Filter saved drafts..." value={draftFilter} onChange={e => setDraftFilter(e.target.value)} style={{ paddingLeft: '2.45rem' }} />
+            </div>
+            {loadError && <p style={{ color: 'var(--danger)', fontSize: '0.83rem', marginBottom: '0.75rem' }}>{loadError}</p>}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem', maxHeight: '280px', overflowY: 'auto', marginBottom: '1rem' }}>
+              {draftLoading && <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.86rem' }}>Loading drafts...</p>}
+              {!draftLoading && visibleDrafts.length === 0 && (
+                <div className="empty-state" style={{ padding: '1.25rem', fontSize: '0.86rem' }}>
+                  {drafts.length ? 'No drafts match your filter.' : 'No saved drafts yet.'}
+                </div>
+              )}
+              {!draftLoading && visibleDrafts.map((draft) => (
+                <button
+                  key={draft.topic}
+                  className="btn btn-secondary"
+                  onClick={() => load(draft.topic)}
+                  style={{ justifyContent: 'space-between', whiteSpace: 'normal', textAlign: 'left' }}
+                >
+                  <span>{draft.topic}</span>
+                  <span style={{ color: 'var(--text-subtle)', fontSize: '0.72rem', fontWeight: 700 }}>Load</span>
+                </button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: '0.65rem', justifyContent: 'flex-end' }}>
+              <button className="btn btn-ghost" onClick={() => setShowLoad(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const Spin = () => (
+  <span style={{ width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', verticalAlign: 'middle', marginRight: '0.35rem' }}>
+    <Player autoplay loop src={loadingAnimation} style={{ height: '100%', width: '100%' }} />
+  </span>
+);
