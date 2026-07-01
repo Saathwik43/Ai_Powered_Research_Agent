@@ -389,3 +389,12 @@ async def load_literature(query: str, current_user: dict = Depends(get_current_u
     if not doc:
         raise HTTPException(status_code=404, detail="No saved survey found for this query.")
     return {"data": doc}
+
+
+@app.get("/api/literature/list")
+async def list_literature_surveys(current_user: dict = Depends(get_current_user)):
+    user_id = current_user["user_id"]
+    collection = db["literature"]
+    cursor = collection.find({"user_id": user_id}, {"_id": 0, "user_id": 0}).sort("_id", -1)
+    surveys = [doc async for doc in cursor]
+    return {"data": surveys}

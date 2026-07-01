@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
-import { Search, Download, ExternalLink, Save, BookOpen, FileText, X } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Search, Download, ExternalLink, Save, BookOpen, FileText, X, Bookmark } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { useAuth } from '../context/AuthContext';
 import { Player } from '@lottiefiles/react-lottie-player';
 import loadingAnimation from '../assets/groovyWalk.json';
@@ -12,6 +14,30 @@ export default function LiteratureSurvey() {
   const [searchError, setSearchError] = useState('');
   const [hasSearched, setHasSearched] = useState(false);
   const [lastQuery, setLastQuery] = useState('');
+  const [activeTab, setActiveTab] = useState('search');
+  const [savedSurveys, setSavedSurveys] = useState([]);
+  const [loadingSaved, setLoadingSaved] = useState(false);
+
+  const fetchSavedSurveys = async () => {
+    setLoadingSaved(true);
+    try {
+      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature/list`);
+      if (res.ok) {
+        const data = await res.json();
+        setSavedSurveys(data.data || []);
+      }
+    } catch (e) {
+      console.error("Failed to fetch saved surveys", e);
+    } finally {
+      setLoadingSaved(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'saved') {
+      fetchSavedSurveys();
+    }
+  }, [activeTab]);
 
   const search = async (q = query) => {
     if (!q.trim()) return;
@@ -39,13 +65,46 @@ export default function LiteratureSurvey() {
     finally { setLoading(false); }
   };
 
+  const exportSurveyToPDF = (papersToExport, queryName) => {
+    if (!papersToExport || !papersToExport.length) return;
+    const doc = new jsPDF();
+    doc.setFontSize(16);
+    doc.text(`Literature Survey: ${queryName}`, 14, 22);
+    doc.setFontSize(10);
+    doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 14, 30);
+    
+    const tableColumn = ["Title", "Authors", "Year", "Citations"];
+    const tableRows = [];
+
+    papersToExport.forEach(p => {
+      const rowData = [
+        p.title || 'N/A',
+        p.authors || 'N/A',
+        p.year === 'Unknown' ? (p.published || 'N/A') : (p.year || 'N/A'),
+        p.citations || 0
+      ];
+      tableRows.push(rowData);
+    });
+
+    autoTable(doc, {
+      startY: 35,
+      head: [tableColumn],
+      body: tableRows,
+      styles: { fontSize: 8, cellPadding: 3 },
+      headStyles: { fillColor: [41, 128, 185] },
+      columnStyles: {
+        0: { cellWidth: 80 },
+        1: { cellWidth: 50 },
+        2: { cellWidth: 20 },
+        3: { cellWidth: 20 }
+      }
+    });
+
+    doc.save(`survey-${queryName.replace(/\s+/g, '-')}.pdf`);
+  };
+
   const exportSurvey = () => {
-    if (!papers.length) return;
-    const blob = new Blob([JSON.stringify({ query, papers, exportedAt: new Date().toISOString() }, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = `survey-${query.replace(/\s+/g, '-')}.json`; a.click();
-    URL.revokeObjectURL(url);
+    exportSurveyToPDF(papers, query);
   };
 
   const saveSurvey = async () => {
@@ -65,6 +124,23 @@ export default function LiteratureSurvey() {
         <p className="text-muted">Search research papers from multiple academic sources in one place.</p>
       </div>
 
+      <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid var(--border)', marginBottom: '1.75rem' }}>
+        <button 
+          onClick={() => setActiveTab('search')} 
+          style={{ background: 'none', border: 'none', padding: '0.75rem 1rem', cursor: 'pointer', borderBottom: activeTab === 'search' ? '2px solid var(--primary)' : '2px solid transparent', color: activeTab === 'search' ? 'var(--primary)' : 'var(--text-muted)', fontWeight: activeTab === 'search' ? 600 : 400, display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+        >
+          <Search size={16} /> Search
+        </button>
+        <button 
+          onClick={() => setActiveTab('saved')} 
+          style={{ background: 'none', border: 'none', padding: '0.75rem 1rem', cursor: 'pointer', borderBottom: activeTab === 'saved' ? '2px solid var(--primary)' : '2px solid transparent', color: activeTab === 'saved' ? 'var(--primary)' : 'var(--text-muted)', fontWeight: activeTab === 'saved' ? 600 : 400, display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+        >
+          <Bookmark size={16} /> Saved Surveys
+        </button>
+      </div>
+
+      {activeTab === 'search' ? (
+        <>
       {/* Search */}
       <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.75rem', flexWrap: 'wrap' }}>
         <div style={{ position: 'relative', flex: 1, minWidth: '220px' }}>
@@ -178,6 +254,35 @@ export default function LiteratureSurvey() {
           </div>
         ))}
       </div>
+        </>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          {loadingSaved ? (
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '2rem' }}><Spin /></div>
+          ) : savedSurveys.length === 0 ? (
+            <div className="empty-state">
+              <Bookmark size={38} style={{ margin: '0 auto 0.875rem', color: 'var(--text-subtle)', display: 'block' }} />
+              You haven't saved any surveys yet.
+            </div>
+          ) : (
+            savedSurveys.map((survey, i) => (
+              <div key={i} className="animate-slide-up"
+                style={{ animationDelay: `${i * 0.03}s`, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.25rem 1.5rem', transition: 'transform 0.18s ease, border-color 0.18s ease', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}
+              >
+                <div>
+                  <h3 style={{ margin: '0 0 0.25rem', fontSize: '1.05rem', fontWeight: 600, color: 'var(--text)' }}>{survey.query}</h3>
+                  <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>{survey.papers?.length || 0} papers saved</p>
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button className="btn btn-secondary" onClick={() => exportSurveyToPDF(survey.papers, survey.query)}>
+                    <Download size={14} /> Download PDF
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 }
