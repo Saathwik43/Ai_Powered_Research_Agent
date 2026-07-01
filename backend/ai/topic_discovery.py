@@ -54,6 +54,4 @@ async def discover_topics(intent: str):
         raise ValueError("No JSON array found in response")
     except Exception as e:
         logger.error(f"Error in discover_topics (AI unavailable): {e}")
-        # Layer C failure (AI down) -> graceful fallback
-        fallback_data = _fallback_topics(intent)
-        return {"data": fallback_data, "source": "fallback", "note": "AI unavailable"}
+        raise HTTPException(status_code=503, detail="verification_unavailable")
