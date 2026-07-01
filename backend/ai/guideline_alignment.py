@@ -1,12 +1,15 @@
 import os
 import json
 import asyncio
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from langchain_core.prompts import PromptTemplate
 from langchain_huggingface import HuggingFaceEndpoint
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 llm = HuggingFaceEndpoint(
     repo_id="mistralai/Mixtral-8x7B-Instruct-v0.1",
@@ -74,7 +77,7 @@ async def align_guidelines(manuscript: dict, venue_guidelines: dict):
             return guidelines
         raise ValueError("No JSON object found in response")
     except Exception as e:
-        print(f"Error in align_guidelines: {e}")
+        logger.error(f"Error in align_guidelines: {e}")
         return {
             "venue": venue_name,
             "word_limit": "Typically 6000–10000 words",

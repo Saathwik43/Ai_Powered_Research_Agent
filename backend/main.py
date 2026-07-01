@@ -3,9 +3,21 @@ from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from datetime import datetime, timezone
+import logging
+import asyncio
+from pydantic import BaseModel, Field
+from typing import Optional, List, Dict, Any
+from fastapi.responses import JSONResponse
+import traceback
+
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from auth import decode_access_token
+from fastapi import Request
 
 from ai.topic_discovery import discover_topics
-from ai.manuscript_generation import generate_section
+from ai.manuscript_generation import generate_section, edit_section
 from ai.venue_recommendation import recommend_venues
 from ai.guideline_alignment import align_guidelines
 from integrations.paper_search import search_all
@@ -16,20 +28,39 @@ from integrations.github_knowledge import (
     list_categories, list_all_repos,
     find_papers_by_category, search_github_knowledge
 )
-from database import db, ping_db
+
+from database import db, ping_db, ensure_indexes
 from auth import signup_user, login_user, get_current_user, seed_admin
 
 load_dotenv()
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+logger = logging.getLogger(__name__)
+
+def get_user_id_for_rate_limit(request: Request) -> str:
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+        try:
+            payload = decode_access_token(token)
+            user_id = payload.get("sub")
+            if user_id:
+                return user_id
+        except Exception:
+            pass
+    return get_remote_address(request)
+
+limiter = Limiter(key_func=get_user_id_for_rate_limit)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await ping_db()
+    await ensure_indexes()
     await seed_admin()
     yield
 
-
-app = FastAPI(title="AI-Powered Research Paper Publishing Agent", lifespan=lifespan)
+app = FastAPI(title="AI-Powered Research Paper Publishing Agent", lifespan=lifespan, debug=False)
 
 import os
 
@@ -52,6 +83,54 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled: {exc}\n{traceback.format_exc()}")
+    return JSONResponse(status_code=500, content={"detail": "Internal server error."})
+
+# ─── Pydantic Models ───────────────────────────────────────────────────────────
+
+class SignupPayload(BaseModel):
+    email: str = Field(..., min_length=1)
+    password: str = Field(..., min_length=6)
+    name: str = Field(..., min_length=1)
+
+class LoginPayload(BaseModel):
+    email: str = Field(..., min_length=1)
+    password: str = Field(..., min_length=1)
+
+class ManuscriptPayload(BaseModel):
+    topic: str
+    section: str = "abstract"
+    context: str = ""
+
+class ManuscriptEditPayload(BaseModel):
+    topic: str
+    section: str = "abstract"
+    current_content: str
+    instructions: str
+
+class ManuscriptSavePayload(BaseModel):
+    topic: str
+    content: Dict[str, Any]
+
+class VenuePayload(BaseModel):
+    abstract: str = ""
+    domain: str = ""
+
+class GuidelinePayload(BaseModel):
+    manuscript: Dict[str, Any]
+    venue: Dict[str, Any]
+
+class LiteratureSavePayload(BaseModel):
+    query: str
+    papers: List[Any]
+
+class GithubSyncPayload(BaseModel):
+    repo: Optional[str] = None
 
 # ─── Root ──────────────────────────────────────────────────────────────────────
 
@@ -63,24 +142,14 @@ async def root():
 # ─── Auth ──────────────────────────────────────────────────────────────────────
 
 @app.post("/api/auth/signup")
-async def signup(payload: dict):
-    email = payload.get("email", "").strip().lower()
-    password = payload.get("password", "")
-    name = payload.get("name", "").strip()
-    if not email or not password or not name:
-        raise HTTPException(status_code=400, detail="Name, email, and password are required.")
-    if len(password) < 6:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters.")
-    return await signup_user(email, password, name)
-
+async def signup(payload: SignupPayload):
+    email = payload.email.strip().lower()
+    return await signup_user(email, payload.password, payload.name.strip())
 
 @app.post("/api/auth/login")
-async def login(payload: dict):
-    email = payload.get("email", "").strip().lower()
-    password = payload.get("password", "")
-    if not email or not password:
-        raise HTTPException(status_code=400, detail="Email and password are required.")
-    return await login_user(email, password)
+async def login(payload: LoginPayload):
+    email = payload.email.strip().lower()
+    return await login_user(email, payload.password)
 
 
 @app.get("/api/auth/me")
@@ -169,20 +238,24 @@ async def get_github_repos(current_user: dict = Depends(get_current_user)):
     return {"data": list_all_repos()}
 
 
+_sync_lock = asyncio.Lock()
+
 @app.post("/api/github/sync")
-async def sync_github(payload: dict = {}, current_user: dict = Depends(get_current_user)):
+async def sync_github(payload: GithubSyncPayload, current_user: dict = Depends(get_current_user)):
     """
     Sync one or all GitHub repos.
-    payload: {"repo": "awesome-datascience"} or {} to sync all.
     """
-    import asyncio
-    repo_name = payload.get("repo")
-    if repo_name:
-        success = await asyncio.to_thread(sync_repository, repo_name)
-        return {"message": f"{'Synced' if success else 'Failed'}: {repo_name}", "success": success}
-    else:
-        results = await asyncio.to_thread(sync_all_repositories)
-        return {"message": "Sync complete.", "results": results}
+    if _sync_lock.locked():
+        raise HTTPException(status_code=409, detail="Sync already in progress")
+    
+    async with _sync_lock:
+        repo_name = payload.repo
+        if repo_name:
+            success = await asyncio.to_thread(sync_repository, repo_name)
+            return {"message": f"{'Synced' if success else 'Failed'}: {repo_name}", "success": success}
+        else:
+            results = await asyncio.to_thread(sync_all_repositories)
+            return {"message": "Sync complete.", "results": results}
 
 
 @app.get("/api/github/categories")
@@ -214,40 +287,38 @@ async def search_github(query: str, current_user: dict = Depends(get_current_use
 # ─── Manuscript Generation ─────────────────────────────────────────────────────
 
 @app.post("/api/manuscript")
-async def create_manuscript_section(payload: dict, current_user: dict = Depends(get_current_user)):
-    topic = payload.get("topic", "")
-    section = payload.get("section", "abstract")
-    context = payload.get("context", "")
-    content = await generate_section(topic, section, context)
-    return {"section": section, "content": content}
+@limiter.limit("5/minute")
+async def create_manuscript_section(request: Request, payload: ManuscriptPayload, current_user: dict = Depends(get_current_user)):
+    content = await generate_section(payload.topic, payload.section, payload.context)
+    return {"section": payload.section, "content": content}
 
+@app.post("/api/manuscript/edit")
+@limiter.limit("5/minute")
+async def edit_manuscript_section(request: Request, payload: ManuscriptEditPayload, current_user: dict = Depends(get_current_user)):
+    content = await edit_section(payload.topic, payload.section, payload.current_content, payload.instructions)
+    return {"section": payload.section, "content": content}
 
 @app.post("/api/manuscript/save")
-async def save_manuscript_draft(payload: dict, current_user: dict = Depends(get_current_user)):
-    topic = payload.get("topic", "")
-    content = payload.get("content", {})
-    if not topic:
-        raise HTTPException(status_code=400, detail="Topic is required.")
-
+async def save_manuscript_draft(payload: ManuscriptSavePayload, current_user: dict = Depends(get_current_user)):
     user_id = current_user["user_id"]
     collection = db["manuscripts"]
     now = datetime.now(timezone.utc).isoformat()
-    existing = await collection.find_one({"user_id": user_id, "topic": topic})
+    existing = await collection.find_one({"user_id": user_id, "topic": payload.topic})
     if existing:
         await collection.update_one(
-            {"user_id": user_id, "topic": topic},
-            {"$set": {"content": content, "updated_at": now}}
+            {"user_id": user_id, "topic": payload.topic},
+            {"$set": {"content": payload.content, "updated_at": now}}
         )
-        return {"message": "Draft updated.", "topic": topic}
+        return {"message": "Draft updated.", "topic": payload.topic}
     else:
         await collection.insert_one({
             "user_id": user_id,
-            "topic": topic,
-            "content": content,
+            "topic": payload.topic,
+            "content": payload.content,
             "created_at": now,
             "updated_at": now,
         })
-        return {"message": "Draft saved.", "topic": topic}
+        return {"message": "Draft saved.", "topic": payload.topic}
 
 
 @app.get("/api/manuscript/load")
@@ -275,43 +346,34 @@ async def list_manuscript_drafts(current_user: dict = Depends(get_current_user))
 # ─── Venue Recommendations ─────────────────────────────────────────────────────
 
 @app.post("/api/venues")
-async def get_venues(payload: dict, current_user: dict = Depends(get_current_user)):
-    abstract = payload.get("abstract", "")
-    domain = payload.get("domain", "")
-    venues = await recommend_venues(abstract, domain)
+async def get_venues(payload: VenuePayload, current_user: dict = Depends(get_current_user)):
+    venues = await recommend_venues(payload.abstract, payload.domain)
     return {"data": venues}
 
 
 # ─── Guideline Alignment ───────────────────────────────────────────────────────
 
 @app.post("/api/guidelines")
-async def get_guidelines(payload: dict, current_user: dict = Depends(get_current_user)):
-    manuscript = payload.get("manuscript", {})
-    venue = payload.get("venue", {})
-    if not venue.get("name"):
+async def get_guidelines(payload: GuidelinePayload, current_user: dict = Depends(get_current_user)):
+    if not payload.venue.get("name"):
         raise HTTPException(status_code=400, detail="Venue name is required.")
-    result = await align_guidelines(manuscript, venue)
+    result = await align_guidelines(payload.manuscript, payload.venue)
     return {"data": result}
 
 
 # ─── Save / Load Literature Survey (per user) ─────────────────────────────────
 
 @app.post("/api/literature/save")
-async def save_literature(payload: dict, current_user: dict = Depends(get_current_user)):
-    query = payload.get("query", "")
-    papers = payload.get("papers", [])
-    if not query:
-        raise HTTPException(status_code=400, detail="Query is required.")
-
+async def save_literature(payload: LiteratureSavePayload, current_user: dict = Depends(get_current_user)):
     user_id = current_user["user_id"]
     collection = db["literature"]
-    existing = await collection.find_one({"user_id": user_id, "query": query})
+    existing = await collection.find_one({"user_id": user_id, "query": payload.query})
     if existing:
-        await collection.update_one({"user_id": user_id, "query": query}, {"$set": {"papers": papers}})
-        return {"message": "Literature survey updated.", "query": query}
+        await collection.update_one({"user_id": user_id, "query": payload.query}, {"$set": {"papers": payload.papers}})
+        return {"message": "Literature survey updated.", "query": payload.query}
     else:
-        await collection.insert_one({"user_id": user_id, "query": query, "papers": papers})
-        return {"message": "Literature survey saved.", "query": query}
+        await collection.insert_one({"user_id": user_id, "query": payload.query, "papers": payload.papers})
+        return {"message": "Literature survey saved.", "query": payload.query}
 
 
 @app.get("/api/literature/load")

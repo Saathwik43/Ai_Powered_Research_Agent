@@ -1,7 +1,10 @@
 import os
 import re
 import subprocess
+import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).parent.parent
 
@@ -31,22 +34,22 @@ def _sync_repo(name: str) -> bool:
     try:
         clone_dir.parent.mkdir(parents=True, exist_ok=True)
         if not clone_dir.exists():
-            print(f"Cloning {name}...")
+            logger.info(f"Cloning {name}...")
             subprocess.run(
                 ["git", "clone", "--depth", "1", url, str(clone_dir)],
                 check=True, capture_output=True
             )
-            print(f"Cloned {name}.")
+            logger.info(f"Cloned {name}.")
         else:
-            print(f"Pulling {name}...")
+            logger.info(f"Pulling {name}...")
             subprocess.run(
                 ["git", "pull"],
                 cwd=str(clone_dir), check=True, capture_output=True
             )
-            print(f"Pulled {name}.")
+            logger.info(f"Pulled {name}.")
         return True
     except subprocess.CalledProcessError as e:
-        print(f"Error syncing {name}: {e}")
+        logger.error(f"Error syncing {name}: {e}")
         return False
 
 
@@ -126,7 +129,7 @@ def _extract_links_from_markdown(filepath: Path) -> list:
             results.append({"title": title, "url": url})
         return results[:50]
     except Exception as e:
-        print(f"Error parsing {filepath}: {e}")
+        logger.error(f"Error parsing {filepath}: {e}")
         return []
 
 

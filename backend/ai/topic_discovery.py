@@ -1,6 +1,7 @@
 import os
 import json
 import asyncio
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from langchain_core.prompts import PromptTemplate
 from langchain_huggingface import HuggingFaceEndpoint
@@ -8,8 +9,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+logger = logging.getLogger(__name__)
+
+HF_MODEL = "mistralai/Mixtral-8x7B-Instruct-v0.1"
+
 llm = HuggingFaceEndpoint(
-    repo_id="mistralai/Mixtral-8x7B-Instruct-v0.1",
+    repo_id=HF_MODEL,
     task="text-generation",
     max_new_tokens=512,
     temperature=0.7,
@@ -42,6 +47,14 @@ def _run_chain(intent: str) -> str:
         raise RuntimeError(f"LangChain StopIteration: {e}") from e
 
 
+def _fallback_topics(intent: str):
+    return [
+        {"id": 1, "title": f"Advancements in {intent}", "impact": "High"},
+        {"id": 2, "title": f"Emerging Applications of {intent}", "impact": "High"},
+        {"id": 3, "title": f"Challenges and Future Directions in {intent}", "impact": "Medium"},
+    ]
+
+
 async def discover_topics(intent: str):
     try:
         loop = asyncio.get_event_loop()
@@ -55,9 +68,5 @@ async def discover_topics(intent: str):
             return topics
         raise ValueError("No JSON array found in response")
     except Exception as e:
-        print(f"Error in discover_topics: {e}")
-        return [
-            {"id": 1, "title": f"Advancements in {intent}", "impact": "High"},
-            {"id": 2, "title": f"Emerging Applications of {intent}", "impact": "High"},
-            {"id": 3, "title": f"Challenges and Future Directions in {intent}", "impact": "Medium"},
-        ]
+        logger.error(f"Error in discover_topics: {e}")
+        return _fallback_topics(intent)

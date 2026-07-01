@@ -1,8 +1,13 @@
 import asyncio
+import time
+import logging
 from integrations.openalex import search_papers as openalex_search
 from integrations.arxiv import search_papers as arxiv_search
 from integrations.semanticscholar import search_papers as s2_search
 from integrations.github_knowledge import search_github_knowledge
+
+logger = logging.getLogger(__name__)
+_cache = {}
 
 
 def _normalize_title(title: str) -> str:
@@ -31,12 +36,32 @@ async def search_all(query: str, limit: int = 8) -> list:
     - arXiv: sorted by relevance / newest
     - GitHub: matched links from awesome repos
     """
-    openalex_results, arxiv_results, github_results, s2_results = await asyncio.gather(
+    cache_key = f"{query}_{limit}"
+    now = time.time()
+    if cache_key in _cache:
+        cached_data, timestamp = _cache[cache_key]
+        if now - timestamp < 600:  # 10 minutes TTL
+            logger.info(f"Returning cached literature results for {query}")
+            return cached_data
+
+    results = await asyncio.gather(
         openalex_search(query, limit=limit),
         arxiv_search(query, limit=limit),
         asyncio.to_thread(search_github_knowledge, query),
-        s2_search(query, limit=limit)
+        s2_search(query, limit=limit),
+        return_exceptions=True
     )
+
+    def _handle_res(res, name):
+        if isinstance(res, Exception):
+            logger.error(f"Gather Error ({name}): {res}")
+            return []
+        return res
+
+    openalex_results = _handle_res(results[0], "OpenAlex")
+    arxiv_results = _handle_res(results[1], "arXiv")
+    github_results = _handle_res(results[2], "GitHub")
+    s2_results = _handle_res(results[3], "SemanticScholar")
 
     # Tag sources that don't already have one
     for p in openalex_results:
@@ -52,5 +77,6 @@ async def search_all(query: str, limit: int = 8) -> list:
 
     # Deduplicate
     unique = _deduplicate(merged)
-
+    
+    _cache[cache_key] = (unique, now)
     return unique

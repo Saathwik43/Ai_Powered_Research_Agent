@@ -1,12 +1,15 @@
 import os
 import json
 import asyncio
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from langchain_core.prompts import PromptTemplate
 from langchain_huggingface import HuggingFaceEndpoint
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 llm = HuggingFaceEndpoint(
     repo_id="mistralai/Mixtral-8x7B-Instruct-v0.1",
@@ -56,7 +59,7 @@ async def recommend_venues(abstract: str, domain: str):
             return venues
         raise ValueError("No JSON array found in response")
     except Exception as e:
-        print(f"Error in recommend_venues: {e}")
+        logger.error(f"Error in recommend_venues: {e}")
         return [
             {"id": 1, "name": "IEEE Access", "type": "Journal", "impact": "Medium", "scope": "Multidisciplinary", "match": 85},
             {"id": 2, "name": "PLOS One", "type": "Journal", "impact": "Medium", "scope": "General Science", "match": 80},

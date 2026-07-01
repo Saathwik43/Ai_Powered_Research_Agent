@@ -1,10 +1,13 @@
 import os
 import httpx
+import logging
 from dotenv import load_dotenv
 
 load_dotenv()
 
 S2_SEARCH_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
+
+logger = logging.getLogger(__name__)
 
 async def search_papers(query: str, limit: int = 8) -> list:
     """
@@ -57,5 +60,5 @@ async def search_papers(query: str, limit: int = 8) -> list:
                 papers.append(paper)
             return papers
     except Exception as e:
-        print(f"Semantic Scholar Error: {e}")
+        logger.error(f"Semantic Scholar Error: {e}")
         return []

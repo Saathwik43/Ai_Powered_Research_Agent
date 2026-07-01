@@ -1,12 +1,16 @@
 import os
 import asyncio
 import requests
+import logging
+import urllib.parse
 from dotenv import load_dotenv
 
 load_dotenv()
 
 MAILTO = os.getenv("CROSSREF_MAILTO", "your_email@example.com")
 CROSSREF_BASE_URL = "https://api.crossref.org/journals"
+
+logger = logging.getLogger(__name__)
 
 async def get_venue_metadata(issn: str):
     """
@@ -24,8 +28,8 @@ async def get_venue_metadata(issn: str):
         data = response.json()
         return data.get("message", {})
     except Exception as e:
-        print(f"Error fetching Crossref metadata for ISSN {issn}: {e}")
-        return {"error": str(e)}
+        logger.error(f"Error fetching Crossref metadata for ISSN {issn}: {e}")
+        return {}
 
 async def search_journals(query: str):
     """
@@ -42,5 +46,5 @@ async def search_journals(query: str):
         data = response.json()
         return data.get("message", {}).get("items", [])
     except Exception as e:
-        print(f"Error searching Crossref journals for {query}: {e}")
+        logger.error(f"Error searching Crossref journals for {query}: {e}")
         return []

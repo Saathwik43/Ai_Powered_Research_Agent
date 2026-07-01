@@ -1,5 +1,6 @@
 import os
 import bcrypt
+import logging
 from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
 from fastapi import Depends, HTTPException, status
@@ -9,7 +10,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "changeme-super-secret")
+logger = logging.getLogger(__name__)
+
+SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError("JWT_SECRET_KEY is not configured in the environment.")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 24
 
@@ -111,6 +116,6 @@ async def seed_admin():
             "role": "admin",
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
-        print(f"Admin user seeded: {admin_email}")
+        logger.info(f"Admin user seeded: {admin_email}")
     else:
-        print(f"Admin user already exists: {admin_email}")
+        logger.info(f"Admin user already exists: {admin_email}")

@@ -1,6 +1,10 @@
 import httpx
 import xml.etree.ElementTree as ET
+import logging
+import os
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 ARXIV_SEARCH_URL = "https://export.arxiv.org/api/query"
 ARXIV_RSS_BASE = "https://rss.arxiv.org/rss"
@@ -91,15 +95,18 @@ async def search_papers(query: str, limit: int = 8) -> list:
         "sortBy": "relevance",
         "sortOrder": "descending",
     }
+    email = os.getenv("CROSSREF_MAILTO", "")
+    headers = {"User-Agent": f"AI-Powered-Research-Agent/1.0 (contact: {email})" if email else "AI-Powered-Research-Agent/1.0"}
+    
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=15.0, headers=headers) as client:
             resp = await client.get(ARXIV_SEARCH_URL, params=params)
             resp.raise_for_status()
             root = ET.fromstring(resp.text)
             entries = root.findall("atom:entry", NS)
             return [_parse_entry(e) for e in entries]
     except Exception as e:
-        print(f"arXiv search error: {e}")
+        logger.error(f"arXiv search error: {e}")
         return []
 
 
@@ -109,9 +116,14 @@ async def fetch_category_feed(category_code: str, limit: int = 10) -> list:
     e.g. category_code = 'cs.AI'
     """
     url = f"{ARXIV_RSS_BASE}/{category_code}"
+    email = os.getenv("CROSSREF_MAILTO", "")
+    headers = {
+        "Accept": "application/rss+xml",
+        "User-Agent": f"AI-Powered-Research-Agent/1.0 (contact: {email})" if email else "AI-Powered-Research-Agent/1.0"
+    }
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(url, headers={"Accept": "application/rss+xml"})
+        async with httpx.AsyncClient(timeout=15.0, headers=headers) as client:
+            resp = await client.get(url)
             resp.raise_for_status()
 
         # RSS feed uses a different namespace — parse manually
@@ -154,7 +166,7 @@ async def fetch_category_feed(category_code: str, limit: int = 10) -> list:
             })
         return papers
     except Exception as e:
-        print(f"arXiv RSS feed error ({category_code}): {e}")
+        logger.error(f"arXiv RSS feed error ({category_code}): {e}")
         return []
 
 

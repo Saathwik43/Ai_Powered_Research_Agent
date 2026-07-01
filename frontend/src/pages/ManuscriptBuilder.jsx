@@ -23,6 +23,9 @@ export default function ManuscriptBuilder() {
   const [draftFilter, setDraftFilter] = useState('');
   const [draftLoading, setDraftLoading] = useState(false);
   const [loadError, setLoadError]   = useState('');
+  const [editPrompt, setEditPrompt] = useState('');
+  const [editing, setEditing]       = useState(false);
+  const [editError, setEditError]   = useState('');
 
   const done = STEPS.filter(s => content[s.id]?.trim()).map(s => s.id);
 
@@ -34,10 +37,46 @@ export default function ManuscriptBuilder() {
         method: 'POST',
         body: JSON.stringify({ topic, section: active, context: 'Use latest research trends and cite recent advancements.' }),
       });
+      if (res.status === 429) {
+        alert("Rate limit exceeded. Please wait a minute before generating again.");
+        return;
+      }
       const data = await res.json();
       setContent(prev => ({ ...prev, [active]: data.content }));
     } catch (e) { console.error(e); }
     finally { setGenerating(false); }
+  };
+
+  const applyEdit = async () => {
+    if (!editPrompt.trim() || !content[active]) return;
+    setEditing(true);
+    setEditError('');
+    try {
+      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/edit`, {
+        method: 'POST',
+        body: JSON.stringify({
+          topic,
+          section: active,
+          current_content: content[active],
+          instructions: editPrompt
+        }),
+      });
+      if (res.status === 429) {
+        setEditError('Rate limit exceeded. Please wait a minute before trying again.');
+        return;
+      }
+      if (!res.ok) {
+        setEditError('Failed to apply revision. Please try again.');
+        return;
+      }
+      const data = await res.json();
+      setContent(prev => ({ ...prev, [active]: data.content }));
+      setEditPrompt('');
+    } catch (e) {
+      setEditError('Network error. Please try again.');
+    } finally {
+      setEditing(false);
+    }
   };
 
   const save = async () => {
@@ -178,6 +217,26 @@ export default function ManuscriptBuilder() {
             onFocus={e => { e.target.style.borderColor = 'var(--border-focus)'; e.target.style.boxShadow = '0 0 0 3px var(--primary-light)'; }}
             onBlur={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.boxShadow = 'none'; }}
           />
+          
+          {content[active] && (
+            <div style={{ marginTop: '1rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '1.25rem' }}>
+              <p style={{ margin: '0 0 0.75rem 0', fontSize: '0.85rem', fontWeight: 600 }}>Revise Section with AI</p>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <input
+                  placeholder="e.g. Make this shorter, add bullet points, fix grammar..."
+                  value={editPrompt}
+                  onChange={e => setEditPrompt(e.target.value)}
+                  style={{ flex: 1, minWidth: '200px' }}
+                  disabled={editing || generating}
+                  onKeyDown={e => { if (e.key === 'Enter') applyEdit(); }}
+                />
+                <button className="btn btn-primary" onClick={applyEdit} disabled={editing || generating || !editPrompt.trim()}>
+                  {editing ? <><Spin /> Revising...</> : 'Apply Revision'}
+                </button>
+              </div>
+              {editError && <p style={{ color: 'var(--danger)', fontSize: '0.8rem', marginTop: '0.5rem', marginBottom: 0 }}>{editError}</p>}
+            </div>
+          )}
         </div>
       </div>
 

@@ -1,8 +1,11 @@
 import os
 import httpx
+import logging
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 async def search_papers(query: str, limit: int = 5):
     """
@@ -17,6 +20,8 @@ async def search_papers(query: str, limit: int = 5):
         "search": query,
         "per-page": limit
     }
+    if email:
+        params["mailto"] = email
 
     async with httpx.AsyncClient(headers=headers) as client:
         try:
@@ -56,5 +61,5 @@ async def search_papers(query: str, limit: int = 5):
                 papers.append(paper)
             return papers
         except Exception as e:
-            print(f"OpenAlex Error: {e}")
+            logger.error(f"OpenAlex Error: {e}")
             return []
