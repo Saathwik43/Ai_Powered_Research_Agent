@@ -76,7 +76,8 @@ async def discover_topics(intent: str):
         logger.error(f"Error in discover_topics: {e}")
         if "StopIteration" in str(e):
             import re
-            is_gibberish = not re.search(r'[aeiouyAEIOUY]', intent) or re.search(r'[bcdfghjklmnpqrstvwxzBCDFGHJKLMNPQRSTVWXZ]{6,}', intent)
+            intent_alpha = re.sub(r'[^a-zA-Z]', '', intent)
+            is_gibberish = not re.search(r'[aeiouyAEIOUY]', intent_alpha, re.IGNORECASE) or re.search(r'[bcdfghjklmnpqrstvwxzBCDFGHJKLMNPQRSTVWXZ]{5,}', intent_alpha, re.IGNORECASE)
             if is_gibberish:
                 return [{"error": "topic_unclear"}]
         return _fallback_topics(intent)

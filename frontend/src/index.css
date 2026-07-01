@@ -476,4 +476,12 @@ textarea::placeholder {
     scroll-behavior: auto !important;
     transition-duration: 0.001ms !important;
   }
+  .marquee-content {
+    animation: none !important;
+    transform: none !important;
+    white-space: normal;
+  }
+  .marquee-container {
+    white-space: normal;
+  }
 }

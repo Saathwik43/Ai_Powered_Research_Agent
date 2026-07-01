@@ -26,24 +26,39 @@ export default function ManuscriptBuilder() {
   const [editPrompt, setEditPrompt] = useState('');
   const [editing, setEditing]       = useState(false);
   const [editError, setEditError]   = useState('');
+  const [generateError, setGenerateError] = useState('');
+  const [unverifiedWarning, setUnverifiedWarning] = useState('');
 
   const done = STEPS.filter(s => content[s.id]?.trim()).map(s => s.id);
 
   const generate = async () => {
     if (!topic.trim()) return;
     setGenerating(true);
+    setGenerateError('');
+    setUnverifiedWarning('');
     try {
       const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript`, {
         method: 'POST',
         body: JSON.stringify({ topic, section: active, context: 'Use latest research trends and cite recent advancements.' }),
       });
       if (res.status === 429) {
-        alert("Rate limit exceeded. Please wait a minute before generating again.");
+        setGenerateError("Rate limit exceeded. Please wait a minute before generating again.");
+        return;
+      }
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        setGenerateError(errorData.detail || 'Failed to generate section. Please try again.');
         return;
       }
       const data = await res.json();
       setContent(prev => ({ ...prev, [active]: data.content }));
-    } catch (e) { console.error(e); }
+      if (data.flags && data.flags.unverified_citations) {
+        setUnverifiedWarning('Warning: The generated text contains citations that could not be verified against the provided context. Please verify them independently.');
+      }
+    } catch (e) {
+      console.error(e);
+      setGenerateError('Network error. Please try again.');
+    }
     finally { setGenerating(false); }
   };
 
@@ -208,6 +223,8 @@ export default function ManuscriptBuilder() {
             onChange={e => setTopic(e.target.value)}
             style={{ marginBottom: '1rem' }}
           />
+          {generateError && <p style={{ color: 'var(--danger)', fontSize: '0.85rem', marginBottom: '1rem', background: 'rgba(229,28,35,0.1)', padding: '0.75rem', borderRadius: 'var(--radius-md)' }}>{generateError}</p>}
+          {unverifiedWarning && <p style={{ color: 'var(--warning)', fontSize: '0.85rem', marginBottom: '1rem', background: 'rgba(255,176,0,0.1)', padding: '0.75rem', borderRadius: 'var(--radius-md)' }}>{unverifiedWarning}</p>}
 
           <textarea
             placeholder={`Write your ${currentStep?.label.toLowerCase()} here, or click Generate for AI assistance...`}

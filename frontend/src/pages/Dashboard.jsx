@@ -77,8 +77,13 @@ export default function Dashboard() {
         setError('Rate limit exceeded. Please wait a minute before trying again.');
         return;
       }
-      if (!topicRes.ok || !paperRes.ok) {
-        setError('Failed to fetch discovery data. Please try again.');
+      if (!topicRes.ok) {
+        const topicData = await topicRes.json().catch(() => ({}));
+        setError(topicData.detail || 'Failed to discover topics. Please try again.');
+        return;
+      }
+      if (!paperRes.ok) {
+        setError('Failed to fetch literature data. Please try again.');
         return;
       }
 
