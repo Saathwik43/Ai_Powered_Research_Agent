@@ -41,7 +41,16 @@ export default function ManuscriptBuilder() {
         method: 'POST',
         body: JSON.stringify({ topic, section: active, context: 'Use latest research trends and cite recent advancements.' }),
       });
-      if (res.status === 429) {
+      if (res.status === 429 || res.status === 503) {
+        if (res.status === 503) {
+          try {
+            const data = await res.json();
+            if (data?.detail?.verification_unavailable) {
+              setGenerateError('Verification temporarily unavailable, please try again shortly.');
+              return;
+            }
+          } catch(e) {}
+        }
         setGenerateError("Rate limit exceeded. Please wait a minute before generating again.");
         return;
       }
@@ -76,7 +85,16 @@ export default function ManuscriptBuilder() {
           instructions: editPrompt
         }),
       });
-      if (res.status === 429) {
+      if (res.status === 429 || res.status === 503) {
+        if (res.status === 503) {
+          try {
+            const data = await res.json();
+            if (data?.detail?.verification_unavailable) {
+              setEditError('Verification temporarily unavailable, please try again shortly.');
+              return;
+            }
+          } catch(e) {}
+        }
         setEditError('Rate limit exceeded. Please wait a minute before trying again.');
         return;
       }
@@ -160,11 +178,9 @@ export default function ManuscriptBuilder() {
         <div>
           <h1>Manuscript Builder</h1>
           <p className="text-muted">Write your research paper section by section with AI assistance.</p>
-          <div className="marquee-container" style={{ marginTop: '0.75rem', color: 'var(--warning)', fontSize: '0.85rem' }}>
-            <div className="marquee-content" style={{ fontWeight: '500' }}>
-              <span style={{ fontSize: '1.1rem' }}>⚠️</span>
-              <span><strong>Note:</strong> The underlying model is still under active development. Generated text may contain inaccuracies or formatting issues. These will be improved soon.</span>
-            </div>
+          <div style={{ marginTop: '0.75rem', color: 'var(--text-muted)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <span style={{ fontSize: '1rem' }}>💡</span>
+            <span><strong>Note:</strong> AI can make mistakes, review before proceeding.</span>
           </div>
         </div>
         <div className="responsive-actions" style={{ display: 'flex', gap: '0.5rem' }}>
@@ -223,7 +239,11 @@ export default function ManuscriptBuilder() {
             onChange={e => setTopic(e.target.value)}
             style={{ marginBottom: '1rem' }}
           />
-          {generateError && <p style={{ color: 'var(--danger)', fontSize: '0.85rem', marginBottom: '1rem', background: 'rgba(229,28,35,0.1)', padding: '0.75rem', borderRadius: 'var(--radius-md)' }}>{generateError}</p>}
+          {generateError && (
+            <div style={{ marginTop: '1rem', marginBottom: '1rem', padding: '0.85rem 1rem', background: 'rgba(229,28,35,0.08)', border: '1px solid rgba(229,28,35,0.2)', borderRadius: 'var(--radius-md)', color: 'var(--danger)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <X size={15} /> {generateError}
+            </div>
+          )}
           {unverifiedWarning && <p style={{ color: 'var(--warning)', fontSize: '0.85rem', marginBottom: '1rem', background: 'rgba(255,176,0,0.1)', padding: '0.75rem', borderRadius: 'var(--radius-md)' }}>{unverifiedWarning}</p>}
 
           <textarea

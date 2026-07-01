@@ -11,6 +11,8 @@ from langchain_huggingface import HuggingFaceEndpoint
 load_dotenv()
 
 from ai.llm_provider import generate_completion
+from ai.guardrails import validate_input_layers_a_b
+from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
 
@@ -51,13 +53,6 @@ def _prompt(topic: str, section: str, context: str) -> str:
 
 
 def _local_draft(topic: str, section: str, context: str):
-    import re
-    topic_alpha = re.sub(r'[^a-zA-Z]', '', topic)
-    if topic_alpha:
-        is_gibberish = not re.search(r'[aeiouyAEIOUY]', topic_alpha, re.IGNORECASE) or re.search(r'[bcdfghjklmnpqrstvwxzBCDFGHJKLMNPQRSTVWXZ]{5,}', topic_alpha, re.IGNORECASE)
-        if is_gibberish:
-            return None
-            
     section_name = section.replace("_", " ").title()
     context_line = context.strip() if context and context.strip() else "the available literature and current research trends"
     return (
@@ -84,6 +79,9 @@ def _check_unverified_citations(content: str, context: str) -> dict:
     return flags
 
 async def generate_section(topic: str, section: str, context: str):
+    if not validate_input_layers_a_b(topic):
+        return '{"error": "topic_unclear"}', {}
+        
     cache_key = None
     if context and context.strip():
         cache_key = hash(topic + section + context)
@@ -104,12 +102,9 @@ async def generate_section(topic: str, section: str, context: str):
         flags = _check_unverified_citations(result, context)
         return result, flags
     except Exception as e:
-        logger.error(f"manuscript generation failed: {e}")
-        
-    result = _local_draft(topic, section, context)
-    if result is None:
-        return '{"error": "topic_unclear"}', {}
-    return result, {}
+        logger.error(f"manuscript generation failed (AI unavailable): {e}")
+        # Layer C failure (AI down) -> fail closed instead of silent fallback.
+        raise HTTPException(status_code=503, detail={"verification_unavailable": True, "message": "Verification temporarily unavailable"})
 
 
 edit_prompt_template = PromptTemplate(

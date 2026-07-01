@@ -75,6 +75,29 @@ export default function Dashboard() {
       ]);
       
       if (topicRes.status === 429 || paperRes.status === 429 || topicRes.status === 503 || paperRes.status === 503) {
+        if (topicRes.status === 503) {
+          try {
+            const data = await topicRes.json();
+            if (data?.detail?.verification_unavailable) {
+              setError('Verification temporarily unavailable, please try again shortly.');
+              setResults([]);
+              setRelatedPapers([]);
+              return;
+            }
+          } catch(e) {}
+        }
+        if (paperRes.status === 503) {
+          try {
+            const data = await paperRes.json();
+            if (data?.detail?.verification_unavailable) {
+              setError('Verification temporarily unavailable, please try again shortly.');
+              setResults([]);
+              setRelatedPapers([]);
+              return;
+            }
+          } catch(e) {}
+        }
+        
         setError('Rate limit exceeded. Please wait a minute before trying again.');
         return;
       }

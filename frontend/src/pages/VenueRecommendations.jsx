@@ -94,6 +94,16 @@ export default function VenueRecommendations() {
     try {
       const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/venues`, { method: 'POST', body: JSON.stringify({ abstract, domain }) });
       if (res.status === 429 || res.status === 503) {
+        if (res.status === 503) {
+          try {
+            const data = await res.json();
+            if (data?.detail?.verification_unavailable) {
+              setError('Verification temporarily unavailable, please try again shortly.');
+              setVenues([]);
+              return;
+            }
+          } catch(e) {}
+        }
         setError('Rate limit exceeded. Please wait a minute before trying again.');
         return;
       }

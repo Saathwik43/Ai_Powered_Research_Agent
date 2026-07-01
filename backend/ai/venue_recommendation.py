@@ -1,7 +1,9 @@
 import json
 import logging
+from fastapi import HTTPException
 from langchain_core.prompts import PromptTemplate
 from ai.llm_provider import generate_completion
+from ai.guardrails import validate_input_layers_a_b
 
 logger = logging.getLogger(__name__)
 
@@ -24,14 +26,6 @@ Example format:
 )
 
 def _fallback_venues(abstract: str, domain: str):
-    import re
-    combined = f"{abstract} {domain}"
-    intent_alpha = re.sub(r'[^a-zA-Z]', '', combined)
-    if intent_alpha:
-        is_gibberish = not re.search(r'[aeiouyAEIOUY]', intent_alpha, re.IGNORECASE) or re.search(r'[bcdfghjklmnpqrstvwxzBCDFGHJKLMNPQRSTVWXZ]{5,}', intent_alpha, re.IGNORECASE)
-        if is_gibberish:
-            return None
-            
     return [
         {"id": 1, "name": "IEEE Access", "type": "Journal", "impact": "Medium", "scope": "Multidisciplinary", "match": 85},
         {"id": 2, "name": "PLOS One", "type": "Journal", "impact": "Medium", "scope": "General Science", "match": 80},
@@ -39,6 +33,10 @@ def _fallback_venues(abstract: str, domain: str):
     ]
 
 async def recommend_venues(abstract: str, domain: str):
+    combined = f"{abstract} {domain}"
+    if not validate_input_layers_a_b(combined):
+        return {"data": [], "source": "ai", "coherence_check": "failed"}
+        
     try:
         abs_text = abstract.strip() if abstract.strip() else f"Research focused on {domain}"
         user_prompt = prompt_template.format(abstract=abs_text, domain=domain)
@@ -58,8 +56,6 @@ async def recommend_venues(abstract: str, domain: str):
             
         raise ValueError("No JSON array found in response")
     except Exception as e:
-        logger.error(f"Error in recommend_venues: {e}")
-        fallback_data = _fallback_venues(abstract, domain)
-        if fallback_data is None:
-            return {"data": [], "source": "fallback", "coherence_check": "failed"}
-        return {"data": fallback_data, "source": "fallback"}
+        logger.error(f"Error in recommend_venues (AI unavailable): {e}")
+        # Layer C failure (AI down) -> fail closed instead of silent fallback.
+        raise HTTPException(status_code=503, detail={"verification_unavailable": True, "message": "Verification temporarily unavailable"})

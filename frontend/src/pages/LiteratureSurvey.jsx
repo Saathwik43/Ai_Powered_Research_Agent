@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Download, ExternalLink, Save, BookOpen, FileText } from 'lucide-react';
+import { Search, Download, ExternalLink, Save, BookOpen, FileText, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Player } from '@lottiefiles/react-lottie-player';
 import loadingAnimation from '../assets/groovyWalk.json';
@@ -82,6 +82,12 @@ export default function LiteratureSurvey() {
         </button>
       </div>
 
+      {searchError && (
+        <div style={{ marginBottom: '1.75rem', padding: '0.85rem 1rem', background: 'rgba(229,28,35,0.08)', border: '1px solid rgba(229,28,35,0.2)', borderRadius: 'var(--radius-md)', color: 'var(--danger)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <X size={15} /> {searchError}
+        </div>
+      )}
+
       {/* Toolbar */}
       {papers.length > 0 && (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
@@ -107,13 +113,6 @@ export default function LiteratureSurvey() {
           <div className="empty-state">
             <BookOpen size={38} style={{ margin: '0 auto 0.875rem', color: 'var(--text-subtle)', display: 'block' }} />
             Enter a topic to discover relevant research.
-          </div>
-        )}
-
-        {!loading && searchError && (
-          <div className="empty-state" style={{ color: 'var(--danger)' }}>
-            <BookOpen size={38} style={{ margin: '0 auto 0.875rem', color: 'var(--danger)', display: 'block' }} />
-            {searchError}
           </div>
         )}
 

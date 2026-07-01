@@ -1,7 +1,9 @@
 import json
 import logging
+from fastapi import HTTPException
 from langchain_core.prompts import PromptTemplate
 from ai.llm_provider import generate_completion
+from ai.guardrails import validate_input_layers_a_b
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +25,6 @@ Example format:
 )
 
 def _fallback_topics(intent: str):
-    import re
-    intent_alpha = re.sub(r'[^a-zA-Z]', '', intent)
-    is_gibberish = not re.search(r'[aeiouyAEIOUY]', intent_alpha, re.IGNORECASE) or re.search(r'[bcdfghjklmnpqrstvwxzBCDFGHJKLMNPQRSTVWXZ]{5,}', intent_alpha, re.IGNORECASE)
-    if is_gibberish:
-        return None
     return [
         {"id": 1, "title": f"Advancements in {intent}", "impact": "High"},
         {"id": 2, "title": f"Emerging Applications of {intent}", "impact": "High"},
@@ -36,6 +33,9 @@ def _fallback_topics(intent: str):
 
 
 async def discover_topics(intent: str):
+    if not validate_input_layers_a_b(intent):
+        return {"data": [], "source": "ai", "coherence_check": "failed"}
+        
     try:
         user_prompt = prompt_template.format(intent=intent)
         response = await generate_completion(system_prompt="", user_prompt=user_prompt, max_tokens=512, temperature=0.7)
@@ -54,8 +54,6 @@ async def discover_topics(intent: str):
             
         raise ValueError("No JSON array found in response")
     except Exception as e:
-        logger.error(f"Error in discover_topics: {e}")
-        fallback_data = _fallback_topics(intent)
-        if fallback_data is None:
-            return {"data": [], "source": "fallback", "coherence_check": "failed"}
-        return {"data": fallback_data, "source": "fallback"}
+        logger.error(f"Error in discover_topics (AI unavailable): {e}")
+        # Layer C failure (AI down) -> fail closed instead of silent fallback.
+        raise HTTPException(status_code=503, detail={"verification_unavailable": True, "message": "Verification temporarily unavailable"})

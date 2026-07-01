@@ -25,7 +25,7 @@ def test_topic_discovery_gibberish(intent, description):
         data = response.json()
         assert data.get("coherence_check") == "failed", f"Expected coherence failure for {description}"
     else:
-        assert response.status_code in (413, 422, 429), f"Expected failure but got {response.status_code} for {description}"
+        assert response.status_code in (413, 422, 429, 503), f"Expected failure but got {response.status_code} for {description}"
 
 def test_topic_discovery_valid():
     response = client.get("/api/topics?intent=transformer attention mechanisms")
@@ -42,7 +42,11 @@ def test_manuscript_generation_gibberish(topic, description):
         "context": ""
     }
     response = client.post("/api/manuscript", json=payload)
-    assert response.status_code in (400, 413, 422, 429), f"Expected failure but got {response.status_code} for {description}"
+    if response.status_code == 200:
+        data = response.json()
+        assert data.get("coherence_check") == "failed", f"Expected coherence failure for {description}"
+    else:
+        assert response.status_code in (400, 413, 422, 429, 503), f"Expected failure but got {response.status_code} for {description}"
     if response.status_code == 400:
         assert "unclear" in response.json().get("detail", "").lower()
 
@@ -67,3 +71,18 @@ def test_unverified_citations_flag():
     
     flags_with_context = _check_unverified_citations(fake_content, "A" * 60)
     assert flags_with_context.get("unverified_citations") is None
+
+def test_ai_unavailable_fails_closed():
+    # Mock the LLM provider to raise an exception
+    from unittest.mock import patch
+    with patch("ai.topic_discovery.generate_completion", side_effect=RuntimeError("AI is down")):
+        # 1. Keyboard mash (Layer A) -> should still return 200 OK with coherence_check="failed" because it doesn't reach AI
+        res_mash = client.get("/api/topics?intent=hrthwrtajarj")
+        assert res_mash.status_code == 200
+        assert res_mash.json().get("coherence_check") == "failed"
+        
+        # 2. Semantic nonsense (Layer C) -> should reach AI, fail, and return 503
+        res_semantic = client.get("/api/topics?intent=banana pencil submarine")
+        assert res_semantic.status_code == 503
+        assert res_semantic.json().get("detail", {}).get("verification_unavailable") is True
+
