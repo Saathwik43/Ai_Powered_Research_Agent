@@ -161,10 +161,8 @@ async def get_me(current_user: dict = Depends(get_current_user)):
 
 @app.get("/api/topics")
 async def get_topics(intent: str, current_user: dict = Depends(get_current_user)):
-    topics = await discover_topics(intent)
-    if topics and "error" in topics[0]:
-        raise HTTPException(status_code=400, detail="The provided topic is unclear or appears to be nonsense.")
-    return {"data": topics}
+    result = await discover_topics(intent)
+    return result
 
 
 # ─── Literature — Unified Search (OpenAlex + arXiv + GitHub) ──────────────────
@@ -354,8 +352,8 @@ async def list_manuscript_drafts(current_user: dict = Depends(get_current_user))
 
 @app.post("/api/venues")
 async def get_venues(payload: VenuePayload, current_user: dict = Depends(get_current_user)):
-    venues = await recommend_venues(payload.abstract, payload.domain)
-    return {"data": venues}
+    result = await recommend_venues(payload.abstract, payload.domain)
+    return result
 
 
 # ─── Guideline Alignment ───────────────────────────────────────────────────────

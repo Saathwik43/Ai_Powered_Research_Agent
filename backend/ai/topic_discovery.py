@@ -1,32 +1,16 @@
-import os
 import json
-import asyncio
 import logging
-from concurrent.futures import ThreadPoolExecutor
 from langchain_core.prompts import PromptTemplate
-from langchain_huggingface import HuggingFaceEndpoint
-from dotenv import load_dotenv
-
-load_dotenv()
+from ai.llm_provider import generate_completion
 
 logger = logging.getLogger(__name__)
-
-HF_MODEL = "mistralai/Mixtral-8x7B-Instruct-v0.1"
-
-llm = HuggingFaceEndpoint(
-    repo_id=HF_MODEL,
-    task="text-generation",
-    max_new_tokens=512,
-    temperature=0.7,
-    huggingfacehub_api_token=os.getenv("HUGGINGFACEHUB_API_TOKEN"),
-)
 
 prompt_template = PromptTemplate(
     input_variables=["intent"],
     template="""[INST] You are an AI research assistant. A researcher is looking to explore the following domain/intent:
 '{intent}'
 
-CRITICAL INSTRUCTION: If the domain/intent '{intent}' is complete gibberish, a random string of characters, or doesn't correspond to a coherent, recognizable research subject, you MUST immediately output EXACTLY the following JSON and nothing else:
+CRITICAL INSTRUCTION: If the domain/intent '{intent}' is complete gibberish, a random string of characters, a nonsensical combination of unrelated everyday words, or doesn't correspond to a coherent, recognizable research subject, you MUST immediately output EXACTLY the following JSON and nothing else:
 [{{ "error": "topic_unclear" }}]
 
 Based on recent advancements, provide exactly 3 highly promising and trending research topics within this domain.
@@ -38,19 +22,12 @@ Example format:
 [/INST]"""
 )
 
-_executor = ThreadPoolExecutor(max_workers=4)
-
-
-def _run_chain(intent: str) -> str:
-    """Runs the LangChain chain synchronously inside a thread. Catches StopIteration here."""
-    try:
-        chain = prompt_template | llm
-        return chain.invoke({"intent": intent})
-    except StopIteration as e:
-        raise RuntimeError(f"LangChain StopIteration: {e}") from e
-
-
 def _fallback_topics(intent: str):
+    import re
+    intent_alpha = re.sub(r'[^a-zA-Z]', '', intent)
+    is_gibberish = not re.search(r'[aeiouyAEIOUY]', intent_alpha, re.IGNORECASE) or re.search(r'[bcdfghjklmnpqrstvwxzBCDFGHJKLMNPQRSTVWXZ]{5,}', intent_alpha, re.IGNORECASE)
+    if is_gibberish:
+        return None
     return [
         {"id": 1, "title": f"Advancements in {intent}", "impact": "High"},
         {"id": 2, "title": f"Emerging Applications of {intent}", "impact": "High"},
@@ -60,24 +37,25 @@ def _fallback_topics(intent: str):
 
 async def discover_topics(intent: str):
     try:
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(_executor, _run_chain, intent)
+        user_prompt = prompt_template.format(intent=intent)
+        response = await generate_completion(system_prompt="", user_prompt=user_prompt, max_tokens=512, temperature=0.7)
 
         content = response.strip()
         start_idx = content.find('[')
         end_idx = content.rfind(']')
         if start_idx != -1 and end_idx != -1:
             topics = json.loads(content[start_idx:end_idx + 1])
-            return topics
+            if topics and isinstance(topics, list) and "error" in topics[0]:
+                return {"data": [], "source": "ai", "coherence_check": "failed"}
+            return {"data": topics, "source": "ai"}
+            
         if '{"error": "topic_unclear"}' in content:
-            return [{"error": "topic_unclear"}]
+            return {"data": [], "source": "ai", "coherence_check": "failed"}
+            
         raise ValueError("No JSON array found in response")
     except Exception as e:
         logger.error(f"Error in discover_topics: {e}")
-        if "StopIteration" in str(e):
-            import re
-            intent_alpha = re.sub(r'[^a-zA-Z]', '', intent)
-            is_gibberish = not re.search(r'[aeiouyAEIOUY]', intent_alpha, re.IGNORECASE) or re.search(r'[bcdfghjklmnpqrstvwxzBCDFGHJKLMNPQRSTVWXZ]{5,}', intent_alpha, re.IGNORECASE)
-            if is_gibberish:
-                return [{"error": "topic_unclear"}]
-        return _fallback_topics(intent)
+        fallback_data = _fallback_topics(intent)
+        if fallback_data is None:
+            return {"data": [], "source": "fallback", "coherence_check": "failed"}
+        return {"data": fallback_data, "source": "fallback"}

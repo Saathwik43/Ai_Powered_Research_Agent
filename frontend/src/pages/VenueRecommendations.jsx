@@ -86,10 +86,11 @@ export default function VenueRecommendations() {
   const [guidelines, setGuidelines]   = useState(null);
   const [guideLoading, setGuideLoading] = useState(null);
   const [error, setError] = useState('');
+  const [hasSearched, setHasSearched] = useState(false);
 
   const recommend = async () => {
     if (!domain.trim()) return;
-    setLoading(true); setVenues([]); setError('');
+    setLoading(true); setVenues([]); setError(''); setHasSearched(true);
     try {
       const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/venues`, { method: 'POST', body: JSON.stringify({ abstract, domain }) });
       if (res.status === 429 || res.status === 503) {
@@ -101,6 +102,13 @@ export default function VenueRecommendations() {
         return;
       }
       const data = await res.json();
+      
+      if (data.coherence_check === 'failed') {
+        setError(`"${domain}" doesn't look like a research domain. Try a specific field or subject area.`);
+        setVenues([]);
+        return;
+      }
+      
       setVenues(data.data || []);
     } catch (e) {
       console.error(e);
@@ -141,15 +149,28 @@ export default function VenueRecommendations() {
             {loading ? <><Spin /> Finding...</> : <><Search size={14} /> Find Venues</>}
           </button>
         </div>
-        {error && <p style={{ color: 'var(--danger)', fontSize: '0.85rem', marginTop: '1rem', marginBottom: 0 }}>{error}</p>}
+
+        {error && (
+          <div style={{ marginTop: '1rem', padding: '0.85rem 1rem', background: 'rgba(229,28,35,0.08)', border: '1px solid rgba(229,28,35,0.2)', borderRadius: 'var(--radius-md)', color: 'var(--danger)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <X size={15} /> {error}
+          </div>
+        )}
       </div>
 
       {/* Venue grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1rem' }}>
-        {venues.length === 0 && !loading && (
+        {venues.length === 0 && !loading && !hasSearched && (
           <div className="empty-state" style={{ gridColumn: '1 / -1' }}>
             <BookMarked size={38} style={{ margin: '0 auto 0.875rem', color: 'var(--text-subtle)', display: 'block' }} />
             Enter your research domain to get venue recommendations.
+          </div>
+        )}
+        
+        {venues.length === 0 && !loading && hasSearched && !error && (
+          <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '3rem 1.5rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)' }}>
+            <Search size={32} style={{ color: 'var(--text-subtle)', marginBottom: '1rem', opacity: 0.5 }} />
+            <h3 style={{ margin: '0 0 0.5rem', fontSize: '1.1rem', color: 'var(--text)' }}>No venues found for "{domain}"</h3>
+            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>Try a different research domain.</p>
           </div>
         )}
         {venues.map((v, i) => (

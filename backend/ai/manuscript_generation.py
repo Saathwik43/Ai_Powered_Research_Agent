@@ -10,13 +10,7 @@ from langchain_huggingface import HuggingFaceEndpoint
 
 load_dotenv()
 
-MANUSCRIPT_PROVIDER = os.getenv("MANUSCRIPT_PROVIDER", "auto").lower()
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "anthropic/claude-3.5-sonnet")
-HUGGINGFACE_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN")
-HF_MODEL = os.getenv("HUGGINGFACE_MANUSCRIPT_MODEL", "mistralai/Mixtral-8x7B-Instruct-v0.1")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+from ai.llm_provider import generate_completion
 
 logger = logging.getLogger(__name__)
 
@@ -54,92 +48,16 @@ def _prompt(topic: str, section: str, context: str) -> str:
     return prompt_template.format(topic=topic, section=section, context=context)
 
 
-async def _generate_groq(topic: str, section: str, context: str) -> str:
-    if not GROQ_API_KEY:
-        raise RuntimeError("GROQ_API_KEY is not configured.")
-
-    payload = {
-        "model": GROQ_MODEL,
-        "messages": [
-            {
-                "role": "system",
-                "content": "You write rigorous, concise academic manuscript sections.",
-            },
-            {"role": "user", "content": _prompt(topic, section, context)},
-        ],
-        "temperature": 0.45,
-        "max_tokens": 1200,
-    }
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json",
-    }
-
-    async with httpx.AsyncClient(timeout=60) as client:
-        response = await client.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers=headers,
-            json=payload,
-        )
-        response.raise_for_status()
-        data = response.json()
-        return data["choices"][0]["message"]["content"].strip()
 
 
-async def _generate_openrouter(topic: str, section: str, context: str) -> str:
-    if not OPENROUTER_API_KEY:
-        raise RuntimeError("OPENROUTER_API_KEY is not configured.")
-
-    payload = {
-        "model": OPENROUTER_MODEL,
-        "messages": [
-            {
-                "role": "system",
-                "content": "You write rigorous, concise academic manuscript sections.",
-            },
-            {"role": "user", "content": _prompt(topic, section, context)},
-        ],
-        "temperature": 0.45,
-        "max_tokens": 1200,
-    }
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": os.getenv("APP_PUBLIC_URL", "http://localhost:5173"),
-        "X-Title": "Research Agent",
-    }
-
-    async with httpx.AsyncClient(timeout=60) as client:
-        response = await client.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers=headers,
-            json=payload,
-        )
-        response.raise_for_status()
-        data = response.json()
-        return data["choices"][0]["message"]["content"].strip()
-
-
-def _run_huggingface(topic: str, section: str, context: str) -> str:
-    if not HUGGINGFACE_TOKEN:
-        raise RuntimeError("HUGGINGFACEHUB_API_TOKEN or HF_TOKEN is not configured.")
-
-    llm = HuggingFaceEndpoint(
-        repo_id=HF_MODEL,
-        task="text-generation",
-        max_new_tokens=1024,
-        temperature=0.5,
-        huggingfacehub_api_token=HUGGINGFACE_TOKEN,
-    )
-    return llm.invoke(f"[INST] {_prompt(topic, section, context)} [/INST]").strip()
-
-
-async def _generate_huggingface(topic: str, section: str, context: str) -> str:
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(_executor, _run_huggingface, topic, section, context)
-
-
-def _local_draft(topic: str, section: str, context: str) -> str:
+def _local_draft(topic: str, section: str, context: str):
+    import re
+    topic_alpha = re.sub(r'[^a-zA-Z]', '', topic)
+    if topic_alpha:
+        is_gibberish = not re.search(r'[aeiouyAEIOUY]', topic_alpha, re.IGNORECASE) or re.search(r'[bcdfghjklmnpqrstvwxzBCDFGHJKLMNPQRSTVWXZ]{5,}', topic_alpha, re.IGNORECASE)
+        if is_gibberish:
+            return None
+            
     section_name = section.replace("_", " ").title()
     context_line = context.strip() if context and context.strip() else "the available literature and current research trends"
     return (
@@ -176,30 +94,21 @@ async def generate_section(topic: str, section: str, context: str):
                 flags = _check_unverified_citations(cache_entry['content'], context)
                 return cache_entry['content'], flags
 
-    providers = []
-    if MANUSCRIPT_PROVIDER in ("auto", "groq"):
-        providers.append(("Groq", _generate_groq))
-    if MANUSCRIPT_PROVIDER in ("auto", "openrouter"):
-        providers.append(("OpenRouter", _generate_openrouter))
-    if MANUSCRIPT_PROVIDER in ("auto", "huggingface"):
-        providers.append(("Hugging Face", _generate_huggingface))
-
-    for provider_name, provider in providers:
-        for attempt in range(2):
-            try:
-                result = await asyncio.wait_for(provider(topic, section, context), timeout=60)
-                if cache_key is not None:
-                    _cache[cache_key] = {'content': result, 'time': time.time()}
-                flags = _check_unverified_citations(result, context)
-                return result, flags
-            except Exception as e:
-                logger.error(f"{provider_name} manuscript generation failed (attempt {attempt + 1}): {e}")
-                if attempt == 0:
-                    await asyncio.sleep(2)
-        if MANUSCRIPT_PROVIDER != "auto":
-            break
-
+    system_prompt = "You write rigorous, concise academic manuscript sections."
+    user_prompt = _prompt(topic, section, context)
+    
+    try:
+        result = await generate_completion(system_prompt, user_prompt, max_tokens=1200, temperature=0.45)
+        if cache_key is not None:
+            _cache[cache_key] = {'content': result, 'time': time.time()}
+        flags = _check_unverified_citations(result, context)
+        return result, flags
+    except Exception as e:
+        logger.error(f"manuscript generation failed: {e}")
+        
     result = _local_draft(topic, section, context)
+    if result is None:
+        return '{"error": "topic_unclear"}', {}
     return result, {}
 
 
@@ -230,108 +139,16 @@ def _edit_prompt_fn(topic: str, section: str, current_content: str, instructions
         topic=topic, section=section, current_content=current_content, instructions=instructions
     )
 
-async def _edit_groq(topic: str, section: str, current_content: str, instructions: str) -> str:
-    if not GROQ_API_KEY:
-        raise RuntimeError("GROQ_API_KEY is not configured.")
-
-    payload = {
-        "model": GROQ_MODEL,
-        "messages": [
-            {
-                "role": "system",
-                "content": "You are a meticulous academic editor.",
-            },
-            {"role": "user", "content": _edit_prompt_fn(topic, section, current_content, instructions)},
-        ],
-        "temperature": 0.45,
-        "max_tokens": 1200,
-    }
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json",
-    }
-
-    async with httpx.AsyncClient(timeout=60) as client:
-        response = await client.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers=headers,
-            json=payload,
-        )
-        response.raise_for_status()
-        data = response.json()
-        return data["choices"][0]["message"]["content"].strip()
-
-async def _edit_openrouter(topic: str, section: str, current_content: str, instructions: str) -> str:
-    if not OPENROUTER_API_KEY:
-        raise RuntimeError("OPENROUTER_API_KEY is not configured.")
-
-    payload = {
-        "model": OPENROUTER_MODEL,
-        "messages": [
-            {
-                "role": "system",
-                "content": "You are a meticulous academic editor.",
-            },
-            {"role": "user", "content": _edit_prompt_fn(topic, section, current_content, instructions)},
-        ],
-        "temperature": 0.45,
-        "max_tokens": 1200,
-    }
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": os.getenv("APP_PUBLIC_URL", "http://localhost:5173"),
-        "X-Title": "Research Agent",
-    }
-
-    async with httpx.AsyncClient(timeout=60) as client:
-        response = await client.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers=headers,
-            json=payload,
-        )
-        response.raise_for_status()
-        data = response.json()
-        return data["choices"][0]["message"]["content"].strip()
-
-def _run_edit_huggingface(topic: str, section: str, current_content: str, instructions: str) -> str:
-    if not HUGGINGFACE_TOKEN:
-        raise RuntimeError("HUGGINGFACEHUB_API_TOKEN or HF_TOKEN is not configured.")
-
-    llm = HuggingFaceEndpoint(
-        repo_id=HF_MODEL,
-        task="text-generation",
-        max_new_tokens=1024,
-        temperature=0.5,
-        huggingfacehub_api_token=HUGGINGFACE_TOKEN,
-    )
-    prompt = _edit_prompt_fn(topic, section, current_content, instructions)
-    return llm.invoke(f"[INST] {prompt} [/INST]").strip()
-
-async def _edit_huggingface(topic: str, section: str, current_content: str, instructions: str) -> str:
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(_executor, _run_edit_huggingface, topic, section, current_content, instructions)
 
 async def edit_section(topic: str, section: str, current_content: str, instructions: str):
-    providers = []
-    if MANUSCRIPT_PROVIDER in ("auto", "groq"):
-        providers.append(("Groq", _edit_groq))
-    if MANUSCRIPT_PROVIDER in ("auto", "openrouter"):
-        providers.append(("OpenRouter", _edit_openrouter))
-    if MANUSCRIPT_PROVIDER in ("auto", "huggingface"):
-        providers.append(("Hugging Face", _edit_huggingface))
-
-    for provider_name, provider in providers:
-        for attempt in range(2):
-            try:
-                result = await asyncio.wait_for(provider(topic, section, current_content, instructions), timeout=60)
-                return result
-            except Exception as e:
-                logger.error(f"{provider_name} manuscript edit failed (attempt {attempt + 1}): {e}")
-                if attempt == 0:
-                    await asyncio.sleep(2)
-        if MANUSCRIPT_PROVIDER != "auto":
-            break
+    system_prompt = "You are a meticulous academic editor."
+    user_prompt = _edit_prompt_fn(topic, section, current_content, instructions)
+    
+    try:
+        result = await generate_completion(system_prompt, user_prompt, max_tokens=1200, temperature=0.45)
+        return result
+    except Exception as e:
+        logger.error(f"manuscript edit failed: {e}")
 
     # If all fail, return current content with a note
     return current_content + "\n\n_(Note: AI revision providers failed. Original content retained.)_"

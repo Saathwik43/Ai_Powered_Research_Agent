@@ -49,6 +49,7 @@ export default function Dashboard() {
   const [categoryPapers, setCategoryPapers] = useState([]);
   const [catLoading, setCatLoading] = useState(false);
   const [error, setError] = useState('');
+  const [hasSearched, setHasSearched] = useState(false);
   const debounce = useRef(null);
   const inputWrap = useRef(null);
   const navigate = useNavigate();
@@ -66,7 +67,7 @@ export default function Dashboard() {
 
   const discover = async (q = topic) => {
     if (!q.trim()) return;
-    setTopic(q); setShowSug(false); setLoading(true); setPapersLoading(true); setRelatedPapers([]); setError('');
+    setTopic(q); setShowSug(false); setLoading(true); setPapersLoading(true); setRelatedPapers([]); setError(''); setHasSearched(true);
     try {
       const [topicRes, paperRes] = await Promise.all([
         authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/topics?intent=${encodeURIComponent(q)}`),
@@ -88,6 +89,14 @@ export default function Dashboard() {
       }
 
       const topicData = await topicRes.json();
+      
+      if (topicData.coherence_check === 'failed') {
+        setError(`"${q}" doesn't look like a research topic. Try a specific field or subject area.`);
+        setResults([]);
+        setRelatedPapers([]);
+        return;
+      }
+
       const paperData = await paperRes.json();
       setResults(topicData.data || []);
       setRelatedPapers(paperData.data || []);
@@ -156,7 +165,11 @@ export default function Dashboard() {
             {loading ? <><Spin /> Discovering...</> : <><Search size={14} /> Discover</>}
           </button>
         </div>
-        {error && <p style={{ color: 'var(--danger)', fontSize: '0.85rem', marginTop: '1rem', marginBottom: 0 }}>{error}</p>}
+        {error && (
+          <div style={{ marginTop: '1rem', padding: '0.85rem 1rem', background: 'rgba(229,28,35,0.08)', border: '1px solid rgba(229,28,35,0.2)', borderRadius: 'var(--radius-md)', color: 'var(--danger)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <X size={15} /> {error}
+          </div>
+        )}
       </div>
 
       {/* AI Results */}
@@ -320,10 +333,18 @@ export default function Dashboard() {
         </div>
       )}
 
-      {!results.length && !loading && !activeCategory && (
+      {!results.length && !loading && !activeCategory && !hasSearched && (
         <p style={{ marginTop: '1.5rem', textAlign: 'center', color: 'var(--text-subtle)', fontSize: '0.88rem' }}>
           Type a domain above or click a field to explore research.
         </p>
+      )}
+
+      {!results.length && !loading && !activeCategory && hasSearched && !error && (
+        <div style={{ marginTop: '2rem', textAlign: 'center', padding: '3rem 1.5rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)' }}>
+          <Search size={32} style={{ color: 'var(--text-subtle)', marginBottom: '1rem', opacity: 0.5 }} />
+          <h3 style={{ margin: '0 0 0.5rem', fontSize: '1.1rem', color: 'var(--text)' }}>No results found for "{topic}"</h3>
+          <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>Try a different search term or select a category below.</p>
+        </div>
       )}
     </div>
   );

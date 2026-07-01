@@ -21,9 +21,11 @@ test_cases_gibberish = [
 @pytest.mark.parametrize("intent, description", test_cases_gibberish)
 def test_topic_discovery_gibberish(intent, description):
     response = client.get(f"/api/topics?intent={intent}")
-    assert response.status_code in (400, 413, 422, 429), f"Expected failure but got {response.status_code} for {description}"
-    if response.status_code == 400:
-        assert "unclear" in response.json().get("detail", "").lower()
+    if response.status_code == 200:
+        data = response.json()
+        assert data.get("coherence_check") == "failed", f"Expected coherence failure for {description}"
+    else:
+        assert response.status_code in (413, 422, 429), f"Expected failure but got {response.status_code} for {description}"
 
 def test_topic_discovery_valid():
     response = client.get("/api/topics?intent=transformer attention mechanisms")
