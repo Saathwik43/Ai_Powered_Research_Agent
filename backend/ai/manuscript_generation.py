@@ -1,14 +1,9 @@
 import os
 import asyncio
 import logging
-from concurrent.futures import ThreadPoolExecutor
 
 import httpx
-from dotenv import load_dotenv
 from langchain_core.prompts import PromptTemplate
-from langchain_huggingface import HuggingFaceEndpoint
-
-load_dotenv()
 
 from ai.llm_provider import generate_completion
 from ai.guardrails import validate_input_layers_a_b
@@ -42,10 +37,6 @@ Instructions:
 5. Format the output in clean Markdown, using paragraphs, lists, or bold text only where academically appropriate.
 6. Make it comprehensive, detailed, and at least 3-4 paragraphs long."""
 )
-
-_executor = ThreadPoolExecutor(max_workers=4)
-
-
 def _prompt(topic: str, section: str, context: str) -> str:
     return prompt_template.format(topic=topic, section=section, context=context)
 
@@ -103,8 +94,11 @@ async def generate_section(topic: str, section: str, context: str):
         return result, flags
     except Exception as e:
         logger.error(f"manuscript generation failed (AI unavailable): {e}")
-        # Layer C failure (AI down) -> fail closed instead of silent fallback.
-        raise HTTPException(status_code=503, detail={"verification_unavailable": True, "message": "Verification temporarily unavailable"})
+        
+    # Layer C failure (AI down) -> graceful fallback
+    result = _local_draft(topic, section, context)
+    result += "\n\n*(Note: AI generation is temporarily unavailable. This is a local template.)*"
+    return result, {}
 
 
 edit_prompt_template = PromptTemplate(

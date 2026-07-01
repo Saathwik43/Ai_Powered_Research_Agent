@@ -57,5 +57,6 @@ async def recommend_venues(abstract: str, domain: str):
         raise ValueError("No JSON array found in response")
     except Exception as e:
         logger.error(f"Error in recommend_venues (AI unavailable): {e}")
-        # Layer C failure (AI down) -> fail closed instead of silent fallback.
-        raise HTTPException(status_code=503, detail={"verification_unavailable": True, "message": "Verification temporarily unavailable"})
+        # Layer C failure (AI down) -> graceful fallback
+        fallback_data = _fallback_venues(abstract, domain)
+        return {"data": fallback_data, "source": "fallback", "note": "AI unavailable"}

@@ -72,7 +72,7 @@ def test_unverified_citations_flag():
     flags_with_context = _check_unverified_citations(fake_content, "A" * 60)
     assert flags_with_context.get("unverified_citations") is None
 
-def test_ai_unavailable_fails_closed():
+def test_ai_unavailable_graceful_fallback():
     # Mock the LLM provider to raise an exception
     from unittest.mock import patch
     with patch("ai.topic_discovery.generate_completion", side_effect=RuntimeError("AI is down")):
@@ -81,8 +81,11 @@ def test_ai_unavailable_fails_closed():
         assert res_mash.status_code == 200
         assert res_mash.json().get("coherence_check") == "failed"
         
-        # 2. Semantic nonsense (Layer C) -> should reach AI, fail, and return 503
+        # 2. Semantic nonsense (Layer C) -> reaches AI, AI is down, gracefully degrades to local fallback.
         res_semantic = client.get("/api/topics?intent=banana pencil submarine")
-        assert res_semantic.status_code == 503
-        assert res_semantic.json().get("detail", {}).get("verification_unavailable") is True
+        assert res_semantic.status_code == 200
+        data = res_semantic.json()
+        assert data.get("source") == "fallback"
+        assert data.get("note") == "AI unavailable"
+        assert len(data.get("data", [])) > 0
 

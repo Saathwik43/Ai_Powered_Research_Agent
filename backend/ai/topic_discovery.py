@@ -31,7 +31,6 @@ def _fallback_topics(intent: str):
         {"id": 3, "title": f"Challenges and Future Directions in {intent}", "impact": "Medium"},
     ]
 
-
 async def discover_topics(intent: str):
     if not validate_input_layers_a_b(intent):
         return {"data": [], "source": "ai", "coherence_check": "failed"}
@@ -55,5 +54,6 @@ async def discover_topics(intent: str):
         raise ValueError("No JSON array found in response")
     except Exception as e:
         logger.error(f"Error in discover_topics (AI unavailable): {e}")
-        # Layer C failure (AI down) -> fail closed instead of silent fallback.
-        raise HTTPException(status_code=503, detail={"verification_unavailable": True, "message": "Verification temporarily unavailable"})
+        # Layer C failure (AI down) -> graceful fallback
+        fallback_data = _fallback_topics(intent)
+        return {"data": fallback_data, "source": "fallback", "note": "AI unavailable"}
