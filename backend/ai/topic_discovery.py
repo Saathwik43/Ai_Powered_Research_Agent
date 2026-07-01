@@ -26,6 +26,9 @@ prompt_template = PromptTemplate(
     template="""[INST] You are an AI research assistant. A researcher is looking to explore the following domain/intent:
 '{intent}'
 
+CRITICAL INSTRUCTION: If the domain/intent '{intent}' is complete gibberish, a random string of characters, or doesn't correspond to a coherent, recognizable research subject, you MUST immediately output EXACTLY the following JSON and nothing else:
+[{{ "error": "topic_unclear" }}]
+
 Based on recent advancements, provide exactly 3 highly promising and trending research topics within this domain.
 Output strictly in JSON format as a list of dictionaries with no other text, markdown, or explanation.
 Example format:
@@ -66,7 +69,14 @@ async def discover_topics(intent: str):
         if start_idx != -1 and end_idx != -1:
             topics = json.loads(content[start_idx:end_idx + 1])
             return topics
+        if '{"error": "topic_unclear"}' in content:
+            return [{"error": "topic_unclear"}]
         raise ValueError("No JSON array found in response")
     except Exception as e:
         logger.error(f"Error in discover_topics: {e}")
+        if "StopIteration" in str(e):
+            import re
+            is_gibberish = not re.search(r'[aeiouyAEIOUY]', intent) or re.search(r'[bcdfghjklmnpqrstvwxzBCDFGHJKLMNPQRSTVWXZ]{6,}', intent)
+            if is_gibberish:
+                return [{"error": "topic_unclear"}]
         return _fallback_topics(intent)

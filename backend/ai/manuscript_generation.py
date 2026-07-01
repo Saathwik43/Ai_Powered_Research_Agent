@@ -21,6 +21,7 @@ GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 logger = logging.getLogger(__name__)
 
 import time
+import re
 _cache = {}
 
 prompt_template = PromptTemplate(
@@ -28,6 +29,9 @@ prompt_template = PromptTemplate(
     template="""You are an expert, highly-cited academic researcher and writer.
 You are writing a formal, peer-reviewed research paper on the topic: "{topic}".
 Your current task is exclusively to write the "{section}" section of the paper.
+
+CRITICAL INSTRUCTION: If the topic "{topic}" is complete gibberish, a random string of characters, a nonsensical combination of unrelated everyday words, or doesn't correspond to a coherent, recognizable academic research subject, you MUST immediately output EXACTLY the following JSON and nothing else:
+{{"error": "topic_unclear"}}
 
 Here is the background context and literature survey information you MUST incorporate and synthesize:
 <context>
@@ -154,6 +158,13 @@ def _local_draft(topic: str, section: str, context: str) -> str:
     )
 
 
+def _check_unverified_citations(content: str, context: str) -> dict:
+    flags = {}
+    if not context or len(context.strip()) < 50:
+        if re.search(r'[A-Z][a-z]+ et al\.?\s*\(\d{4}\)', content):
+            flags["unverified_citations"] = True
+    return flags
+
 async def generate_section(topic: str, section: str, context: str):
     cache_key = None
     if context and context.strip():
@@ -162,7 +173,8 @@ async def generate_section(topic: str, section: str, context: str):
             cache_entry = _cache[cache_key]
             # TTL check (1 hour = 3600 seconds)
             if time.time() - cache_entry['time'] < 3600:
-                return cache_entry['content']
+                flags = _check_unverified_citations(cache_entry['content'], context)
+                return cache_entry['content'], flags
 
     providers = []
     if MANUSCRIPT_PROVIDER in ("auto", "groq"):
@@ -178,7 +190,8 @@ async def generate_section(topic: str, section: str, context: str):
                 result = await asyncio.wait_for(provider(topic, section, context), timeout=60)
                 if cache_key is not None:
                     _cache[cache_key] = {'content': result, 'time': time.time()}
-                return result
+                flags = _check_unverified_citations(result, context)
+                return result, flags
             except Exception as e:
                 logger.error(f"{provider_name} manuscript generation failed (attempt {attempt + 1}): {e}")
                 if attempt == 0:
@@ -186,7 +199,8 @@ async def generate_section(topic: str, section: str, context: str):
         if MANUSCRIPT_PROVIDER != "auto":
             break
 
-    return _local_draft(topic, section, context)
+    result = _local_draft(topic, section, context)
+    return result, {}
 
 
 edit_prompt_template = PromptTemplate(

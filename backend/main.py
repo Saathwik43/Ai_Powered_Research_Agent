@@ -162,6 +162,8 @@ async def get_me(current_user: dict = Depends(get_current_user)):
 @app.get("/api/topics")
 async def get_topics(intent: str, current_user: dict = Depends(get_current_user)):
     topics = await discover_topics(intent)
+    if topics and "error" in topics[0]:
+        raise HTTPException(status_code=400, detail="The provided topic is unclear or appears to be nonsense.")
     return {"data": topics}
 
 
@@ -289,8 +291,13 @@ async def search_github(query: str, current_user: dict = Depends(get_current_use
 @app.post("/api/manuscript")
 @limiter.limit("5/minute")
 async def create_manuscript_section(request: Request, payload: ManuscriptPayload, current_user: dict = Depends(get_current_user)):
-    content = await generate_section(payload.topic, payload.section, payload.context)
-    return {"section": payload.section, "content": content}
+    content, flags = await generate_section(payload.topic, payload.section, payload.context)
+    if '{"error": "topic_unclear"}' in content:
+        raise HTTPException(status_code=400, detail="The provided topic is unclear or appears to be nonsense.")
+    
+    response = {"section": payload.section, "content": content}
+    response.update(flags)
+    return response
 
 @app.post("/api/manuscript/edit")
 @limiter.limit("5/minute")
