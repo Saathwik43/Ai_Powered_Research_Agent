@@ -85,15 +85,27 @@ export default function VenueRecommendations() {
   const [loading, setLoading]   = useState(false);
   const [guidelines, setGuidelines]   = useState(null);
   const [guideLoading, setGuideLoading] = useState(null);
+  const [error, setError] = useState('');
 
   const recommend = async () => {
     if (!domain.trim()) return;
-    setLoading(true); setVenues([]);
+    setLoading(true); setVenues([]); setError('');
     try {
       const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/venues`, { method: 'POST', body: JSON.stringify({ abstract, domain }) });
+      if (res.status === 429 || res.status === 503) {
+        setError('Rate limit exceeded. Please wait a minute before trying again.');
+        return;
+      }
+      if (!res.ok) {
+        setError('Failed to find venues. Please try again.');
+        return;
+      }
       const data = await res.json();
       setVenues(data.data || []);
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+      setError('Network error. Please try again.');
+    }
     finally { setLoading(false); }
   };
 
@@ -129,6 +141,7 @@ export default function VenueRecommendations() {
             {loading ? <><Spin /> Finding...</> : <><Search size={14} /> Find Venues</>}
           </button>
         </div>
+        {error && <p style={{ color: 'var(--danger)', fontSize: '0.85rem', marginTop: '1rem', marginBottom: 0 }}>{error}</p>}
       </div>
 
       {/* Venue grid */}

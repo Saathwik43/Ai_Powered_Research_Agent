@@ -9,15 +9,33 @@ export default function LiteratureSurvey() {
   const [papers, setPapers]       = useState([]);
   const [loading, setLoading]     = useState(false);
   const [saveStatus, setSaveStatus] = useState('');
+  const [searchError, setSearchError] = useState('');
+  const [hasSearched, setHasSearched] = useState(false);
+  const [lastQuery, setLastQuery] = useState('');
 
   const search = async (q = query) => {
     if (!q.trim()) return;
-    setLoading(true); setSaveStatus('');
+    setLoading(true); setSaveStatus(''); setSearchError('');
+    setHasSearched(true); setLastQuery(q);
     try {
       const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature?query=${encodeURIComponent(q)}&limit=12`);
+      if (res.status === 429 || res.status === 503) {
+        setSearchError('Rate limit exceeded. Please wait a minute before trying again.');
+        setPapers([]);
+        return;
+      }
+      if (!res.ok) {
+        setSearchError('Failed to fetch literature. Please try again.');
+        setPapers([]);
+        return;
+      }
       const data = await res.json();
       setPapers(data.data || []);
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+      setSearchError('Network error. Please try again.');
+      setPapers([]);
+    }
     finally { setLoading(false); }
   };
 
@@ -85,10 +103,24 @@ export default function LiteratureSurvey() {
 
       {/* Papers */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-        {!loading && papers.length === 0 && (
+        {!loading && papers.length === 0 && !hasSearched && !searchError && (
           <div className="empty-state">
             <BookOpen size={38} style={{ margin: '0 auto 0.875rem', color: 'var(--text-subtle)', display: 'block' }} />
             Enter a topic to discover relevant research.
+          </div>
+        )}
+
+        {!loading && searchError && (
+          <div className="empty-state" style={{ color: 'var(--danger)' }}>
+            <BookOpen size={38} style={{ margin: '0 auto 0.875rem', color: 'var(--danger)', display: 'block' }} />
+            {searchError}
+          </div>
+        )}
+
+        {!loading && papers.length === 0 && hasSearched && !searchError && (
+          <div className="empty-state">
+            <BookOpen size={38} style={{ margin: '0 auto 0.875rem', color: 'var(--text-subtle)', display: 'block' }} />
+            No results found for '{lastQuery}'. Try a different search term.
           </div>
         )}
 

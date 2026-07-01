@@ -48,6 +48,7 @@ export default function Dashboard() {
   const [activeCategory, setActiveCategory] = useState(null);
   const [categoryPapers, setCategoryPapers] = useState([]);
   const [catLoading, setCatLoading] = useState(false);
+  const [error, setError] = useState('');
   const debounce = useRef(null);
   const inputWrap = useRef(null);
   const navigate = useNavigate();
@@ -65,17 +66,30 @@ export default function Dashboard() {
 
   const discover = async (q = topic) => {
     if (!q.trim()) return;
-    setTopic(q); setShowSug(false); setLoading(true); setPapersLoading(true); setRelatedPapers([]);
+    setTopic(q); setShowSug(false); setLoading(true); setPapersLoading(true); setRelatedPapers([]); setError('');
     try {
       const [topicRes, paperRes] = await Promise.all([
         authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/topics?intent=${encodeURIComponent(q)}`),
         authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature?query=${encodeURIComponent(q)}&limit=6`),
       ]);
+      
+      if (topicRes.status === 429 || paperRes.status === 429 || topicRes.status === 503 || paperRes.status === 503) {
+        setError('Rate limit exceeded. Please wait a minute before trying again.');
+        return;
+      }
+      if (!topicRes.ok || !paperRes.ok) {
+        setError('Failed to fetch discovery data. Please try again.');
+        return;
+      }
+
       const topicData = await topicRes.json();
       const paperData = await paperRes.json();
       setResults(topicData.data || []);
       setRelatedPapers(paperData.data || []);
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+      setError('Network error. Please try again.');
+    }
     finally { setLoading(false); setPapersLoading(false); }
   };
 
@@ -137,6 +151,7 @@ export default function Dashboard() {
             {loading ? <><Spin /> Discovering...</> : <><Search size={14} /> Discover</>}
           </button>
         </div>
+        {error && <p style={{ color: 'var(--danger)', fontSize: '0.85rem', marginTop: '1rem', marginBottom: 0 }}>{error}</p>}
       </div>
 
       {/* AI Results */}
