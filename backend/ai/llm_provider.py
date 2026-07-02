@@ -4,6 +4,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 import httpx
 from langchain_huggingface import HuggingFaceEndpoint
+import google.generativeai as genai
 
 logger = logging.getLogger(__name__)
 
@@ -15,8 +16,34 @@ HUGGINGFACE_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN
 HF_MODEL = os.getenv("HUGGINGFACE_MANUSCRIPT_MODEL", "mistralai/Mixtral-8x7B-Instruct-v0.1")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
 
 _executor = ThreadPoolExecutor(max_workers=4)
+
+async def _generate_gemini(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float) -> str:
+    if not GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY is not configured.")
+    
+    model = genai.GenerativeModel(
+        model_name='gemini-2.5-pro',
+        system_instruction=system_prompt
+    )
+    
+    try:
+        response = await model.generate_content_async(
+            contents=user_prompt,
+            generation_config=genai.types.GenerationConfig(
+                temperature=temperature,
+                max_output_tokens=max_tokens,
+            )
+        )
+        return response.text.strip()
+    except Exception as e:
+        raise RuntimeError(f"Gemini generation failed: {e}") from e
+
 
 
 async def _generate_groq(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float) -> str:
@@ -93,11 +120,24 @@ async def _generate_huggingface(system_prompt: str, user_prompt: str, max_tokens
     return await loop.run_in_executor(_executor, _run_huggingface, system_prompt, user_prompt, max_tokens, temperature)
 
 
-async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: int = 1200, temperature: float = 0.45) -> str:
+async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: int = 1200, temperature: float = 0.45, provider_override: str = None) -> str:
     """
     Attempts to generate a completion by cascading through configured AI providers.
     """
+    if provider_override == "gemini":
+        for attempt in range(2):
+            try:
+                result = await asyncio.wait_for(_generate_gemini(system_prompt, user_prompt, max_tokens, temperature), timeout=60)
+                return result
+            except Exception as e:
+                logger.error(f"Gemini generation failed (attempt {attempt + 1}): {e}")
+                if attempt == 0:
+                    await asyncio.sleep(2)
+        raise RuntimeError("Gemini provider failed to generate a completion.")
+
     providers = []
+    if LLM_PROVIDER in ("auto", "gemini"):
+        providers.append(("Gemini", _generate_gemini))
     if LLM_PROVIDER in ("auto", "groq"):
         providers.append(("Groq", _generate_groq))
     if LLM_PROVIDER in ("auto", "openrouter"):
