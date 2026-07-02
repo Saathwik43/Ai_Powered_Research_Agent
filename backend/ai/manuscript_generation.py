@@ -7,6 +7,7 @@ from langchain_core.prompts import PromptTemplate
 
 from ai.llm_provider import generate_completion
 from ai.guardrails import validate_input_layers_a_b
+from integrations.paper_search import search_all
 from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
@@ -35,7 +36,8 @@ Instructions:
 3. Seamlessly weave the provided literature and context into your arguments. Do not just list them.
 4. Keep all claims appropriately cautious and academically sound (e.g., use "suggests", "indicates", "may").
 5. Format the output in clean Markdown, using paragraphs, lists, or bold text only where academically appropriate.
-6. Make it comprehensive, detailed, and at least 3-4 paragraphs long."""
+6. Make it comprehensive, detailed, and at least 3-4 paragraphs long.
+7. CRITICAL: Cite ONLY from the numbered reference list provided in the context, using [1], [2], etc. inline markers. If no numbered reference list is provided, you may generate without citations but ensure academic rigor."""
 )
 def _prompt(topic: str, section: str, context: str) -> str:
     return prompt_template.format(topic=topic, section=section, context=context)
@@ -73,6 +75,21 @@ async def generate_section(topic: str, section: str, context: str):
     if not validate_input_layers_a_b(topic):
         return '{"error": "topic_unclear"}', {}
         
+    papers = await search_all(topic, limit=8)
+    references_mapping = {}
+    if papers:
+        ref_text = "\n\nNumbered Reference List:\n"
+        for idx, p in enumerate(papers, 1):
+            title = p.get('title', 'Unknown Title')
+            authors = p.get('authors', 'Unknown Authors')
+            year = p.get('year', 'Unknown Year')
+            abstract = p.get('abstract', '')
+            doi = p.get('doi', p.get('url', ''))
+            ref_text += f"[{idx}] {authors} ({year}). {title}. {abstract}. {doi}\n"
+            references_mapping[str(idx)] = p
+        
+        context = (context or "") + ref_text
+        
     cache_key = None
     if context and context.strip():
         cache_key = hash(topic + section + context)
@@ -81,16 +98,24 @@ async def generate_section(topic: str, section: str, context: str):
             # TTL check (1 hour = 3600 seconds)
             if time.time() - cache_entry['time'] < 3600:
                 flags = _check_unverified_citations(cache_entry['content'], context)
+                if references_mapping:
+                    flags["references"] = references_mapping
                 return cache_entry['content'], flags
 
     system_prompt = "You write rigorous, concise academic manuscript sections."
     user_prompt = _prompt(topic, section, context)
     
+    provider_override = None
+    if section.lower().replace(" ", "_") in ("lit_review", "literature_review"):
+        provider_override = "gemini"
+    
     try:
-        result = await generate_completion(system_prompt, user_prompt, max_tokens=1200, temperature=0.45)
+        result = await generate_completion(system_prompt, user_prompt, max_tokens=1200, temperature=0.45, provider_override=provider_override)
         if cache_key is not None:
             _cache[cache_key] = {'content': result, 'time': time.time()}
         flags = _check_unverified_citations(result, context)
+        if references_mapping:
+            flags["references"] = references_mapping
         return result, flags
     except Exception as e:
         logger.error(f"manuscript generation failed (AI unavailable): {e}")
@@ -98,7 +123,10 @@ async def generate_section(topic: str, section: str, context: str):
     # Layer C failure (AI down) -> graceful fallback
     result = _local_draft(topic, section, context)
     result += "\n\n*(Note: AI generation is temporarily unavailable. This is a local template.)*"
-    return result, {}
+    fallback_flags = {}
+    if references_mapping:
+        fallback_flags["references"] = references_mapping
+    return result, fallback_flags
 
 
 edit_prompt_template = PromptTemplate(
