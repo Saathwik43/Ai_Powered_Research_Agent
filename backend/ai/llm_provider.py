@@ -136,14 +136,14 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
         raise RuntimeError("Gemini provider failed to generate a completion.")
 
     providers = []
-    if LLM_PROVIDER in ("auto", "gemini"):
-        providers.append(("Gemini", _generate_gemini))
     if LLM_PROVIDER in ("auto", "groq"):
         providers.append(("Groq", _generate_groq))
     if LLM_PROVIDER in ("auto", "openrouter"):
         providers.append(("OpenRouter", _generate_openrouter))
     if LLM_PROVIDER in ("auto", "huggingface"):
         providers.append(("Hugging Face", _generate_huggingface))
+    if LLM_PROVIDER == "gemini":
+        providers.append(("Gemini", _generate_gemini))
 
     for provider_name, provider in providers:
         for attempt in range(2):

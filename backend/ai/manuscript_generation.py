@@ -37,7 +37,8 @@ Instructions:
 4. Keep all claims appropriately cautious and academically sound (e.g., use "suggests", "indicates", "may").
 5. Format the output in clean Markdown, using paragraphs, lists, or bold text only where academically appropriate.
 6. Make it comprehensive, detailed, and at least 3-4 paragraphs long.
-7. CRITICAL: Cite ONLY from the numbered reference list provided in the context, using [1], [2], etc. inline markers. If no numbered reference list is provided, you may generate without citations but ensure academic rigor."""
+7. CRITICAL: Cite ONLY from the numbered reference list provided in the context, using [1], [2], etc. inline markers. If no numbered reference list is provided, you may generate without citations but ensure academic rigor.
+8. IMPORTANT: If a provided reference doesn't directly support a claim, state the claim as general background without a citation marker rather than force-citing an irrelevant source."""
 )
 def _prompt(topic: str, section: str, context: str) -> str:
     return prompt_template.format(topic=topic, section=section, context=context)
@@ -71,13 +72,55 @@ def _check_unverified_citations(content: str, context: str) -> dict:
             flags["unverified_citations"] = True
     return flags
 
+
+async def _filter_relevant_papers(topic: str, papers: list) -> list:
+    """Filter papers by relevance to topic. Uses relevance_score if available, else fast LLM check via Groq."""
+    relevant = []
+    for paper in papers:
+        # Fast-path: check if provider already scored relevance
+        if "relevance_score" in paper:
+            if paper["relevance_score"] >= 0.5:
+                relevant.append(paper)
+            else:
+                logger.info(f"Filtered out low-relevance paper (score={paper['relevance_score']}): {paper.get('title', '')}")
+            continue
+
+        # LLM-path: single-call relevance classification
+        title = paper.get("title", "")
+        abstract = (paper.get("abstract", "") or "")[:300]
+        try:
+            answer = await generate_completion(
+                system_prompt="You are a research relevance classifier. Answer only 'yes' or 'no'.",
+                user_prompt=(
+                    f'Is the following paper relevant to the research topic "{topic}"?\n'
+                    f'Paper title: "{title}"\n'
+                    f'Paper abstract: "{abstract}"\n'
+                    f'Answer with exactly "yes" or "no".'
+                ),
+                max_tokens=5,
+                temperature=0.0,
+            )
+            if answer.strip().lower().startswith("yes"):
+                relevant.append(paper)
+            else:
+                logger.info(f"Filtered out irrelevant paper: {title}")
+        except Exception as e:
+            logger.warning(f"Relevance check failed for '{title}', including by default: {e}")
+            relevant.append(paper)  # fail-open: include if classification fails
+
+    return relevant
+
+
 async def generate_section(topic: str, section: str, context: str):
     if not validate_input_layers_a_b(topic):
         return '{"error": "topic_unclear"}', {}
         
-    papers = await search_all(topic, limit=8)
-    references_mapping = {}
+    papers = await search_all(topic, limit=8) or []
     if papers:
+        papers = await _filter_relevant_papers(topic, papers)
+
+    references_mapping = {}
+    if len(papers) >= 2:
         ref_text = "\n\nNumbered Reference List:\n"
         for idx, p in enumerate(papers, 1):
             title = p.get('title', 'Unknown Title')
@@ -89,6 +132,8 @@ async def generate_section(topic: str, section: str, context: str):
             references_mapping[str(idx)] = p
         
         context = (context or "") + ref_text
+    else:
+        logger.info(f"Insufficient relevant papers ({len(papers) if papers else 0}) for '{topic}' — proceeding without forced reference list")
         
     cache_key = None
     if context and context.strip():
