@@ -45,26 +45,33 @@ async def search_all(query: str, limit: int = 8) -> list:
             logger.info(f"Returning cached literature results for {query}")
             return cached_data
 
-    results = await asyncio.gather(
-        openalex_search(query, limit=limit),
-        arxiv_search(query, limit=limit),
-        asyncio.to_thread(search_github_knowledge, query),
-        s2_search(query, limit=limit),
-        crossref_search(query, limit=limit),
-        return_exceptions=True
-    )
+    tasks = {
+        asyncio.create_task(openalex_search(query, limit=limit), name="OpenAlex"),
+        asyncio.create_task(arxiv_search(query, limit=limit), name="arXiv"),
+        asyncio.create_task(asyncio.to_thread(search_github_knowledge, query), name="GitHub"),
+        asyncio.create_task(s2_search(query, limit=limit), name="SemanticScholar"),
+        asyncio.create_task(crossref_search(query, limit=limit), name="Crossref")
+    }
 
-    def _handle_res(res, name):
-        if isinstance(res, Exception):
-            logger.error(f"Gather Error ({name}): {res}")
-            return []
-        return res
+    done, pending = await asyncio.wait(tasks, timeout=6.0)
+    
+    for p in pending:
+        p.cancel()
+        logger.warning(f"Search task timed out: {p.get_name()}")
 
-    openalex_results = _handle_res(results[0], "OpenAlex")
-    arxiv_results = _handle_res(results[1], "arXiv")
-    github_results = _handle_res(results[2], "GitHub")
-    s2_results = _handle_res(results[3], "SemanticScholar")
-    crossref_results = _handle_res(results[4], "Crossref")
+    results_map = {}
+    for task in done:
+        try:
+            results_map[task.get_name()] = task.result()
+        except Exception as e:
+            logger.error(f"Search task failed ({task.get_name()}): {e}")
+            results_map[task.get_name()] = []
+            
+    openalex_results = results_map.get("OpenAlex", [])
+    arxiv_results = results_map.get("arXiv", [])
+    github_results = results_map.get("GitHub", [])
+    s2_results = results_map.get("SemanticScholar", [])
+    crossref_results = results_map.get("Crossref", [])
 
     # Tag sources that don't already have one
     for p in openalex_results:

@@ -61,8 +61,7 @@ async def search_works(query: str, limit: int = 8) -> list:
         }
         headers = {"User-Agent": f"ResearchAgent/1.0 (mailto:{MAILTO})"}
         
-        await asyncio.sleep(0.5)
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.get(url, params=params, headers=headers)
             response.raise_for_status()
             data = response.json()
