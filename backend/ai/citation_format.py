@@ -178,7 +178,8 @@ def _format_chicago(paper: dict) -> str:
     title = paper.get("title", "Untitled")
     year = paper.get("year", "")
 
-    parts = [f'{author_str}. "{title}."']
+    author_part = f'{author_str}.' if not author_str.endswith('.') else author_str
+    parts = [f'{author_part} "{title}."']
 
     journal = paper.get("journal", paper.get("venue", ""))
     if journal and year:

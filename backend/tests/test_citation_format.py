@@ -64,3 +64,17 @@ def test_missing_fields_graceful_degradation():
     
     chicago = format_citation(paper, style="chicago")
     assert chicago == 'Author, Single. "Just a Title."'
+
+def test_chicago_no_double_period_et_al():
+    paper = {
+        "title": "A Review of Generative Models",
+        "authors": "Alice Adams, Bob Brown, Charlie Clark, Dave Davis",
+        "journal": "AI Today",
+        "year": "2024"
+    }
+    citation = format_citation(paper, style="chicago")
+    # First author is inverted, >3 authors triggers "et al."
+    # Should be 'Adams, Alice, et al. "A Review..."' without double period.
+    assert "et al. " in citation
+    assert "et al.. " not in citation
+    assert citation == 'Adams, Alice, et al. "A Review of Generative Models." *AI Today* (2024).'
