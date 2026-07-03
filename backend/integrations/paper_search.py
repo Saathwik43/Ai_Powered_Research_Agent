@@ -6,6 +6,7 @@ from integrations.arxiv import search_papers as arxiv_search
 from integrations.semanticscholar import search_papers as s2_search
 from integrations.crossref import search_works as crossref_search
 from integrations.github_knowledge import search_github_knowledge
+from integrations.pubmed import search_papers as pubmed_search
 
 logger = logging.getLogger(__name__)
 _cache = {}
@@ -31,11 +32,33 @@ def _deduplicate(papers: list) -> list:
 
 async def search_all(query: str, limit: int = 8) -> list:
     """
-    Run OpenAlex, arXiv, and GitHub knowledge search in parallel.
-    Merges, deduplicates, and returns sorted results.
-    - OpenAlex: sorted by citation count (most cited first)
-    - arXiv: sorted by relevance / newest
-    - GitHub: matched links from awesome repos
+    Run all 6 paper sources in parallel under a strict 6-second ceiling.
+
+    Sources
+    -------
+    - Semantic Scholar (highest relevance score)
+    - OpenAlex (citation-count sorted)
+    - Crossref (works search)
+    - PubMed (E-utilities esearch → esummary, two-call pattern)
+    - arXiv (relevance / newest)
+    - GitHub knowledge (awesome-repo links)
+
+    Timeout behaviour
+    -----------------
+    The entire gather() is wrapped in asyncio.wait_for(timeout=6.0).
+    If any source (or combination) keeps all 6 tasks from completing within
+    6 seconds, asyncio.wait_for cancels every in-flight task and we return
+    whatever is in the search cache for this query, or an empty list.
+    This guarantees the endpoint never hangs past ~6s regardless of which
+    source is misbehaving — PubMed's two-call pattern is the highest-risk
+    candidate and the reason the ceiling is enforced here.
+
+    CrossRef slowdown lessons applied
+    ----------------------------------
+    - No asyncio.sleep() anywhere in the call chain.
+    - Each source uses its own per-call timeout (5s).
+    - PubMed aborts after esearch if that call alone takes >3s.
+    - return_exceptions=True so a single failing source never raises.
     """
     cache_key = f"{query}_{limit}"
     now = time.time()
@@ -45,33 +68,44 @@ async def search_all(query: str, limit: int = 8) -> list:
             logger.info(f"Returning cached literature results for {query}")
             return cached_data
 
-    tasks = {
-        asyncio.create_task(openalex_search(query, limit=limit), name="OpenAlex"),
-        asyncio.create_task(arxiv_search(query, limit=limit), name="arXiv"),
-        asyncio.create_task(asyncio.to_thread(search_github_knowledge, query), name="GitHub"),
-        asyncio.create_task(s2_search(query, limit=limit), name="SemanticScholar"),
-        asyncio.create_task(crossref_search(query, limit=limit), name="Crossref")
-    }
+    coros = [
+        s2_search(query, limit=limit),
+        openalex_search(query, limit=limit),
+        crossref_search(query, limit=limit),
+        pubmed_search(query, limit=limit),
+        arxiv_search(query, limit=limit),
+        asyncio.to_thread(search_github_knowledge, query),
+    ]
+    source_names = ["SemanticScholar", "OpenAlex", "Crossref", "PubMed", "arXiv", "GitHub"]
 
-    done, pending = await asyncio.wait(tasks, timeout=6.0)
-    
-    for p in pending:
-        p.cancel()
-        logger.warning(f"Search task timed out: {p.get_name()}")
+    try:
+        all_results = await asyncio.wait_for(
+            asyncio.gather(*coros, return_exceptions=True),
+            timeout=6.0,
+        )
+    except asyncio.TimeoutError:
+        logger.warning(
+            "search_all() exceeded 6s ceiling — all sources cancelled. "
+            "Returning cached results if available, otherwise empty list."
+        )
+        cached = _cache.get(cache_key)
+        return cached[0] if cached else []
 
-    results_map = {}
-    for task in done:
-        try:
-            results_map[task.get_name()] = task.result()
-        except Exception as e:
-            logger.error(f"Search task failed ({task.get_name()}): {e}")
-            results_map[task.get_name()] = []
-            
-    openalex_results = results_map.get("OpenAlex", [])
-    arxiv_results = results_map.get("arXiv", [])
-    github_results = results_map.get("GitHub", [])
-    s2_results = results_map.get("SemanticScholar", [])
-    crossref_results = results_map.get("Crossref", [])
+    # Unpack results; replace exceptions with empty lists and log them.
+    results_map: dict[str, list] = {}
+    for name, result in zip(source_names, all_results):
+        if isinstance(result, Exception):
+            logger.error(f"Search task failed ({name}): {result}")
+            results_map[name] = []
+        else:
+            results_map[name] = result or []
+
+    s2_results        = results_map["SemanticScholar"]
+    openalex_results  = results_map["OpenAlex"]
+    crossref_results  = results_map["Crossref"]
+    pubmed_results    = results_map["PubMed"]
+    arxiv_results     = results_map["arXiv"]
+    github_results    = results_map["GitHub"]
 
     # Tag sources that don't already have one
     for p in openalex_results:
@@ -82,13 +116,23 @@ async def search_all(query: str, limit: int = 8) -> list:
         p.setdefault("source", p.get("source", "GitHub"))
     for p in crossref_results:
         p.setdefault("source", "Crossref")
+    for p in pubmed_results:
+        p.setdefault("source", "PubMed")
     # Semantic Scholar already tags its own in semanticscholar.py
 
-    # Merge: Semantic Scholar first (highest relevance), then OpenAlex, then Crossref, then arXiv, then GitHub
-    merged = s2_results + openalex_results + crossref_results + arxiv_results + github_results
+    # Merge: Semantic Scholar first (highest relevance), then OpenAlex, then
+    # Crossref, then PubMed, then arXiv, then GitHub.
+    merged = (
+        s2_results
+        + openalex_results
+        + crossref_results
+        + pubmed_results
+        + arxiv_results
+        + github_results
+    )
 
     # Deduplicate
     unique = _deduplicate(merged)
-    
+
     _cache[cache_key] = (unique, now)
     return unique
