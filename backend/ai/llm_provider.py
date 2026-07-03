@@ -4,7 +4,8 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 import httpx
 from langchain_huggingface import HuggingFaceEndpoint
-import google.generativeai as genai
+from google import genai
+from google.genai import types as genai_types
 
 logger = logging.getLogger(__name__)
 
@@ -18,27 +19,29 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
+# google-genai Client — created once at module level if key is available.
+# The old google-generativeai SDK used genai.configure() globally; the new SDK
+# uses a per-client api_key instead.
+_gemini_client: "genai.Client | None" = None
 if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+    _gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
 _executor = ThreadPoolExecutor(max_workers=4)
 
 async def _generate_gemini(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float) -> str:
-    if not GEMINI_API_KEY:
+    if not _gemini_client:
         raise RuntimeError("GEMINI_API_KEY is not configured.")
-    
-    model = genai.GenerativeModel(
-        model_name='gemini-2.5-pro',
-        system_instruction=system_prompt
+
+    config = genai_types.GenerateContentConfig(
+        system_instruction=system_prompt or None,
+        temperature=temperature,
+        max_output_tokens=max_tokens,
     )
-    
     try:
-        response = await model.generate_content_async(
+        response = await _gemini_client.aio.models.generate_content(
+            model="gemini-2.5-pro",
             contents=user_prompt,
-            generation_config=genai.types.GenerationConfig(
-                temperature=temperature,
-                max_output_tokens=max_tokens,
-            )
+            config=config,
         )
         return response.text.strip()
     except Exception as e:
