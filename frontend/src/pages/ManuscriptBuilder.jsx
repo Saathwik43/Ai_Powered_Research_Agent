@@ -28,6 +28,14 @@ export default function ManuscriptBuilder() {
   const [editError, setEditError]   = useState('');
   const [generateError, setGenerateError] = useState('');
   const [unverifiedWarning, setUnverifiedWarning] = useState('');
+  
+  // Phase B additions
+  const [citationStyle, setCitationStyle] = useState('ieee');
+  const [manuscriptRefs, setManuscriptRefs] = useState(null);
+  
+  const [gapAnalysis, setGapAnalysis] = useState(null);
+  const [gapLoading, setGapLoading] = useState(false);
+  const [gapError, setGapError] = useState('');
 
   const done = STEPS.filter(s => content[s.id]?.trim()).map(s => s.id);
 
@@ -39,7 +47,7 @@ export default function ManuscriptBuilder() {
     try {
       const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript`, {
         method: 'POST',
-        body: JSON.stringify({ topic, section: active, context: 'Use latest research trends and cite recent advancements.' }),
+        body: JSON.stringify({ topic, section: active, context: 'Use latest research trends and cite recent advancements.', citation_style: citationStyle }),
       });
       if (res.status === 429 || res.status === 503) {
         if (res.status === 503) {
@@ -61,7 +69,10 @@ export default function ManuscriptBuilder() {
       }
       const data = await res.json();
       setContent(prev => ({ ...prev, [active]: data.content }));
-      if (data.flags && data.flags.unverified_citations) {
+      if (data.formatted_references) {
+        setManuscriptRefs(data.formatted_references);
+      }
+      if (data.unverified_citations) {
         setUnverifiedWarning('Warning: The generated text contains citations that could not be verified against the provided context. Please verify them independently.');
       }
     } catch (e) {
@@ -69,6 +80,44 @@ export default function ManuscriptBuilder() {
       setGenerateError('Network error. Please try again.');
     }
     finally { setGenerating(false); }
+  };
+
+  const analyzeLiterature = async () => {
+    if (!topic.trim()) return;
+    setGapLoading(true);
+    setGapError('');
+    setGapAnalysis(null);
+    try {
+      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/gap-analysis`, {
+        method: 'POST',
+        body: JSON.stringify({ topic }),
+      });
+      if (res.status === 429 || res.status === 503) {
+        if (res.status === 503) {
+          try {
+            const data = await res.json();
+            if (data?.detail?.verification_unavailable) {
+              setGapError('Verification temporarily unavailable, please try again shortly.');
+              return;
+            }
+          } catch(e) {}
+        }
+        setGapError("Rate limit exceeded. Please wait a minute before analyzing again.");
+        return;
+      }
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        setGapError(errorData.detail || 'Failed to analyze literature. Please try again.');
+        return;
+      }
+      const data = await res.json();
+      setGapAnalysis(data);
+    } catch (e) {
+      console.error(e);
+      setGapError('Network error. Please try again.');
+    } finally {
+      setGapLoading(false);
+    }
   };
 
   const applyEdit = async () => {
@@ -233,12 +282,74 @@ export default function ManuscriptBuilder() {
             </div>
           </div>
 
-          <input
-            placeholder="Enter your research topic..."
-            value={topic}
-            onChange={e => setTopic(e.target.value)}
-            style={{ marginBottom: '1rem' }}
-          />
+          <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+            <input
+              placeholder="Enter your research topic..."
+              value={topic}
+              onChange={e => setTopic(e.target.value)}
+              style={{ flex: 1, minWidth: '250px' }}
+            />
+            <button className="btn btn-secondary" onClick={analyzeLiterature} disabled={gapLoading || !topic.trim()}>
+              {gapLoading ? <><Spin /> Analyzing...</> : <><Search size={14} /> Analyze Literature</>}
+            </button>
+            <select 
+              value={citationStyle} 
+              onChange={e => setCitationStyle(e.target.value)}
+              style={{ padding: '0.6rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: '0.85rem' }}
+            >
+              <option value="ieee">IEEE</option>
+              <option value="apa">APA</option>
+              <option value="chicago">Chicago</option>
+              <option value="oxford">Oxford</option>
+            </select>
+          </div>
+
+          {/* Gap Analysis Panel */}
+          {gapLoading && (
+            <div style={{ padding: '2rem', textAlign: 'center', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', marginBottom: '1.25rem' }}>
+              <Player autoplay loop src={loadingAnimation} style={{ height: '100px', width: '100px', margin: '0 auto' }} />
+              <p style={{ marginTop: '1rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>Analyzing literature gaps...</p>
+            </div>
+          )}
+          {gapError && (
+            <div style={{ marginBottom: '1.25rem', padding: '0.85rem 1rem', background: 'rgba(229,28,35,0.08)', border: '1px solid rgba(229,28,35,0.2)', borderRadius: 'var(--radius-md)', color: 'var(--danger)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <X size={15} /> {gapError}
+            </div>
+          )}
+          {gapAnalysis && !gapLoading && (
+            <div style={{ marginBottom: '1.5rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.5rem' }}>
+              <h3 style={{ margin: '0 0 1rem 0', fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Search size={16} color="var(--primary)" /> Research Gaps Analysis</h3>
+              
+              {gapAnalysis.status === 'insufficient_literature' ? (
+                <div style={{ textAlign: 'center', padding: '1rem', color: 'var(--text-muted)' }}>
+                  <p style={{ margin: 0 }}>{gapAnalysis.message}</p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                  <div>
+                    <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem', color: 'var(--success)' }}>Well Covered</h4>
+                    <ul style={{ margin: 0, paddingLeft: '1.5rem', fontSize: '0.88rem', color: 'var(--text)' }}>
+                      {(gapAnalysis.well_covered || []).map((item, i) => <li key={i} style={{ marginBottom: '0.25rem' }}>{item}</li>)}
+                    </ul>
+                  </div>
+                  <div>
+                    <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem', color: 'var(--warning)' }}>Remaining Gaps</h4>
+                    <ul style={{ margin: 0, paddingLeft: '1.5rem', fontSize: '0.88rem', color: 'var(--text)' }}>
+                      {(gapAnalysis.gaps || []).map((item, i) => <li key={i} style={{ marginBottom: '0.25rem' }}>{item}</li>)}
+                    </ul>
+                  </div>
+                  <div style={{ background: 'rgba(0, 87, 255, 0.05)', padding: '1rem', borderRadius: 'var(--radius-md)', border: '1px solid rgba(0, 87, 255, 0.15)' }}>
+                    <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem', color: 'var(--primary)' }}>Suggested Direction</h4>
+                    <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--text)' }}>{gapAnalysis.suggested_direction}</p>
+                    {gapAnalysis.vagueness_warning && (
+                      <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.75rem', color: 'var(--warning)' }}>⚠️ This suggestion may be broad — consider refining.</p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {generateError && (
             <div style={{ marginTop: '1rem', marginBottom: '1rem', padding: '0.85rem 1rem', background: 'rgba(229,28,35,0.08)', border: '1px solid rgba(229,28,35,0.2)', borderRadius: 'var(--radius-md)', color: 'var(--danger)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <X size={15} /> {generateError}
@@ -246,14 +357,34 @@ export default function ManuscriptBuilder() {
           )}
           {unverifiedWarning && <p style={{ color: 'var(--warning)', fontSize: '0.85rem', marginBottom: '1rem', background: 'rgba(255,176,0,0.1)', padding: '0.75rem', borderRadius: 'var(--radius-md)' }}>{unverifiedWarning}</p>}
 
-          <textarea
-            placeholder={`Write your ${currentStep?.label.toLowerCase()} here, or click Generate for AI assistance...`}
-            value={content[active] || ''}
-            onChange={e => setContent(prev => ({ ...prev, [active]: e.target.value }))}
-            style={{ width: '100%', minHeight: '420px', padding: '1rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', color: 'var(--text)', fontFamily: 'inherit', fontSize: '0.93rem', resize: 'vertical', outline: 'none', lineHeight: 1.75, transition: 'var(--transition)', boxSizing: 'border-box' }}
-            onFocus={e => { e.target.style.borderColor = 'var(--border-focus)'; e.target.style.boxShadow = '0 0 0 3px var(--primary-light)'; }}
-            onBlur={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.boxShadow = 'none'; }}
-          />
+          {active === 'references' && manuscriptRefs && Object.keys(manuscriptRefs).length > 0 ? (
+            <div style={{ width: '100%', minHeight: '420px', padding: '1.5rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', color: 'var(--text)', fontFamily: 'inherit', fontSize: '0.93rem', lineHeight: 1.75, boxSizing: 'border-box', overflowY: 'auto' }}>
+              <h3 style={{ marginTop: 0, marginBottom: '1rem', fontSize: '1.05rem' }}>Formatted References ({citationStyle.toUpperCase()})</h3>
+              {Object.entries(manuscriptRefs).map(([num, citeStr]) => (
+                <div key={num} style={{ marginBottom: '1rem', paddingLeft: '1.5rem', textIndent: '-1.5rem' }}>
+                  [{num}] {citeStr}
+                </div>
+              ))}
+              <div style={{ marginTop: '2rem', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Note: This list is compiled from the cited sources. You can still generate text below if you need manual edits.</p>
+                <textarea
+                  placeholder="Additional reference notes..."
+                  value={content[active] || ''}
+                  onChange={e => setContent(prev => ({ ...prev, [active]: e.target.value }))}
+                  style={{ width: '100%', minHeight: '100px', padding: '1rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', color: 'var(--text)', fontFamily: 'inherit', fontSize: '0.93rem', resize: 'vertical', outline: 'none', marginTop: '0.5rem' }}
+                />
+              </div>
+            </div>
+          ) : (
+            <textarea
+              placeholder={`Write your ${currentStep?.label.toLowerCase()} here, or click Generate for AI assistance...`}
+              value={content[active] || ''}
+              onChange={e => setContent(prev => ({ ...prev, [active]: e.target.value }))}
+              style={{ width: '100%', minHeight: '420px', padding: '1rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', color: 'var(--text)', fontFamily: 'inherit', fontSize: '0.93rem', resize: 'vertical', outline: 'none', lineHeight: 1.75, transition: 'var(--transition)', boxSizing: 'border-box' }}
+              onFocus={e => { e.target.style.borderColor = 'var(--border-focus)'; e.target.style.boxShadow = '0 0 0 3px var(--primary-light)'; }}
+              onBlur={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.boxShadow = 'none'; }}
+            />
+          )}
           
           {content[active] && (
             <div style={{ marginTop: '1rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '1.25rem' }}>

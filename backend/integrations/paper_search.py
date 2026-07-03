@@ -4,6 +4,7 @@ import logging
 from integrations.openalex import search_papers as openalex_search
 from integrations.arxiv import search_papers as arxiv_search
 from integrations.semanticscholar import search_papers as s2_search
+from integrations.crossref import search_works as crossref_search
 from integrations.github_knowledge import search_github_knowledge
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,7 @@ async def search_all(query: str, limit: int = 8) -> list:
         arxiv_search(query, limit=limit),
         asyncio.to_thread(search_github_knowledge, query),
         s2_search(query, limit=limit),
+        crossref_search(query, limit=limit),
         return_exceptions=True
     )
 
@@ -62,6 +64,7 @@ async def search_all(query: str, limit: int = 8) -> list:
     arxiv_results = _handle_res(results[1], "arXiv")
     github_results = _handle_res(results[2], "GitHub")
     s2_results = _handle_res(results[3], "SemanticScholar")
+    crossref_results = _handle_res(results[4], "Crossref")
 
     # Tag sources that don't already have one
     for p in openalex_results:
@@ -70,10 +73,12 @@ async def search_all(query: str, limit: int = 8) -> list:
         p.setdefault("source", "arXiv")
     for p in github_results:
         p.setdefault("source", p.get("source", "GitHub"))
+    for p in crossref_results:
+        p.setdefault("source", "Crossref")
     # Semantic Scholar already tags its own in semanticscholar.py
 
-    # Merge: Semantic Scholar first (highest relevance), then OpenAlex, then arXiv, then GitHub
-    merged = s2_results + openalex_results + arxiv_results + github_results
+    # Merge: Semantic Scholar first (highest relevance), then OpenAlex, then Crossref, then arXiv, then GitHub
+    merged = s2_results + openalex_results + crossref_results + arxiv_results + github_results
 
     # Deduplicate
     unique = _deduplicate(merged)
