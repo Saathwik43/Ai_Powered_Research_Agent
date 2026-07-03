@@ -8,6 +8,7 @@ from langchain_core.prompts import PromptTemplate
 from ai.llm_provider import generate_completion
 from ai.guardrails import validate_input_layers_a_b
 from ai.relevance import _filter_relevant_papers
+from ai.citation_format import format_citation
 from integrations.paper_search import search_all
 from fastapi import HTTPException
 
@@ -79,7 +80,7 @@ def _check_unverified_citations(content: str, context: str) -> dict:
 # 'ai.manuscript_generation._filter_relevant_papers' continue to work.
 
 
-async def generate_section(topic: str, section: str, context: str):
+async def generate_section(topic: str, section: str, context: str, citation_style: str = "ieee"):
     if not validate_input_layers_a_b(topic):
         return '{"error": "topic_unclear"}', {}
         
@@ -113,6 +114,9 @@ async def generate_section(topic: str, section: str, context: str):
                 flags = _check_unverified_citations(cache_entry['content'], context)
                 if references_mapping:
                     flags["references"] = references_mapping
+                    flags["formatted_references"] = {
+                        k: format_citation(v, style=citation_style) for k, v in references_mapping.items()
+                    }
                 return cache_entry['content'], flags
 
     system_prompt = "You write rigorous, concise academic manuscript sections."
@@ -129,6 +133,9 @@ async def generate_section(topic: str, section: str, context: str):
         flags = _check_unverified_citations(result, context)
         if references_mapping:
             flags["references"] = references_mapping
+            flags["formatted_references"] = {
+                k: format_citation(v, style=citation_style) for k, v in references_mapping.items()
+            }
         return result, flags
     except Exception as e:
         logger.error(f"manuscript generation failed (AI unavailable): {e}")
@@ -139,6 +146,9 @@ async def generate_section(topic: str, section: str, context: str):
     fallback_flags = {}
     if references_mapping:
         fallback_flags["references"] = references_mapping
+        fallback_flags["formatted_references"] = {
+            k: format_citation(v, style=citation_style) for k, v in references_mapping.items()
+        }
     return result, fallback_flags
 
 

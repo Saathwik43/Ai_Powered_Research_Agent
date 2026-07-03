@@ -1,4 +1,4 @@
-﻿"""
+"""
 test_literature_endpoint.py
 ---------------------------
 Regression test: the GET /api/literature endpoint must apply
@@ -98,9 +98,12 @@ def _mock_classifier(system_prompt, user_prompt, max_tokens=5, temperature=0.0):
     return "yes"
 
 
+import ai.relevance as _relevance_module
+
 def _clear_search_cache():
-    """Clear the 10-minute search_all cache between tests to prevent stale data."""
+    """Clear the 10-minute search_all and relevance caches between tests to prevent stale data."""
     _ps_module._cache.clear()
+    _relevance_module._relevance_cache.clear()
 
 
 class TestLiteratureEndpointRelevanceFilter(unittest.IsolatedAsyncioTestCase):

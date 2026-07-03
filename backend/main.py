@@ -18,6 +18,7 @@ from fastapi import Request
 
 from ai.topic_discovery import discover_topics
 from ai.manuscript_generation import generate_section, edit_section
+from ai.gap_analysis import analyze_gaps
 from ai.venue_recommendation import recommend_venues
 from ai.guideline_alignment import align_guidelines
 from integrations.paper_search import search_all
@@ -107,6 +108,10 @@ class ManuscriptPayload(BaseModel):
     topic: str
     section: str = "abstract"
     context: str = ""
+    citation_style: str = "ieee"
+
+class GapAnalysisPayload(BaseModel):
+    topic: str
 
 class ManuscriptEditPayload(BaseModel):
     topic: str
@@ -291,8 +296,8 @@ async def search_github(query: str, current_user: dict = Depends(get_current_use
 
 @app.post("/api/manuscript")
 @limiter.limit("5/minute")
-async def create_manuscript_section(request: Request, payload: ManuscriptPayload, current_user: dict = Depends(get_current_user)):
-    content, flags = await generate_section(payload.topic, payload.section, payload.context)
+async def draft_manuscript(request: Request, payload: ManuscriptPayload, current_user: dict = Depends(get_current_user)):
+    content, flags = await generate_section(payload.topic, payload.section, payload.context, payload.citation_style)
     if '{"error": "topic_unclear"}' in content:
         raise HTTPException(status_code=400, detail="The provided topic is unclear or appears to be nonsense.")
     
@@ -357,6 +362,18 @@ async def list_manuscript_drafts(current_user: dict = Depends(get_current_user))
 async def get_venues(payload: VenuePayload, current_user: dict = Depends(get_current_user)):
     result = await recommend_venues(payload.abstract, payload.domain)
     return result
+
+@app.post("/api/gap-analysis")
+@limiter.limit("5/minute")
+async def gap_analysis_endpoint(request: Request, payload: GapAnalysisPayload, current_user: dict = Depends(get_current_user)):
+    try:
+        result = await analyze_gaps(payload.topic)
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in gap analysis: {e}")
+        raise HTTPException(status_code=500, detail="Gap analysis failed.")
 
 
 # ─── Guideline Alignment ───────────────────────────────────────────────────────
