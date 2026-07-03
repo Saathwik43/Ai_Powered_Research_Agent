@@ -7,6 +7,7 @@ from langchain_core.prompts import PromptTemplate
 
 from ai.llm_provider import generate_completion
 from ai.guardrails import validate_input_layers_a_b
+from ai.relevance import _filter_relevant_papers
 from integrations.paper_search import search_all
 from fastapi import HTTPException
 
@@ -73,42 +74,9 @@ def _check_unverified_citations(content: str, context: str) -> dict:
     return flags
 
 
-async def _filter_relevant_papers(topic: str, papers: list) -> list:
-    """Filter papers by relevance to topic. Uses relevance_score if available, else fast LLM check via Groq."""
-    relevant = []
-    for paper in papers:
-        # Fast-path: check if provider already scored relevance
-        if "relevance_score" in paper:
-            if paper["relevance_score"] >= 0.5:
-                relevant.append(paper)
-            else:
-                logger.info(f"Filtered out low-relevance paper (score={paper['relevance_score']}): {paper.get('title', '')}")
-            continue
-
-        # LLM-path: single-call relevance classification
-        title = paper.get("title", "")
-        abstract = (paper.get("abstract", "") or "")[:300]
-        try:
-            answer = await generate_completion(
-                system_prompt="You are a research relevance classifier. Answer only 'yes' or 'no'.",
-                user_prompt=(
-                    f'Is the following paper relevant to the research topic "{topic}"?\n'
-                    f'Paper title: "{title}"\n'
-                    f'Paper abstract: "{abstract}"\n'
-                    f'Answer with exactly "yes" or "no".'
-                ),
-                max_tokens=5,
-                temperature=0.0,
-            )
-            if answer.strip().lower().startswith("yes"):
-                relevant.append(paper)
-            else:
-                logger.info(f"Filtered out irrelevant paper: {title}")
-        except Exception as e:
-            logger.warning(f"Relevance check failed for '{title}', including by default: {e}")
-            relevant.append(paper)  # fail-open: include if classification fails
-
-    return relevant
+# _filter_relevant_papers is imported from ai.relevance (shared module).
+# The name is re-exported here so existing patch targets
+# 'ai.manuscript_generation._filter_relevant_papers' continue to work.
 
 
 async def generate_section(topic: str, section: str, context: str):

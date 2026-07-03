@@ -21,6 +21,7 @@ from ai.manuscript_generation import generate_section, edit_section
 from ai.venue_recommendation import recommend_venues
 from ai.guideline_alignment import align_guidelines
 from integrations.paper_search import search_all
+from ai.relevance import _filter_relevant_papers
 from integrations.arxiv import fetch_category_feed, fetch_multiple_feeds, CATEGORY_MAP
 from integrations.crossref import search_journals
 from integrations.github_knowledge import (
@@ -174,6 +175,8 @@ async def get_literature(query: str, limit: int = 8, current_user: dict = Depend
     Results are deduplicated and tagged by source.
     """
     papers = await search_all(query, limit=limit)
+    # Apply relevance filtering — same logic used for manuscript generation.
+    papers = await _filter_relevant_papers(query, papers)
     return {"data": papers, "count": len(papers)}
 
 

@@ -6,7 +6,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from integrations.paper_search import search_all
-from ai.manuscript_generation import _filter_relevant_papers, generate_section
+from ai.relevance import _filter_relevant_papers
+from ai.manuscript_generation import generate_section
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
