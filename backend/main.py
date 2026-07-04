@@ -174,15 +174,19 @@ async def get_topics(intent: str, current_user: dict = Depends(get_current_user)
 # ─── Literature — Unified Search (OpenAlex + arXiv + GitHub) ──────────────────
 
 @app.get("/api/literature")
-async def get_literature(query: str, limit: int = 8, current_user: dict = Depends(get_current_user)):
+async def get_literature(query: str, limit: int = 15, offset: int = 0, current_user: dict = Depends(get_current_user)):
     """
     Unified literature search across OpenAlex, arXiv, and GitHub knowledge bases.
-    Results are deduplicated and tagged by source.
+    Results are deduplicated, relevance-ranked, and tagged by source.
+    Supports pagination via offset.
     """
     papers = await search_all(query, limit=limit)
     # Apply relevance filtering — same logic used for manuscript generation.
     papers = await _filter_relevant_papers(query, papers)
-    return {"data": papers, "count": len(papers)}
+    total = len(papers)
+    paginated = papers[offset:offset + limit]
+    has_more = (offset + limit) < total
+    return {"data": paginated, "count": len(paginated), "total": total, "offset": offset, "has_more": has_more}
 
 
 # ─── arXiv — Keyword Search ────────────────────────────────────────────────────

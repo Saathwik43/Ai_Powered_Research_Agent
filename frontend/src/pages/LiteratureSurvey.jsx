@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Download, ExternalLink, Save, BookOpen, FileText, X, Bookmark } from 'lucide-react';
+import { Search, Download, ExternalLink, Save, BookOpen, FileText, X, Bookmark, Unlock, ChevronDown } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { useAuth } from '../context/AuthContext';
@@ -10,6 +10,7 @@ export default function LiteratureSurvey() {
   const [query, setQuery]         = useState('');
   const [papers, setPapers]       = useState([]);
   const [loading, setLoading]     = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [saveStatus, setSaveStatus] = useState('');
   const [searchError, setSearchError] = useState('');
   const [hasSearched, setHasSearched] = useState(false);
@@ -17,6 +18,11 @@ export default function LiteratureSurvey() {
   const [activeTab, setActiveTab] = useState('search');
   const [savedSurveys, setSavedSurveys] = useState([]);
   const [loadingSaved, setLoadingSaved] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const [totalResults, setTotalResults] = useState(0);
+
+  const PAGE_SIZE = 15;
 
   const fetchSavedSurveys = async () => {
     setLoadingSaved(true);
@@ -39,30 +45,55 @@ export default function LiteratureSurvey() {
     }
   }, [activeTab]);
 
-  const search = async (q = query) => {
+  const search = async (q = query, newSearch = true) => {
     if (!q.trim()) return;
-    setLoading(true); setSaveStatus(''); setSearchError('');
+    const currentOffset = newSearch ? 0 : offset;
+    if (newSearch) {
+      setLoading(true);
+      setPapers([]);
+      setOffset(0);
+      setHasMore(false);
+      setTotalResults(0);
+    } else {
+      setLoadingMore(true);
+    }
+    setSaveStatus(''); setSearchError('');
     setHasSearched(true); setLastQuery(q);
     try {
-      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature?query=${encodeURIComponent(q)}&limit=12`);
+      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature?query=${encodeURIComponent(q)}&limit=${PAGE_SIZE}&offset=${currentOffset}`);
       if (res.status === 429 || res.status === 503) {
         setSearchError('Rate limit exceeded. Please wait a minute before trying again.');
-        setPapers([]);
+        if (newSearch) setPapers([]);
         return;
       }
       if (!res.ok) {
         setSearchError('Failed to fetch literature. Please try again.');
-        setPapers([]);
+        if (newSearch) setPapers([]);
         return;
       }
       const data = await res.json();
-      setPapers(data.data || []);
+      const newPapers = data.data || [];
+      if (newSearch) {
+        setPapers(newPapers);
+      } else {
+        setPapers(prev => [...prev, ...newPapers]);
+      }
+      setHasMore(data.has_more || false);
+      setTotalResults(data.total || 0);
+      setOffset(currentOffset + newPapers.length);
     } catch (e) {
       console.error(e);
       setSearchError('Network error. Please try again.');
-      setPapers([]);
+      if (newSearch) setPapers([]);
     }
-    finally { setLoading(false); }
+    finally {
+      setLoading(false);
+      setLoadingMore(false);
+    }
+  };
+
+  const loadMore = () => {
+    search(lastQuery, false);
   };
 
   const exportSurveyToPDF = (papersToExport, queryName) => {
@@ -169,8 +200,8 @@ export default function LiteratureSurvey() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <BookOpen size={15} color="var(--primary)" />
-            <span style={{ fontWeight: 600, fontSize: '0.93rem' }}>{papers.length} results</span>
-            <span style={{ color: 'var(--text-subtle)', fontSize: '0.83rem' }}>for "{query}"</span>
+            <span style={{ fontWeight: 600, fontSize: '0.93rem' }}>{papers.length}{totalResults > papers.length ? ` of ${totalResults}` : ''} results</span>
+            <span style={{ color: 'var(--text-subtle)', fontSize: '0.83rem' }}>for "{lastQuery}"</span>
           </div>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
             <button className="btn btn-secondary" onClick={saveSurvey} disabled={saveStatus === 'saving'}>
@@ -208,11 +239,20 @@ export default function LiteratureSurvey() {
             {/* Title + citations */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', marginBottom: '0.4rem' }}>
               <h3 style={{ margin: 0, fontSize: '0.97rem', fontWeight: 600, lineHeight: 1.45, flex: 1, color: 'var(--text)' }}>{p.title}</h3>
-              {p.citations > 0 && (
-                <span style={{ flexShrink: 0, fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', background: 'var(--bg-elevated)', border: '1px solid var(--border)', padding: '0.18rem 0.55rem', borderRadius: '999px', whiteSpace: 'nowrap' }}>
-                  {p.citations.toLocaleString()} citations
-                </span>
-              )}
+              <div style={{ display: 'flex', gap: '0.4rem', flexShrink: 0 }}>
+                {p.oa_url && (
+                  <a href={p.oa_url} target="_blank" rel="noreferrer" style={{ fontSize: '0.72rem', fontWeight: 600, color: '#16a34a', background: 'rgba(22,163,74,0.08)', border: '1px solid rgba(22,163,74,0.22)', padding: '0.18rem 0.55rem', borderRadius: '999px', whiteSpace: 'nowrap', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+                    title="Open Access — free full text available"
+                  >
+                    <Unlock size={11} /> Open Access
+                  </a>
+                )}
+                {p.citations > 0 && (
+                  <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', background: 'var(--bg-elevated)', border: '1px solid var(--border)', padding: '0.18rem 0.55rem', borderRadius: '999px', whiteSpace: 'nowrap' }}>
+                    {p.citations.toLocaleString()} citations
+                  </span>
+                )}
+              </div>
             </div>
 
             {/* Authors + year */}
@@ -241,6 +281,11 @@ export default function LiteratureSurvey() {
                   <FileText size={12} /> PDF
                 </a>
               )}
+              {p.oa_url && p.oa_url !== p.url && p.oa_url !== p.pdf_url && (
+                <a href={p.oa_url} target="_blank" rel="noreferrer" className="btn btn-ghost" style={{ fontSize: '0.79rem', padding: '0.3rem 0.65rem', textDecoration: 'none', color: '#16a34a' }}>
+                  <Unlock size={12} /> Full Text (OA)
+                </a>
+              )}
               <a
                 href={`https://scholar.google.com/scholar?q=${encodeURIComponent(p.title)}`}
                 target="_blank"
@@ -253,6 +298,17 @@ export default function LiteratureSurvey() {
             </div>
           </div>
         ))}
+
+        {/* Load more button */}
+        {hasMore && !loading && (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '1rem 0' }}>
+            <button className="btn btn-secondary" onClick={loadMore} disabled={loadingMore}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 1.5rem' }}
+            >
+              {loadingMore ? <><Spin /> Loading...</> : <><ChevronDown size={16} /> Load more results</>}
+            </button>
+          </div>
+        )}
       </div>
         </>
       ) : (

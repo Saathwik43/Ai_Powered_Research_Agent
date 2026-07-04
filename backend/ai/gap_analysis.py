@@ -1,4 +1,4 @@
-﻿"""
+"""
 ai/gap_analysis.py
 ------------------
 Structured gap analysis for a research topic — Stage 2 of the pipeline.
@@ -90,7 +90,7 @@ async def analyze_gaps(topic: str) -> dict:
         raise HTTPException(status_code=400, detail="The provided topic is unclear or appears to be nonsense.")
 
     # Retrieve and filter
-    papers = await search_all(topic, limit=8) or []
+    papers = await search_all(topic, limit=15) or []
     if papers:
         papers = await _filter_relevant_papers(topic, papers)
 

@@ -1,4 +1,5 @@
 import asyncio
+import math
 import time
 import logging
 from integrations.openalex import search_papers as openalex_search
@@ -10,6 +11,8 @@ from integrations.pubmed import search_papers as pubmed_search
 
 logger = logging.getLogger(__name__)
 _cache = {}
+
+_CURRENT_YEAR = 2026
 
 
 def _normalize_title(title: str) -> str:
@@ -30,7 +33,56 @@ def _deduplicate(papers: list) -> list:
     return unique
 
 
-async def search_all(query: str, limit: int = 8) -> list:
+# ─── Relevance-Based Scoring ──────────────────────────────────────────────────
+
+_SOURCE_WEIGHTS = {
+    "Semantic Scholar": 0.9,
+    "OpenAlex": 0.7,
+    "PubMed": 0.65,
+    "Crossref": 0.6,
+    "arXiv": 0.5,
+}
+# GitHub sub-sources all start with "GitHub/"
+_GITHUB_SOURCE_WEIGHT = 0.3
+
+
+def _compute_score(paper: dict) -> float:
+    """
+    Combined relevance score from three signals:
+      - Citation count (log-scaled, 40% weight)
+      - Source relevance weight (30% weight)
+      - Recency bonus (30% weight — papers from last 3 years boosted)
+    """
+    # Citation signal — log-scaled, capped at 1.0
+    citations = paper.get("citations", 0) or 0
+    citation_score = min(math.log1p(citations) / 10.0, 1.0)
+
+    # Source relevance weight
+    source = paper.get("source", "")
+    if source.startswith("GitHub"):
+        source_score = _GITHUB_SOURCE_WEIGHT
+    else:
+        source_score = _SOURCE_WEIGHTS.get(source, 0.4)
+
+    # Recency bonus — linear decay over 10 years
+    year = paper.get("year", "")
+    try:
+        recency = max(0.0, 1.0 - (_CURRENT_YEAR - int(year)) / 10.0) if str(year).isdigit() else 0.3
+    except (ValueError, TypeError):
+        recency = 0.3
+
+    return 0.4 * citation_score + 0.3 * source_score + 0.3 * recency
+
+
+def _rank_papers(papers: list) -> list:
+    """Sort papers by combined relevance score (descending)."""
+    for p in papers:
+        p["_relevance_rank"] = round(_compute_score(p), 4)
+    papers.sort(key=lambda p: p["_relevance_rank"], reverse=True)
+    return papers
+
+
+async def search_all(query: str, limit: int = 15) -> list:
     """
     Run all 6 paper sources in parallel under a strict 6-second ceiling.
 
@@ -42,6 +94,14 @@ async def search_all(query: str, limit: int = 8) -> list:
     - PubMed (E-utilities esearch → esummary, two-call pattern)
     - arXiv (relevance / newest)
     - GitHub knowledge (awesome-repo links)
+
+    Post-processing
+    ----------------
+    1. Tag sources that don't self-tag
+    2. Merge all results
+    3. Deduplicate by normalised title
+    4. Rank by combined score (citations × source weight × recency)
+    5. Enrich with Unpaywall open-access links (DOI-based)
 
     Timeout behaviour
     -----------------
@@ -120,8 +180,7 @@ async def search_all(query: str, limit: int = 8) -> list:
         p.setdefault("source", "PubMed")
     # Semantic Scholar already tags its own in semanticscholar.py
 
-    # Merge: Semantic Scholar first (highest relevance), then OpenAlex, then
-    # Crossref, then PubMed, then arXiv, then GitHub.
+    # Merge all sources into a single list
     merged = (
         s2_results
         + openalex_results
@@ -134,5 +193,16 @@ async def search_all(query: str, limit: int = 8) -> list:
     # Deduplicate
     unique = _deduplicate(merged)
 
+    # Rank by combined relevance score instead of source order
+    unique = _rank_papers(unique)
+
+    # Enrich with Unpaywall open-access links (non-blocking best-effort)
+    try:
+        from integrations.unpaywall import enrich_papers_with_oa
+        unique = await enrich_papers_with_oa(unique)
+    except Exception as e:
+        logger.warning(f"Unpaywall enrichment failed (non-fatal): {e}")
+
     _cache[cache_key] = (unique, now)
     return unique
+

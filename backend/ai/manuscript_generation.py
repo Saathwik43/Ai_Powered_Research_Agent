@@ -84,7 +84,7 @@ async def generate_section(topic: str, section: str, context: str, citation_styl
     if not validate_input_layers_a_b(topic):
         return '{"error": "topic_unclear"}', {}
         
-    papers = await search_all(topic, limit=8) or []
+    papers = await search_all(topic, limit=15) or []
     if papers:
         papers = await _filter_relevant_papers(topic, papers)
 
