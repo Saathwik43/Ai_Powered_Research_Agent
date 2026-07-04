@@ -104,6 +104,27 @@ async def generate_section(topic: str, section: str, context: str, citation_styl
     else:
         logger.info(f"Insufficient relevant papers ({len(papers) if papers else 0}) for '{topic}' — proceeding without forced reference list")
         
+    gap_analysis_data = None
+    if section.lower().replace(" ", "_") in ("lit_review", "literature_review"):
+        from ai.gap_analysis import analyze_gaps
+        try:
+            gap_results = await analyze_gaps(topic)
+            if gap_results.get("status") != "insufficient_literature" and "well_covered" in gap_results:
+                gap_context = (
+                    "\n\nGap Analysis Findings to Incorporate:\n"
+                    f"- Well Covered: {'; '.join(gap_results.get('well_covered', []))}\n"
+                    f"- Gaps Identified: {'; '.join(gap_results.get('gaps', []))}\n"
+                    f"- Suggested Direction: {gap_results.get('suggested_direction', '')}\n"
+                )
+                context = (context or "") + gap_context
+                gap_analysis_data = {
+                    "well_covered": gap_results.get("well_covered"),
+                    "gaps": gap_results.get("gaps"),
+                    "suggested_direction": gap_results.get("suggested_direction"),
+                }
+        except Exception as e:
+            logger.warning(f"Internal gap analysis failed during lit_review generation: {e}")
+
     cache_key = None
     if context and context.strip():
         cache_key = hash(topic + section + context)
@@ -117,6 +138,8 @@ async def generate_section(topic: str, section: str, context: str, citation_styl
                     flags["formatted_references"] = {
                         k: format_citation(v, style=citation_style) for k, v in references_mapping.items()
                     }
+                if gap_analysis_data:
+                    flags["gap_analysis"] = gap_analysis_data
                 return cache_entry['content'], flags
 
     system_prompt = "You write rigorous, concise academic manuscript sections."
@@ -136,6 +159,8 @@ async def generate_section(topic: str, section: str, context: str, citation_styl
             flags["formatted_references"] = {
                 k: format_citation(v, style=citation_style) for k, v in references_mapping.items()
             }
+        if gap_analysis_data:
+            flags["gap_analysis"] = gap_analysis_data
         return result, flags
     except Exception as e:
         logger.error(f"manuscript generation failed (AI unavailable): {e}")
@@ -149,6 +174,8 @@ async def generate_section(topic: str, section: str, context: str, citation_styl
         fallback_flags["formatted_references"] = {
             k: format_citation(v, style=citation_style) for k, v in references_mapping.items()
         }
+    if gap_analysis_data:
+        fallback_flags["gap_analysis"] = gap_analysis_data
     return result, fallback_flags
 
 

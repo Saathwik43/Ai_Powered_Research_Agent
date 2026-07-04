@@ -34,8 +34,6 @@ export default function ManuscriptBuilder() {
   const [manuscriptRefs, setManuscriptRefs] = useState(null);
   
   const [gapAnalysis, setGapAnalysis] = useState(null);
-  const [gapLoading, setGapLoading] = useState(false);
-  const [gapError, setGapError] = useState('');
 
   const done = STEPS.filter(s => content[s.id]?.trim()).map(s => s.id);
 
@@ -59,8 +57,8 @@ export default function ManuscriptBuilder() {
             }
           } catch(e) {}
         }
-        setGenerateError("Rate limit exceeded. Please wait a minute before generating again.");
-        return;
+      setGenerateError("Rate limit exceeded. Please wait a minute before generating again.");
+      return;
       }
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
@@ -75,6 +73,12 @@ export default function ManuscriptBuilder() {
       if (data.unverified_citations) {
         setUnverifiedWarning('Warning: The generated text contains citations that could not be verified against the provided context. Please verify them independently.');
       }
+      
+      if (data.gap_analysis) {
+        setGapAnalysis(data.gap_analysis);
+      } else if (active === 'lit_review' || active === 'literature_review') {
+        setGapAnalysis(null);
+      }
     } catch (e) {
       console.error(e);
       setGenerateError('Network error. Please try again.');
@@ -82,43 +86,7 @@ export default function ManuscriptBuilder() {
     finally { setGenerating(false); }
   };
 
-  const analyzeLiterature = async () => {
-    if (!topic.trim()) return;
-    setGapLoading(true);
-    setGapError('');
-    setGapAnalysis(null);
-    try {
-      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/gap-analysis`, {
-        method: 'POST',
-        body: JSON.stringify({ topic }),
-      });
-      if (res.status === 429 || res.status === 503) {
-        if (res.status === 503) {
-          try {
-            const data = await res.json();
-            if (data?.detail?.verification_unavailable) {
-              setGapError('Verification temporarily unavailable, please try again shortly.');
-              return;
-            }
-          } catch(e) {}
-        }
-        setGapError("Rate limit exceeded. Please wait a minute before analyzing again.");
-        return;
-      }
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        setGapError(errorData.detail || 'Failed to analyze literature. Please try again.');
-        return;
-      }
-      const data = await res.json();
-      setGapAnalysis(data);
-    } catch (e) {
-      console.error(e);
-      setGapError('Network error. Please try again.');
-    } finally {
-      setGapLoading(false);
-    }
-  };
+
 
   const applyEdit = async () => {
     if (!editPrompt.trim() || !content[active]) return;
@@ -289,9 +257,6 @@ export default function ManuscriptBuilder() {
               onChange={e => setTopic(e.target.value)}
               style={{ flex: 1, minWidth: '250px' }}
             />
-            <button className="btn btn-secondary" onClick={analyzeLiterature} disabled={gapLoading || !topic.trim()}>
-              {gapLoading ? <><Spin /> Analyzing...</> : <><Search size={14} /> Analyze Literature</>}
-            </button>
             <select 
               value={citationStyle} 
               onChange={e => setCitationStyle(e.target.value)}
@@ -305,18 +270,7 @@ export default function ManuscriptBuilder() {
           </div>
 
           {/* Gap Analysis Panel */}
-          {gapLoading && (
-            <div style={{ padding: '2rem', textAlign: 'center', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', marginBottom: '1.25rem' }}>
-              <Player autoplay loop src={loadingAnimation} style={{ height: '100px', width: '100px', margin: '0 auto' }} />
-              <p style={{ marginTop: '1rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>Analyzing literature gaps...</p>
-            </div>
-          )}
-          {gapError && (
-            <div style={{ marginBottom: '1.25rem', padding: '0.85rem 1rem', background: 'rgba(229,28,35,0.08)', border: '1px solid rgba(229,28,35,0.2)', borderRadius: 'var(--radius-md)', color: 'var(--danger)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <X size={15} /> {gapError}
-            </div>
-          )}
-          {gapAnalysis && !gapLoading && (
+          {gapAnalysis && (
             <div style={{ marginBottom: '1.5rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.5rem' }}>
               <h3 style={{ margin: '0 0 1rem 0', fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Search size={16} color="var(--primary)" /> Research Gaps Analysis</h3>
               
