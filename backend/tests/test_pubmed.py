@@ -275,13 +275,16 @@ class TestPubMedAbortEarly(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(result), 1)
 
 
-# ── 3. search_all() 6-second ceiling tests ───────────────────────────────────
+# ── 3. search_all() 6-second ceiling + partial-result tests ─────────────────
 
 class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
     """
-    Verify the asyncio.wait_for(gather(...), timeout=6.0) ceiling in search_all().
-    A PubMed mock that sleeps 10s must NOT delay search_all() past ~6.5s.
-    PubMed results should be absent; fast sources' results should be present.
+    Verify the asyncio.wait(tasks, timeout=6.0) per-task cancellation ceiling.
+
+    Key contract:
+    - Slow sources are cancelled; fast sources' results ARE returned.
+    - A slow PubMed must NEVER cause the entire search to return [].
+    - When ALL sources time out, stale cache is returned (or [] if no cache).
     """
 
     async def test_ceiling_triggers_on_slow_pubmed(self):
@@ -345,13 +348,16 @@ class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
 
     async def test_ceiling_returns_cache_on_timeout(self):
         """
-        If the ceiling fires and there's a stale cache entry, search_all()
-        returns that cache entry rather than an empty list.
+        If ALL sources time out (done is empty), search_all() returns the stale
+        cache entry rather than an empty list.
+
+        Cache key format is "{query}_{limit}", so we must pre-populate with the
+        exact key that search_all("cached_query", limit=5) will produce.
         """
         import integrations.paper_search as ps_module
 
-        # Pre-populate cache
-        cache_key = "cached_query_5"
+        # Pre-populate with the EXACT key search_all() will compute.
+        cache_key = "cached_query_5"   # f"{query}_{limit}" = f"cached_query_5"
         stale_papers = [
             {"id": "cached-001", "title": "Stale Cached Paper", "source": "OpenAlex"}
         ]
@@ -362,6 +368,9 @@ class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
             return []
 
         def always_slow_sync(query):
+            # Must be a real blocking sleep so asyncio.to_thread() also times out.
+            import time as _time
+            _time.sleep(10)
             return []
 
         with (
@@ -381,7 +390,7 @@ class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
         self.assertLess(elapsed, 7.0, f"search_all() still hung for {elapsed:.2f}s")
         self.assertEqual(
             results, stale_papers,
-            "On timeout, search_all() should return stale cache contents"
+            "When all sources time out, search_all() must return stale cache"
         )
 
         # Cleanup
@@ -430,7 +439,159 @@ class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(results), 6, "Expected 1 paper from each of 6 sources")
 
 
-# ── 4. Integration / latency tests (real network) ────────────────────────────
+# ── 4. Partial-results + broad-query regression tests ────────────────────────
+
+class TestSearchAllPartialResults(unittest.IsolatedAsyncioTestCase):
+    """
+    Regression tests for the asyncio.wait() partial-result contract.
+
+    These specifically test broad queries ("machine learning",
+    "artificial intelligence") — the queries that broke under the old
+    asyncio.wait_for(gather()) pattern when PubMed was slow.
+
+    Key invariants:
+    - Fast sources always return results even when one source is slow.
+    - A slow PubMed must NEVER produce an empty list for a broad query.
+    - The partial-result set is a strict superset of zero results.
+    """
+
+    async def _run_with_slow_pubmed(self, query: str, fast_papers: list) -> tuple[list, float]:
+        """Helper: run search_all() with PubMed sleeping 10s, other sources instant."""
+        import integrations.paper_search as ps_module
+        ps_module._cache.clear()
+
+        async def instant(*a, **k):
+            return fast_papers
+
+        async def slow_pubmed(*a, **k):
+            await asyncio.sleep(10)
+            return [{"id": "pmid:SLOW", "title": "Slow PubMed Paper", "source": "PubMed"}]
+
+        def instant_github(q):
+            return []
+
+        with (
+            patch("integrations.paper_search.s2_search",        side_effect=instant),
+            patch("integrations.paper_search.openalex_search",  side_effect=instant),
+            patch("integrations.paper_search.crossref_search",  side_effect=instant),
+            patch("integrations.paper_search.pubmed_search",    side_effect=slow_pubmed),
+            patch("integrations.paper_search.arxiv_search",     side_effect=instant),
+            patch("integrations.paper_search.search_github_knowledge", side_effect=instant_github),
+        ):
+            t0 = time.monotonic()
+            results = await ps_module.search_all(query, limit=5)
+            elapsed = time.monotonic() - t0
+
+        return results, elapsed
+
+    def _make_fast_paper(self, src: str) -> dict:
+        return {
+            "id": f"id-{src}", "title": f"Paper about {src} topic",
+            "authors": "Author A", "year": "2024", "citations": 5,
+            "abstract": "Abstract.", "url": f"https://example.com/{src}",
+            "source": "Semantic Scholar",
+        }
+
+    async def test_slow_pubmed_never_returns_empty_machine_learning(self):
+        """
+        Regression: 'machine learning' query with slow PubMed must return
+        results from fast sources — NOT an empty list.
+
+        This is the canonical failure mode of asyncio.wait_for(gather()):
+        PubMed's slowness on a broad query caused the entire gather to
+        cancel, returning [] even though S2/OpenAlex/arXiv had already
+        finished.
+        """
+        fast = [self._make_fast_paper("ml")]
+        results, elapsed = await self._run_with_slow_pubmed("machine learning", fast)
+
+        print(f"\n['machine learning' partial] {len(results)} results in {elapsed:.3f}s")
+
+        # Must return within ceiling (allow 1s slack)
+        self.assertLess(elapsed, 7.0, f"Ceiling not enforced: {elapsed:.2f}s")
+
+        # Must NOT return empty — fast sources finished and must be present
+        self.assertGreater(
+            len(results), 0,
+            "'machine learning' with slow PubMed returned []. "
+            "Fast sources (S2, OpenAlex, arXiv) should have been returned."
+        )
+
+        # PubMed's 10s-sleep paper must NOT appear
+        pubmed_titles = [p["title"] for p in results if p.get("source") == "PubMed"]
+        self.assertEqual(pubmed_titles, [], f"Slow PubMed leaked: {pubmed_titles}")
+
+    async def test_slow_pubmed_never_returns_empty_artificial_intelligence(self):
+        """
+        Same regression test for 'artificial intelligence' — the other broad
+        query that exposed the wait_for(gather()) bug.
+        """
+        fast = [self._make_fast_paper("ai")]
+        results, elapsed = await self._run_with_slow_pubmed("artificial intelligence", fast)
+
+        print(f"\n['artificial intelligence' partial] {len(results)} results in {elapsed:.3f}s")
+
+        self.assertLess(elapsed, 7.0)
+        self.assertGreater(
+            len(results), 0,
+            "'artificial intelligence' with slow PubMed returned []. "
+            "Fast sources must still be returned."
+        )
+
+    async def test_partial_results_contain_exactly_fast_sources(self):
+        """
+        When PubMed is slow and other 5 sources are instant, the result set
+        must contain papers from the 5 fast sources and NOT from PubMed.
+        This verifies the partial-result contract precisely.
+        """
+        import integrations.paper_search as ps_module
+        ps_module._cache.clear()
+
+        def make_paper(src_name, source):
+            return {
+                "id": f"id-{src_name}", "title": f"Paper from {src_name}",
+                "authors": "A", "year": "2024", "citations": 1,
+                "abstract": "x", "url": f"https://example.com/{src_name}",
+                "source": source,
+            }
+
+        async def s2_fast(*a, **k):   return [make_paper("s2",  "Semantic Scholar")]
+        async def oa_fast(*a, **k):   return [make_paper("oa",  "OpenAlex")]
+        async def cr_fast(*a, **k):   return [make_paper("cr",  "Crossref")]
+        async def ax_fast(*a, **k):   return [make_paper("ax",  "arXiv")]
+        async def slow_pm(*a, **k):
+            await asyncio.sleep(10)
+            return [make_paper("pm", "PubMed")]
+        def gh_fast(q):               return []
+
+        with (
+            patch("integrations.paper_search.s2_search",        side_effect=s2_fast),
+            patch("integrations.paper_search.openalex_search",  side_effect=oa_fast),
+            patch("integrations.paper_search.crossref_search",  side_effect=cr_fast),
+            patch("integrations.paper_search.pubmed_search",    side_effect=slow_pm),
+            patch("integrations.paper_search.arxiv_search",     side_effect=ax_fast),
+            patch("integrations.paper_search.search_github_knowledge", side_effect=gh_fast),
+        ):
+            t0 = time.monotonic()
+            results = await ps_module.search_all("partial result test", limit=5)
+            elapsed = time.monotonic() - t0
+
+        sources_present = {p["source"] for p in results}
+        print(f"\n[partial sources] {sources_present} in {elapsed:.3f}s")
+
+        self.assertLess(elapsed, 7.0)
+        # 4 fast sources (S2, OpenAlex, Crossref, arXiv) must be present
+        for expected_source in ("Semantic Scholar", "OpenAlex", "Crossref", "arXiv"):
+            self.assertIn(
+                expected_source, sources_present,
+                f"{expected_source} missing from partial results: {sources_present}"
+            )
+        # PubMed must be absent (it was cancelled)
+        self.assertNotIn("PubMed", sources_present,
+            f"Slow PubMed leaked into partial results: {sources_present}")
+
+
+# ── 5. Integration / latency tests (real network) ────────────────────────────
 
 @pytest.mark.integration
 class TestSearchAllLatency(unittest.IsolatedAsyncioTestCase):
