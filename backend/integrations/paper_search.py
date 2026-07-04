@@ -212,10 +212,15 @@ async def search_all(query: str, limit: int = 15) -> list:
     # Rank by combined relevance score instead of source order
     unique = _rank_papers(unique)
 
-    # Enrich with Unpaywall open-access links (non-blocking best-effort)
+    # Truncate to limit BEFORE enrichment so we only enrich what we return
+    unique = unique[:limit]
+
+    # Enrich with Unpaywall open-access links (non-blocking best-effort, 4s ceiling)
     try:
         from integrations.unpaywall import enrich_papers_with_oa
-        unique = await enrich_papers_with_oa(unique)
+        unique = await asyncio.wait_for(enrich_papers_with_oa(unique), timeout=4.0)
+    except asyncio.TimeoutError:
+        logger.warning("Unpaywall enrichment exceeded 4s ceiling, returning unenriched results.")
     except Exception as e:
         logger.warning(f"Unpaywall enrichment failed (non-fatal): {e}")
 
