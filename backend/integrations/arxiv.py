@@ -112,61 +112,28 @@ async def search_papers(query: str, limit: int = 8) -> list:
 
 async def fetch_category_feed(category_code: str, limit: int = 10) -> list:
     """
-    Fetch latest papers from an arXiv RSS category feed.
+    Fetch latest papers from an arXiv category.
     e.g. category_code = 'cs.AI'
     """
-    url = f"{ARXIV_RSS_BASE}/{category_code}"
-    email = os.getenv("CROSSREF_MAILTO", "")
-    headers = {
-        "Accept": "application/rss+xml",
-        "User-Agent": f"AI-Powered-Research-Agent/1.0 (contact: {email})" if email else "AI-Powered-Research-Agent/1.0"
+    params = {
+        "search_query": f"cat:{category_code}",
+        "start": 0,
+        "max_results": limit,
+        "sortBy": "submittedDate",
+        "sortOrder": "descending",
     }
+    email = os.getenv("CROSSREF_MAILTO", "")
+    headers = {"User-Agent": f"AI-Powered-Research-Agent/1.0 (contact: {email})" if email else "AI-Powered-Research-Agent/1.0"}
+    
     try:
         async with httpx.AsyncClient(timeout=15.0, headers=headers) as client:
-            resp = await client.get(url)
+            resp = await client.get(ARXIV_SEARCH_URL, params=params)
             resp.raise_for_status()
-
-        # RSS feed uses a different namespace — parse manually
-        root = ET.fromstring(resp.text)
-        channel = root.find("channel")
-        if channel is None:
-            return []
-
-        items = channel.findall("item")[:limit]
-        papers = []
-        for item in items:
-            title_el = item.find("title")
-            link_el = item.find("link")
-            desc_el = item.find("description")
-
-            title = title_el.text.strip() if title_el is not None else "Untitled"
-            url = link_el.text.strip() if link_el is not None else ""
-
-            # Strip HTML tags from description
-            desc_raw = desc_el.text or "" if desc_el is not None else ""
-            import re
-            abstract = re.sub(r"<[^>]+>", "", desc_raw).strip()[:500]
-
-            # Authors from dc:creator or title
-            creator_el = item.find("{http://purl.org/dc/elements/1.1/}creator")
-            authors = creator_el.text.strip() if creator_el is not None else "Unknown Authors"
-
-            papers.append({
-                "id": url,
-                "title": title,
-                "authors": authors,
-                "year": str(datetime.now().year),
-                "published": datetime.now().strftime("%Y-%m-%d"),
-                "citations": 0,
-                "abstract": abstract if abstract else "No abstract available.",
-                "url": url,
-                "pdf_url": url.replace("abs", "pdf") if "abs" in url else url,
-                "categories": [category_code],
-                "source": "arXiv",
-            })
-        return papers
+            root = ET.fromstring(resp.text)
+            entries = root.findall("atom:entry", NS)
+            return [_parse_entry(e) for e in entries]
     except Exception as e:
-        logger.error(f"arXiv RSS feed error ({category_code}): {e}")
+        logger.error(f"arXiv category feed error ({category_code}): {e}")
         return []
 
 

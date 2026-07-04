@@ -334,6 +334,12 @@ export default function Dashboard() {
             </div>
           )}
 
+          {!catLoading && categoryPapers.length === 0 && (
+            <div className="empty-state">
+              No recent papers found for this category at the moment.
+            </div>
+          )}
+
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '0.875rem' }}>
             {categoryPapers.map((p, i) => (
               <div key={i} className="animate-slide-up" style={{ animationDelay: `${i * 0.04}s`, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.25rem', transition: 'transform 0.2s ease, border-color 0.2s ease' }}
