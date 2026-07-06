@@ -46,10 +46,12 @@ def _mock_gap_analysis_topic_unclear(*args, **kwargs):
 
 class TestGapAnalysisEndpoint:
 
+    @patch("ai.gap_analysis.extract_evidence", new_callable=AsyncMock)
     @patch("ai.gap_analysis.search_all", new_callable=AsyncMock)
     @patch("ai.gap_analysis._filter_relevant_papers", new_callable=AsyncMock)
     @patch("ai.gap_analysis.generate_completion", new_callable=AsyncMock)
-    def test_gap_analysis_happy_path(self, mock_gen, mock_filter, mock_search):
+    def test_gap_analysis_happy_path(self, mock_gen, mock_filter, mock_search, mock_extract):
+        mock_extract.return_value = {"objective": "Mock objective"}
         mock_search.return_value = DUMMY_PAPERS
         mock_filter.return_value = DUMMY_PAPERS
         mock_gen.side_effect = _mock_gap_analysis_response
@@ -65,9 +67,11 @@ class TestGapAnalysisEndpoint:
         assert "Thing C is unknown" in data["gaps"][0]
         assert "vagueness_warning" not in data
 
+    @patch("ai.gap_analysis.extract_evidence", new_callable=AsyncMock)
     @patch("ai.gap_analysis.search_all", new_callable=AsyncMock)
     @patch("ai.gap_analysis._filter_relevant_papers", new_callable=AsyncMock)
-    def test_gap_analysis_insufficient_literature(self, mock_filter, mock_search):
+    def test_gap_analysis_insufficient_literature(self, mock_filter, mock_search, mock_extract):
+        mock_extract.return_value = {"objective": "Mock objective"}
         mock_search.return_value = DUMMY_PAPERS[:1] # Only 1 paper
         mock_filter.return_value = DUMMY_PAPERS[:1]
         
@@ -77,10 +81,12 @@ class TestGapAnalysisEndpoint:
         assert data.get("status") == "insufficient_literature"
         assert data.get("paper_count") == 1
 
+    @patch("ai.gap_analysis.extract_evidence", new_callable=AsyncMock)
     @patch("ai.gap_analysis.search_all", new_callable=AsyncMock)
     @patch("ai.gap_analysis._filter_relevant_papers", new_callable=AsyncMock)
     @patch("ai.gap_analysis.generate_completion", new_callable=AsyncMock)
-    def test_gap_analysis_vagueness_rejection(self, mock_gen, mock_filter, mock_search):
+    def test_gap_analysis_vagueness_rejection(self, mock_gen, mock_filter, mock_search, mock_extract):
+        mock_extract.return_value = {"objective": "Mock objective"}
         mock_search.return_value = DUMMY_PAPERS
         mock_filter.return_value = DUMMY_PAPERS
         mock_gen.side_effect = _mock_gap_analysis_vague # Always return vague
@@ -96,10 +102,12 @@ class TestGapAnalysisEndpoint:
         response = client.post("/api/gap-analysis", json={"topic": "hrthwrtajarj"})
         assert response.status_code == 400
         
+    @patch("ai.gap_analysis.extract_evidence", new_callable=AsyncMock)
     @patch("ai.gap_analysis.search_all", new_callable=AsyncMock)
     @patch("ai.gap_analysis._filter_relevant_papers", new_callable=AsyncMock)
     @patch("ai.gap_analysis.generate_completion", new_callable=AsyncMock)
-    def test_gap_analysis_topic_unclear_layer_c(self, mock_gen, mock_filter, mock_search):
+    def test_gap_analysis_topic_unclear_layer_c(self, mock_gen, mock_filter, mock_search, mock_extract):
+        mock_extract.return_value = {"objective": "Mock objective"}
         mock_search.return_value = DUMMY_PAPERS
         mock_filter.return_value = DUMMY_PAPERS
         mock_gen.side_effect = _mock_gap_analysis_topic_unclear

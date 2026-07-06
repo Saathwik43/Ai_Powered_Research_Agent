@@ -22,6 +22,8 @@ from ai.guardrails import validate_input_layers_a_b
 from ai.relevance import _filter_relevant_papers
 from integrations.paper_search import search_all
 from fastapi import HTTPException
+import asyncio
+from ai.evidence_extraction import extract_evidence
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +96,13 @@ async def analyze_gaps(topic: str, papers: list = None) -> dict:
         papers = await search_all(topic, limit=15) or []
         if papers:
             papers = await _filter_relevant_papers(topic, papers)
+            
+    if papers:
+        async def fetch_evidence(p):
+            p["evidence"] = await extract_evidence(p)
+            return p
+            
+        await asyncio.gather(*(fetch_evidence(p) for p in papers), return_exceptions=True)
 
     if len(papers) < 2:
         return {
@@ -110,9 +119,22 @@ async def analyze_gaps(topic: str, papers: list = None) -> dict:
         title = p.get("title", "Unknown Title")
         authors = p.get("authors", "Unknown Authors")
         year = p.get("year", "Unknown Year")
-        abstract = (p.get("abstract", "") or "")[:300]
         doi = p.get("doi", p.get("url", ""))
-        ref_text += f"[{idx}] {authors} ({year}). {title}. {abstract}. {doi}\n"
+        
+        # Use structured evidence if available and not completely empty
+        ev = p.get("evidence", {})
+        has_evidence = any(ev.get(k) for k in ["objective", "method", "dataset", "results", "limitations", "future_work"])
+        
+        if has_evidence:
+            content_text = ""
+            for k in ["objective", "method", "dataset", "results", "limitations", "future_work"]:
+                if ev.get(k):
+                    content_text += f"{k.capitalize()}: {ev[k]}. "
+            content_text = content_text.strip()
+        else:
+            content_text = (p.get("abstract", "") or "")[:300]
+            
+        ref_text += f"[{idx}] {authors} ({year}). {title}. {content_text} {doi}\n"
         references_mapping[str(idx)] = p
 
     user_prompt = _GAP_USER_TEMPLATE.format(topic=topic, ref_text=ref_text)

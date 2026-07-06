@@ -12,6 +12,7 @@ from ai.citation_format import format_citation
 from integrations.paper_search import search_all
 from fastapi import HTTPException
 from ai.numerical_validator import validate_numerical_claims
+from ai.evidence_extraction import extract_evidence
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +89,12 @@ async def generate_section(topic: str, section: str, context: str, citation_styl
     papers = await search_all(topic, limit=15) or []
     if papers:
         papers = await _filter_relevant_papers(topic, papers)
+        
+        async def fetch_evidence(p):
+            p["evidence"] = await extract_evidence(p)
+            return p
+            
+        await asyncio.gather(*(fetch_evidence(p) for p in papers), return_exceptions=True)
 
     references_mapping = {}
     if len(papers) >= 2:
@@ -96,9 +103,22 @@ async def generate_section(topic: str, section: str, context: str, citation_styl
             title = p.get('title', 'Unknown Title')
             authors = p.get('authors', 'Unknown Authors')
             year = p.get('year', 'Unknown Year')
-            abstract = p.get('abstract', '')
             doi = p.get('doi', p.get('url', ''))
-            ref_text += f"[{idx}] {authors} ({year}). {title}. {abstract}. {doi}\n"
+            
+            # Use structured evidence if available and not completely empty
+            ev = p.get("evidence", {})
+            has_evidence = any(ev.get(k) for k in ["objective", "method", "dataset", "results", "limitations", "future_work"])
+            
+            if has_evidence:
+                content_text = ""
+                for k in ["objective", "method", "dataset", "results", "limitations", "future_work"]:
+                    if ev.get(k):
+                        content_text += f"{k.capitalize()}: {ev[k]}. "
+                content_text = content_text.strip()
+            else:
+                content_text = p.get('abstract', '')
+
+            ref_text += f"[{idx}] {authors} ({year}). {title}. {content_text} {doi}\n"
             references_mapping[str(idx)] = p
         
         context = (context or "") + ref_text

@@ -428,7 +428,7 @@ class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
             patch("integrations.paper_search.search_github_knowledge", side_effect=gh_fast),
         ):
             t0 = time.monotonic()
-            results = await ps_module.search_all("fast all sources", limit=5)
+            results = await ps_module.search_all("fast all sources", limit=6)
             elapsed = time.monotonic() - t0
 
         print(f"\n[all-fast test] search_all() returned in {elapsed:.3f}s with {len(results)} papers")
