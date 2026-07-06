@@ -64,16 +64,17 @@ class TestManuscriptGeneration(unittest.IsolatedAsyncioTestCase):
     @patch('ai.manuscript_generation._filter_relevant_papers', new_callable=AsyncMock)
     @patch('ai.manuscript_generation.generate_completion', new_callable=AsyncMock)
     async def test_fallback_when_provider_raises(self, mock_gen, mock_filter, mock_search):
-        """When generate_completion raises, we fall back to local draft."""
+        """When generate_completion raises, we fall back to raising 503 verification_unavailable."""
+        from fastapi import HTTPException
         mock_search.return_value = MOCK_PAPERS
         mock_filter.return_value = MOCK_PAPERS
         mock_gen.side_effect = Exception("All providers failed")
 
-        result, flags = await generate_section("Topic B", "Methodology", "Context B")
+        with self.assertRaises(HTTPException) as context:
+            await generate_section("Topic B", "Methodology", "Context B")
 
-        # Should fall back to local draft
-        self.assertIn("methodology", result)
-        self.assertIn("AI generation is temporarily unavailable", result)
+        self.assertEqual(context.exception.status_code, 503)
+        self.assertTrue(context.exception.detail.get("verification_unavailable"))
 
     @patch('ai.manuscript_generation.check_citation_grounding', new_callable=AsyncMock)
     @patch('ai.manuscript_generation.extract_evidence', new_callable=AsyncMock)

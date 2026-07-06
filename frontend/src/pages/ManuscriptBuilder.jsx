@@ -285,16 +285,39 @@ export default function ManuscriptBuilder() {
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                  {gapAnalysis.consensus && gapAnalysis.consensus.length > 0 && (
                   <div>
-                    <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem', color: 'var(--success)' }}>Well Covered</h4>
+                    <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem', color: 'var(--success)' }}>Consensus</h4>
                     <ul style={{ margin: 0, paddingLeft: '1.5rem', fontSize: '0.88rem', color: 'var(--text)' }}>
-                      {(gapAnalysis.well_covered || []).map((item, i) => <li key={i} style={{ marginBottom: '0.25rem' }}>{item}</li>)}
+                      {(gapAnalysis.consensus || []).map((item, i) => (
+                        <li key={i} style={{ marginBottom: '0.25rem' }}>
+                          {item.claim} <span style={{color: 'var(--text-subtle)'}}>[{item.supporting_papers?.join(', ')}]</span>
+                        </li>
+                      ))}
                     </ul>
                   </div>
+                  )}
+                  {gapAnalysis.conflicts && gapAnalysis.conflicts.length > 0 && (
+                  <div>
+                    <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem', color: 'var(--warning)' }}>Conflicts</h4>
+                    <ul style={{ margin: 0, paddingLeft: '1.5rem', fontSize: '0.88rem', color: 'var(--text)' }}>
+                      {(gapAnalysis.conflicts || []).map((item, i) => (
+                        <li key={i} style={{ marginBottom: '0.25rem' }}>
+                          {item.claim_a} <strong>vs</strong> {item.claim_b} <span style={{color: 'var(--text-subtle)'}}>[{item.papers?.join(', ')}]</span><br/>
+                          <span style={{fontSize: '0.8rem', color: 'var(--text-subtle)'}}>{item.note}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  )}
                   <div>
                     <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem', color: 'var(--warning)' }}>Remaining Gaps</h4>
                     <ul style={{ margin: 0, paddingLeft: '1.5rem', fontSize: '0.88rem', color: 'var(--text)' }}>
-                      {(gapAnalysis.gaps || []).map((item, i) => <li key={i} style={{ marginBottom: '0.25rem' }}>{item}</li>)}
+                      {(gapAnalysis.gaps || []).map((item, i) => (
+                        <li key={i} style={{ marginBottom: '0.25rem' }}>
+                          {item.description} <span style={{color: 'var(--text-subtle)'}}>[{item.informed_by?.join(', ')}]</span>
+                        </li>
+                      ))}
                     </ul>
                   </div>
                   <div style={{ background: 'rgba(0, 87, 255, 0.05)', padding: '1rem', borderRadius: 'var(--radius-md)', border: '1px solid rgba(0, 87, 255, 0.15)' }}>

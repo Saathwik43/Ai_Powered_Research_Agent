@@ -51,23 +51,6 @@ def _prompt(topic: str, section: str, context: str) -> str:
 
 
 
-def _local_draft(topic: str, section: str, context: str):
-    section_name = section.replace("_", " ").title()
-    context_line = context.strip() if context and context.strip() else "the available literature and current research trends"
-    return (
-        f"This {section_name.lower()} focuses on **{topic.strip() or 'the selected research topic'}** "
-        f"using {context_line} as the guiding context.\n\n"
-        "The discussion should establish the research problem, define the scope of inquiry, "
-        "and connect the work to recent academic developments. It should also identify the "
-        "main methodological or conceptual gap that motivates the study.\n\n"
-        "Key points to expand:\n\n"
-        "- State the central research objective clearly.\n"
-        "- Summarize the most relevant prior work and its limitations.\n"
-        "- Explain how this manuscript contributes new evidence, synthesis, or perspective.\n"
-        "- Keep terminology consistent and add citations from the literature survey before submission.\n\n"
-        "_External AI generation is not configured or is temporarily unavailable, so this structured "
-        "draft was generated locally as a starting point._"
-    )
 
 
 def _check_unverified_citations(content: str, context: str) -> dict:
@@ -145,16 +128,22 @@ async def generate_section(topic: str, section: str, context: str, citation_styl
         from ai.gap_analysis import analyze_gaps
         try:
             gap_results = await analyze_gaps(topic, papers=papers)
-            if gap_results.get("status") != "insufficient_literature" and "well_covered" in gap_results:
+            if gap_results.get("status") != "insufficient_literature":
+                consensus_claims = [c.get("claim", "") for c in gap_results.get("consensus", [])]
+                conflict_pairs = [f"{c.get('claim_a', '')} vs {c.get('claim_b', '')}" for c in gap_results.get("conflicts", [])]
+                gap_descriptions = [g.get("description", "") for g in gap_results.get("gaps", [])]
+                
                 gap_context = (
                     "\n\nGap Analysis Findings to Incorporate:\n"
-                    f"- Well Covered: {'; '.join(gap_results.get('well_covered', []))}\n"
-                    f"- Gaps Identified: {'; '.join(gap_results.get('gaps', []))}\n"
+                    f"- Consensus: {'; '.join(consensus_claims)}\n"
+                    f"- Conflicts: {'; '.join(conflict_pairs)}\n"
+                    f"- Gaps Identified: {'; '.join(gap_descriptions)}\n"
                     f"- Suggested Direction: {gap_results.get('suggested_direction', '')}\n"
                 )
                 context = (context or "") + gap_context
                 gap_analysis_data = {
-                    "well_covered": gap_results.get("well_covered"),
+                    "consensus": gap_results.get("consensus"),
+                    "conflicts": gap_results.get("conflicts"),
                     "gaps": gap_results.get("gaps"),
                     "suggested_direction": gap_results.get("suggested_direction"),
                 }
@@ -202,19 +191,10 @@ async def generate_section(topic: str, section: str, context: str, citation_styl
         return result, flags
     except Exception as e:
         logger.error(f"manuscript generation failed (AI unavailable): {e}")
-        
-    # Layer C failure (AI down) -> graceful fallback
-    result = _local_draft(topic, section, context)
-    result += "\n\n*(Note: AI generation is temporarily unavailable. This is a local template.)*"
-    fallback_flags = {}
-    if references_mapping:
-        fallback_flags["references"] = references_mapping
-        fallback_flags["formatted_references"] = {
-            k: format_citation(v, style=citation_style) for k, v in references_mapping.items()
-        }
-    if gap_analysis_data:
-        fallback_flags["gap_analysis"] = gap_analysis_data
-    return result, fallback_flags
+        raise HTTPException(
+            status_code=503,
+            detail={"verification_unavailable": True, "message": "AI generation is temporarily unavailable. Please try again in a moment."}
+        )
 
 
 edit_prompt_template = PromptTemplate(
