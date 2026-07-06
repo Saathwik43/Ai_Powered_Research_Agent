@@ -60,15 +60,25 @@ CRITICAL INSTRUCTION: If the topic "{topic}" is complete gibberish, a random str
 Below is a numbered reference list of recent papers on this topic:
 {ref_text}
 
-Based on ONLY the papers listed above, produce a JSON object with exactly three fields:
+Based on ONLY the papers listed above, produce a JSON object with exactly four fields:
 
-1. "well_covered": an array of short strings (one sentence each) summarizing what aspects of this topic are already well-established in the literature. Cite relevant paper numbers, e.g. "Spontaneous polarization in NF phases is well-characterized [1],[3]."
+1. "consensus": an array of objects identifying areas of agreement. Each object must have:
+   - "claim": a short string summarizing the agreed-upon finding.
+   - "supporting_papers": an array of string paper numbers (e.g. ["1", "3"]).
 
-2. "gaps": an array of short strings identifying specific under-explored areas or contradictions. Each gap MUST reference which numbered papers informed the identification of that gap, e.g. "Electroviscous coupling under AC fields remains uncharacterized despite [2],[5] studying DC-field effects."
+2. "conflicts": an array of objects identifying contradictions or diverging results. Each object must have:
+   - "claim_a": the first perspective/finding.
+   - "claim_b": the conflicting perspective/finding.
+   - "papers": an array of string paper numbers involved in the conflict.
+   - "note": brief context on why they conflict.
 
-3. "suggested_direction": ONE concrete, specific, actionable research direction that addresses the most significant gap. This must be a detailed proposal (at least 20 words) — NOT generic filler like "more research is needed" or "further studies should be conducted." Include specific methodology, variables, or phenomena to investigate.
+3. "gaps": an array of objects identifying specific under-explored areas. Each object must have:
+   - "description": a short string describing the gap.
+   - "informed_by": an array of string paper numbers whose limitations or findings point to this gap.
 
-Output ONLY valid JSON with these three fields. No markdown, no explanation, no preamble."""
+4. "suggested_direction": ONE concrete, specific, actionable research direction that addresses the most significant gap. This must be a detailed proposal (at least 20 words) — NOT generic filler like "more research is needed" or "further studies should be conducted." Include specific methodology, variables, or phenomena to investigate.
+
+Output ONLY valid JSON with these four fields. No markdown, no explanation, no preamble."""
 
 
 async def analyze_gaps(topic: str, papers: list = None) -> dict:
@@ -112,32 +122,34 @@ async def analyze_gaps(topic: str, papers: list = None) -> dict:
                        "Gap analysis requires at least 2 papers for meaningful synthesis.",
         }
 
-    # Build numbered reference list (same format as manuscript_generation.py)
+    # Build numbered reference list (evidence_block style)
     ref_text = ""
     references_mapping = {}
+    _EVIDENCE_FIELDS = ["objective", "method", "dataset", "results", "limitations", "future_work"]
+    
     for idx, p in enumerate(papers, 1):
+        idx_str = str(idx)
+        ev = p.get("evidence", {}) or {}
         title = p.get("title", "Unknown Title")
         authors = p.get("authors", "Unknown Authors")
         year = p.get("year", "Unknown Year")
         doi = p.get("doi", p.get("url", ""))
         
-        # Use structured evidence if available and not completely empty
-        ev = p.get("evidence", {})
-        has_evidence = any(ev.get(k) for k in ["objective", "method", "dataset", "results", "limitations", "future_work"])
-        
-        if has_evidence:
-            content_text = ""
-            for k in ["objective", "method", "dataset", "results", "limitations", "future_work"]:
+        lines = [f"[{idx_str}] {authors} ({year}). {title}"]
+        if any(ev.get(k) for k in _EVIDENCE_FIELDS):
+            for k in _EVIDENCE_FIELDS:
                 if ev.get(k):
-                    content_text += f"{k.capitalize()}: {ev[k]}. "
-            content_text = content_text.strip()
+                    lines.append(f"  {k}: {ev[k]}")
         else:
-            content_text = (p.get("abstract", "") or "")[:300]
+            abstract = (p.get("abstract", "") or "")[:400]
+            lines.append(f"  abstract: {abstract}" if abstract else "  (no evidence or abstract available)")
+        if doi:
+            lines.append(f"  url: {doi}")
             
-        ref_text += f"[{idx}] {authors} ({year}). {title}. {content_text} {doi}\n"
-        references_mapping[str(idx)] = p
+        ref_text += "\n".join(lines) + "\n\n"
+        references_mapping[idx_str] = p
 
-    user_prompt = _GAP_USER_TEMPLATE.format(topic=topic, ref_text=ref_text)
+    user_prompt = _GAP_USER_TEMPLATE.format(topic=topic, ref_text=ref_text.strip())
 
     # Try up to 2 times (initial + retry on vagueness)
     last_result = None
@@ -179,29 +191,35 @@ async def analyze_gaps(topic: str, papers: list = None) -> dict:
             parsed = json.loads(content[start:end])
 
             # Validate required fields
-            well_covered = parsed.get("well_covered", [])
+            consensus = parsed.get("consensus", [])
+            conflicts = parsed.get("conflicts", [])
             gaps = parsed.get("gaps", [])
             suggested_direction = parsed.get("suggested_direction", "")
 
-            if not isinstance(well_covered, list) or not isinstance(gaps, list):
-                raise ValueError("well_covered and gaps must be arrays")
+            if not isinstance(consensus, list) or not isinstance(conflicts, list) or not isinstance(gaps, list):
+                raise ValueError("consensus, conflicts, and gaps must be arrays")
 
             last_result = {
-                "well_covered": well_covered,
+                "consensus": consensus,
+                "conflicts": conflicts,
                 "gaps": gaps,
                 "suggested_direction": suggested_direction,
                 "references": references_mapping,
             }
 
             # Vagueness check
-            if _is_vague(suggested_direction):
+            is_vague = _is_vague(suggested_direction)
+            if len(papers) >= 3 and not consensus and not conflicts:
+                is_vague = True
+
+            if is_vague:
                 if attempt == 0:
-                    logger.info(f"Gap analysis suggested_direction too vague, retrying: {suggested_direction[:80]}")
+                    logger.info(f"Gap analysis suggested_direction too vague or missing synthesis, retrying")
                     continue
                 else:
                     # Second attempt still vague — return with warning flag
                     last_result["vagueness_warning"] = True
-                    logger.warning(f"Gap analysis suggested_direction still vague after retry: {suggested_direction[:80]}")
+                    logger.warning(f"Gap analysis still vague after retry")
 
             return last_result
 

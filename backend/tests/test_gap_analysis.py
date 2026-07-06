@@ -5,10 +5,17 @@ Unit tests for the gap analysis endpoint and logic.
 """
 
 import pytest
+import uuid
 from unittest.mock import patch, AsyncMock
 from fastapi.testclient import TestClient
 from main import app
 from auth import get_current_user
+
+# Ensure each test gets a unique "IP" so we don't hit the 5/min rate limit in slowapi
+@pytest.fixture(autouse=True)
+def mock_remote_address():
+    with patch("slowapi.util.get_remote_address", return_value=str(uuid.uuid4())):
+        yield
 
 app.dependency_overrides[get_current_user] = lambda: {"user_id": "test_user"}
 client = TestClient(app)
@@ -24,8 +31,9 @@ def _mock_gap_analysis_response(*args, **kwargs):
     """Simulate Gemini returning valid structured JSON."""
     return '''
     {
-        "well_covered": ["Thing A is known [1].", "Thing B is known [2]."],
-        "gaps": ["Thing C is unknown despite [1],[3]."],
+        "consensus": [{"claim": "Thing A is known.", "supporting_papers": ["1"]}],
+        "conflicts": [{"claim_a": "X", "claim_b": "Y", "papers": ["2","3"], "note": "conflict"}],
+        "gaps": [{"description": "Thing C is unknown", "informed_by": ["1","3"]}],
         "suggested_direction": "A highly specific, concrete, detailed, actionable research direction involving methodology X, variables Y, and evaluating outcome Z in a novel context."
     }
     '''
@@ -34,8 +42,9 @@ def _mock_gap_analysis_vague(*args, **kwargs):
     """Simulate Gemini returning a vague direction."""
     return '''
     {
-        "well_covered": ["Thing A is known [1]."],
-        "gaps": ["Thing B is a gap [2]."],
+        "consensus": [{"claim": "Thing A is known.", "supporting_papers": ["1"]}],
+        "conflicts": [],
+        "gaps": [{"description": "Thing B is a gap", "informed_by": ["2"]}],
         "suggested_direction": "More research is needed to explore this topic further."
     }
     '''
@@ -59,12 +68,13 @@ class TestGapAnalysisEndpoint:
         response = client.post("/api/gap-analysis", json={"topic": "ferroelectric nematic liquid crystal"})
         assert response.status_code == 200
         data = response.json()
-        assert "well_covered" in data
+        assert "consensus" in data
+        assert "conflicts" in data
         assert "gaps" in data
         assert "suggested_direction" in data
         assert "references" in data
         assert len(data["gaps"]) == 1
-        assert "Thing C is unknown" in data["gaps"][0]
+        assert "Thing C is unknown" in data["gaps"][0]["description"]
         assert "vagueness_warning" not in data
 
     @patch("ai.gap_analysis.extract_evidence", new_callable=AsyncMock)
@@ -90,6 +100,29 @@ class TestGapAnalysisEndpoint:
         mock_search.return_value = DUMMY_PAPERS
         mock_filter.return_value = DUMMY_PAPERS
         mock_gen.side_effect = _mock_gap_analysis_vague # Always return vague
+
+        response = client.post("/api/gap-analysis", json={"topic": "ferroelectric nematic liquid crystal"})
+        assert response.status_code == 200
+        data = response.json()
+        assert data.get("vagueness_warning") is True
+        assert mock_gen.call_count == 2 # Initial + 1 retry
+
+    @patch("ai.gap_analysis.extract_evidence", new_callable=AsyncMock)
+    @patch("ai.gap_analysis.search_all", new_callable=AsyncMock)
+    @patch("ai.gap_analysis._filter_relevant_papers", new_callable=AsyncMock)
+    @patch("ai.gap_analysis.generate_completion", new_callable=AsyncMock)
+    def test_gap_analysis_vagueness_rejection_empty_synthesis(self, mock_gen, mock_filter, mock_search, mock_extract):
+        mock_extract.return_value = {"objective": "Mock objective"}
+        mock_search.return_value = DUMMY_PAPERS # 3 papers
+        mock_filter.return_value = DUMMY_PAPERS
+        mock_gen.side_effect = lambda *a, **k: '''
+        {
+            "consensus": [],
+            "conflicts": [],
+            "gaps": [{"description": "gap", "informed_by": ["1"]}],
+            "suggested_direction": "A highly specific, concrete, detailed, actionable research direction involving methodology X, variables Y, and evaluating outcome Z in a novel context."
+        }
+        '''
 
         response = client.post("/api/gap-analysis", json={"topic": "ferroelectric nematic liquid crystal"})
         assert response.status_code == 200
