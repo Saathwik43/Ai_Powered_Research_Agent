@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, TrendingUp, ArrowUpRight, ExternalLink, FileText, X } from 'lucide-react';
+import { Search, TrendingUp, ArrowUpRight, ExternalLink, FileText, X, Sparkles } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { useAuth } from '../context/AuthContext';
-import { Player } from '@lottiefiles/react-lottie-player';
-import loadingAnimation from '../assets/groovyWalk.json';
+import { Spinner, SkeletonList } from '../components/Loader';
 import { useNavigate } from 'react-router-dom';
 
 const SUGGESTIONS = [
@@ -185,7 +184,7 @@ export default function Dashboard() {
             )}
           </div>
           <button className="btn btn-primary" onClick={() => discover()} disabled={loading}>
-            {loading ? <><Spin /> Discovering...</> : <><Search size={14} /> Discover</>}
+            {loading ? <><Spinner size={14} /> Discovering...</> : <><Search size={14} /> Discover</>}
           </button>
         </div>
         {error && (
@@ -195,8 +194,71 @@ export default function Dashboard() {
         )}
       </div>
 
+      {loading && (
+        <div style={{ marginTop: '2rem' }}>
+          <h2 style={{ fontSize: '1.25rem', fontWeight: 600, margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Sparkles size={18} style={{ color: 'var(--primary)' }} /> Finding relevant literature...
+          </h2>
+          <SkeletonList count={4} />
+        </div>
+      )}
+
+      {/* Preloaded Neat Data (Empty State) */}
+      {!loading && results.length === 0 && !error && !activeCategory && (
+        <div className="dashboard-welcome animate-fade-in" style={{ marginTop: '1rem', marginBottom: '3rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem' }}>
+            
+            {/* Trending Research Domains */}
+            <div>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text)' }}>
+                <TrendingUp size={16} style={{ color: 'var(--primary)' }} /> Trending Research Domains
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                {[
+                  { title: "Machine Learning in Healthcare", tag: "AI/Medical", trend: "+12%" },
+                  { title: "Quantum Computing Algorithms", tag: "Physics/CS", trend: "+8%" },
+                  { title: "LLM Alignment and Safety", tag: "AI/Ethics", trend: "+24%" },
+                  { title: "CRISPR Gene Editing", tag: "Bio/Genetics", trend: "+18%" }
+                ].map((item, i) => (
+                  <div key={item.title} onClick={() => discover(item.title)} className="glass-panel animate-slide-up" style={{ padding: '1.25rem', cursor: 'pointer', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', animationDelay: `${i * 0.05}s` }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text)' }}>{item.title}</div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-subtle)', marginTop: '0.35rem' }}>{item.tag}</div>
+                    </div>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--success)', background: 'rgba(39, 201, 63, 0.12)', padding: '0.25rem 0.65rem', borderRadius: '999px' }}>{item.trend}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Recent Activity */}
+            <div>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text)' }}>
+                <FileText size={16} style={{ color: 'var(--accent)' }} /> Recent Workspace Activity
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                {[
+                  { action: "Saved Paper", title: "Attention Is All You Need", time: "2 hours ago" },
+                  { action: "Draft Updated", title: "Literature Survey: Neural Nets", time: "Yesterday" },
+                  { action: "Venue Matched", title: "Nature Machine Intelligence", time: "2 days ago" }
+                ].map((act, i) => (
+                  <div key={i} className="glass-panel animate-slide-up" style={{ padding: '1.25rem', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '0.5rem', animationDelay: `${i * 0.1}s` }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{act.action}</span>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{act.time}</span>
+                    </div>
+                    <div style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--text)' }}>{act.title}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
       {/* AI Results */}
-      {results.length > 0 && (
+      {!loading && results.length > 0 && (
         <div style={{ marginBottom: '2rem' }}>
           <div style={{ background: 'var(--accent-light)', border: '1px solid rgba(255,77,0,0.2)', borderRadius: 'var(--radius-lg)', padding: '0.9rem 1rem', marginBottom: '1rem', color: 'var(--text)', fontSize: '0.9rem', fontWeight: 700 }}>
             Topic suggestions are ready. Related research papers are shown below so you can continue from discovery into reading.
@@ -227,7 +289,7 @@ export default function Dashboard() {
                 Open Literature Survey <ArrowUpRight size={14} />
               </button>
             </div>
-            {papersLoading && <p style={{ margin: 0, color: 'var(--text-muted)' }}><Spin /> Loading related papers...</p>}
+            {papersLoading && <p style={{ margin: 0, color: 'var(--text-muted)' }}><Spinner size={16} /> Loading related papers...</p>}
             {!papersLoading && relatedPapers.length === 0 && (
               <p style={{ margin: 0, color: 'var(--text-muted)' }}>No related papers were found for this search.</p>
             )}
@@ -330,7 +392,7 @@ export default function Dashboard() {
 
           {catLoading && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: 'var(--text-muted)', fontSize: '0.9rem', padding: '1.5rem 0' }}>
-              <Spin /> Loading papers...
+              <Spinner size={20} /> Loading papers...
             </div>
           )}
 
@@ -362,12 +424,6 @@ export default function Dashboard() {
         </div>
       )}
 
-      {!results.length && !loading && !activeCategory && !hasSearched && (
-        <p style={{ marginTop: '1.5rem', textAlign: 'center', color: 'var(--text-subtle)', fontSize: '0.88rem' }}>
-          Type a domain above or click a field to explore research.
-        </p>
-      )}
-
       {!results.length && !loading && !activeCategory && hasSearched && !error && (
         <div style={{ marginTop: '2rem', textAlign: 'center', padding: '3rem 1.5rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)' }}>
           <Search size={32} style={{ color: 'var(--text-subtle)', marginBottom: '1rem', opacity: 0.5 }} />
@@ -378,9 +434,3 @@ export default function Dashboard() {
     </div>
   );
 }
-
-const Spin = () => (
-  <span style={{ width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', verticalAlign: 'middle', marginRight: '0.35rem' }}>
-    <Player autoplay loop src={loadingAnimation} style={{ height: '100%', width: '100%' }} />
-  </span>
-);

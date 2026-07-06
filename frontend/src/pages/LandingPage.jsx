@@ -52,11 +52,11 @@ const LandingPage = () => {
       </nav>
 
       <main>
-        <section className="landing-hero animate-fade-in">
+        <section className="landing-hero">
           <div className="hero-copy">
             <div className="hero-kicker">
-              <Zap size={15} />
-              Research planning, writing, and venue fit in one workspace
+              <Sparkles size={15} />
+              The unified research workspace
             </div>
             <h1>Research Agent</h1>
             <p className="hero-lede">
@@ -64,10 +64,10 @@ const LandingPage = () => {
               drafting manuscripts, and choosing publication venues without switching tools.
             </p>
             <div className="hero-actions">
-              <button className="btn btn-primary hero-primary" onClick={() => navigate('/signup')}>
+              <button className="btn hero-primary" onClick={() => navigate('/signup')}>
                 Create workspace <ArrowRight size={17} />
               </button>
-              <button className="btn btn-secondary hero-secondary" onClick={() => navigate('/login')}>
+              <button className="btn hero-secondary" onClick={() => navigate('/login')}>
                 Open existing account
               </button>
             </div>
@@ -89,10 +89,10 @@ const LandingPage = () => {
             </div>
             <div className="preview-body">
               <aside className="preview-sidebar">
-                <div className="preview-logo">RA</div>
-                <span className="active"><LayoutDashboard size={15} /> Dashboard</span>
-                <span><Library size={15} /> Literature</span>
-                <span><FileText size={15} /> Manuscript</span>
+                <div className="preview-logo"><Sparkles size={18} /></div>
+                <span className="active"><LayoutDashboard size={15} /></span>
+                <span><Library size={15} /></span>
+                <span><FileText size={15} /></span>
               </aside>
               <div className="preview-main">
                 <div className="preview-search">
@@ -122,15 +122,6 @@ const LandingPage = () => {
               </div>
             </div>
           </div>
-        </section>
-
-        <section className="workflow-strip" aria-label="Research workflow">
-          {workflow.map((item, index) => (
-            <div key={item}>
-              <span>{index + 1}</span>
-              <strong>{item}</strong>
-            </div>
-          ))}
         </section>
 
         <section className="feature-section">

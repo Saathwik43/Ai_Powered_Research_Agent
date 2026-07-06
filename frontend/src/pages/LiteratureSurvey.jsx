@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Download, ExternalLink, Save, BookOpen, FileText, X, Bookmark, Unlock, ChevronDown } from 'lucide-react';
+import { Search, Download, ExternalLink, Save, BookOpen, FileText, X, Bookmark, Unlock, ChevronDown, Sparkles } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { useAuth } from '../context/AuthContext';
-import { Player } from '@lottiefiles/react-lottie-player';
-import loadingAnimation from '../assets/groovyWalk.json';
+import { Spinner, SkeletonList } from '../components/Loader';
+
 export default function LiteratureSurvey() {
   const { authFetch } = useAuth();
   const [query, setQuery]         = useState('');
@@ -185,7 +185,7 @@ export default function LiteratureSurvey() {
           />
         </div>
         <button className="btn btn-primary" onClick={() => search()} disabled={loading}>
-          {loading ? <><Spin /> Searching...</> : <><Search size={14} /> Search</>}
+          {loading ? <Spinner size={16} /> : <><Search size={14} /> Search</>}
         </button>
       </div>
 
@@ -216,6 +216,15 @@ export default function LiteratureSurvey() {
 
       {/* Papers */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+        {loading && (
+          <div style={{ marginTop: '2rem' }}>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 600, margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Sparkles size={18} style={{ color: 'var(--primary)' }} /> Searching literature...
+            </h2>
+            <SkeletonList count={3} />
+          </div>
+        )}
+
         {!loading && papers.length === 0 && !hasSearched && !searchError && (
           <div className="empty-state">
             <BookOpen size={38} style={{ margin: '0 auto 0.875rem', color: 'var(--text-subtle)', display: 'block' }} />
@@ -305,7 +314,7 @@ export default function LiteratureSurvey() {
             <button className="btn btn-secondary" onClick={loadMore} disabled={loadingMore}
               style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 1.5rem' }}
             >
-              {loadingMore ? <><Spin /> Loading...</> : <><ChevronDown size={16} /> Load more results</>}
+              {loadingMore ? <Spinner size={16} /> : <><ChevronDown size={16} /> Load more results</>}
             </button>
           </div>
         )}
@@ -314,7 +323,7 @@ export default function LiteratureSurvey() {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
           {loadingSaved ? (
-            <div style={{ display: 'flex', justifyContent: 'center', padding: '2rem' }}><Spin /></div>
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '2rem' }}><Spinner /></div>
           ) : savedSurveys.length === 0 ? (
             <div className="empty-state">
               <Bookmark size={38} style={{ margin: '0 auto 0.875rem', color: 'var(--text-subtle)', display: 'block' }} />
@@ -342,9 +351,3 @@ export default function LiteratureSurvey() {
     </div>
   );
 }
-
-const Spin = () => (
-  <span style={{ width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', verticalAlign: 'middle', marginRight: '0.35rem' }}>
-    <Player autoplay loop src={loadingAnimation} style={{ height: '100%', width: '100%' }} />
-  </span>
-);

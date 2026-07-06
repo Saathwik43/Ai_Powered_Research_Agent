@@ -62,19 +62,20 @@ async def _filter_relevant_papers(topic: str, papers: list) -> list:
     list[dict]
         Subset of *papers* deemed relevant.
     """
+    import asyncio
     now = time.time()
-    relevant = []
-    for paper in papers:
+    
+    async def _process_paper(paper):
         # Fast-path: check if provider already scored relevance
         if "relevance_score" in paper:
             if paper["relevance_score"] >= 0.5:
-                relevant.append(paper)
+                return paper
             else:
                 logger.info(
                     f"Filtered out low-relevance paper "
                     f"(score={paper['relevance_score']}): {paper.get('title', '')}"
                 )
-            continue
+            return None
 
         # Cache-path: reuse a recent classification verdict
         ck = _cache_key(topic, paper)
@@ -82,10 +83,10 @@ async def _filter_relevant_papers(topic: str, papers: list) -> list:
             cached_relevant, cached_at = _relevance_cache[ck]
             if now - cached_at < _CACHE_TTL:
                 if cached_relevant:
-                    relevant.append(paper)
+                    return paper
                 else:
                     logger.info(f"Filtered out irrelevant paper (cached): {paper.get('title', '')}")
-                continue
+                return None
             else:
                 del _relevance_cache[ck]  # expired
 
@@ -107,14 +108,17 @@ async def _filter_relevant_papers(topic: str, papers: list) -> list:
             is_relevant = answer.strip().lower().startswith("yes")
             _relevance_cache[ck] = (is_relevant, now)
             if is_relevant:
-                relevant.append(paper)
+                return paper
             else:
                 logger.info(f"Filtered out irrelevant paper: {title}")
+                return None
         except Exception as e:
             logger.warning(
                 f"Relevance check failed for '{title}', including by default: {e}"
             )
-            relevant.append(paper)  # fail-open: include if classification fails
+            return paper  # fail-open: include if classification fails
 
+    processed_papers = await asyncio.gather(*[_process_paper(p) for p in papers])
+    relevant = [p for p in processed_papers if p is not None]
     return relevant
 

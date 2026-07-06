@@ -134,26 +134,41 @@ const Signup = () => {
 
 const AuthLayout = ({ eyebrow, title, subtitle, footer, children }) => (
   <div className="auth-page">
-    <div className="auth-shell animate-scale-in">
-      <section className="auth-panel auth-info-panel">
-        <Link to="/" className="auth-brand">
-          <span><Sparkles size={20} /></span>
-          <strong>Research Agent</strong>
-        </Link>
+    <div className="auth-shell">
+      {/* Premium Left Panel */}
+      <section className="auth-info-panel">
         <div>
-          <p className="auth-eyebrow">{eyebrow}</p>
-          <h1>{title}</h1>
-          <p className="auth-subtitle">{subtitle}</p>
+          <Link to="/" className="auth-brand">
+            <span><Sparkles size={24} /></span>
+            Research Agent
+          </Link>
         </div>
-        <div className="auth-proof">
-          <div><strong>4</strong><span>Research modules</span></div>
-          <div><strong>1</strong><span>Focused workspace</span></div>
+        <div>
+          <span className="auth-eyebrow">Accelerate Discovery</span>
+          <h1>A unified workspace for researchers.</h1>
+          <p className="auth-subtitle">Go from topic discovery to literature review, drafting, and venue matching in one seamless flow.</p>
+          
+          <div className="auth-proof">
+            <div>
+              <strong>4</strong>
+              <span>Core Modules</span>
+            </div>
+            <div>
+              <strong>1</strong>
+              <span>Seamless Workflow</span>
+            </div>
+          </div>
         </div>
       </section>
 
-      <section className="auth-panel auth-form-panel">
-        {children}
-        <p className="auth-footer">{footer}</p>
+      {/* Form Right Panel */}
+      <section className="auth-form-panel">
+        <div className="auth-form-wrapper">
+          <h2>{title}</h2>
+          <p className="auth-form-subtitle">{subtitle}</p>
+          {children}
+          <div className="auth-footer">{footer}</div>
+        </div>
       </section>
     </div>
   </div>

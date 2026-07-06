@@ -5,8 +5,7 @@ import {
   CheckCircle, AlertTriangle, ArrowRight, Zap, BookOpen
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { Player } from '@lottiefiles/react-lottie-player';
-import loadingAnimation from '../assets/groovyWalk.json';
+import { Spinner, TypingDots } from '../components/Loader';
 import './PdfAnalysis.css';
 
 const SUGGESTIONS = [
@@ -20,8 +19,8 @@ const SUGGESTIONS = [
 
 function TypingIndicator() {
   return (
-    <div className="pdf-typing-indicator">
-      <span /><span /><span />
+    <div style={{ padding: '0.25rem 0' }}>
+      <TypingDots />
     </div>
   );
 }
@@ -33,7 +32,7 @@ function MessageBubble({ msg }) {
     if (msg.isLoading) return <TypingIndicator />;
     if (msg.error) {
       return (
-        <div className="pdf-msg-error">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--danger)' }}>
           <AlertCircle size={14} />
           {msg.content}
         </div>
@@ -73,7 +72,7 @@ function MessageBubble({ msg }) {
         </div>
       );
     }
-    return <div className="pdf-msg-text">{msg.content}</div>;
+    return <div>{msg.content}</div>;
   };
 
   return (
@@ -104,7 +103,6 @@ export default function PdfAnalysis() {
   const [error, setError] = useState('');
   const [customPrompt, setCustomPrompt] = useState('');
   const [messages, setMessages] = useState([]);
-  const [docPanelOpen, setDocPanelOpen] = useState(true);
   const [isDragging, setIsDragging] = useState(false);
 
   const chatEndRef = useRef(null);
@@ -144,7 +142,6 @@ export default function PdfAnalysis() {
       const data = await res.json();
       setExtractedText(data.text);
 
-      // Welcome message after extraction
       setMessages([{
         id: Date.now(),
         role: 'assistant',
@@ -153,28 +150,21 @@ export default function PdfAnalysis() {
       }]);
     } catch (err) {
       setError(err.message || 'Error extracting PDF text. Please try again.');
+      setFile(null);
     } finally {
       setIsExtracting(false);
     }
   };
 
-  const handleInputFileChange = (e) => handleFileChange(e.target.files?.[0]);
-
-  const handleDrop = (e) => {
-    e.preventDefault();
-    setIsDragging(false);
-    handleFileChange(e.dataTransfer.files?.[0]);
-  };
-
   const runAnalysis = async (promptOverride = null) => {
     const finalPrompt = promptOverride !== null ? promptOverride : customPrompt;
-    if (!extractedText) return;
+    if (!extractedText || !finalPrompt.trim()) return;
 
     const userMsg = {
       id: Date.now(),
       role: 'user',
       type: 'text',
-      content: finalPrompt || '🔍 Run default gap analysis',
+      content: finalPrompt,
     };
     const loadingMsg = {
       id: Date.now() + 1,
@@ -185,9 +175,8 @@ export default function PdfAnalysis() {
     };
 
     setMessages(prev => [...prev, userMsg, loadingMsg]);
-    setCustomPrompt('');
+    if (promptOverride === null) setCustomPrompt('');
     setIsAnalyzing(true);
-    setError('');
 
     try {
       const res = await authFetch(
@@ -195,7 +184,7 @@ export default function PdfAnalysis() {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: extractedText, custom_prompt: finalPrompt || null }),
+          body: JSON.stringify({ text: extractedText, custom_prompt: finalPrompt }),
         }
       );
       if (!res.ok) {
@@ -230,25 +219,41 @@ export default function PdfAnalysis() {
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (customPrompt.trim()) runAnalysis();
+      runAnalysis();
     }
   };
 
-  // ── UPLOAD SCREEN ──────────────────────────────────────────
-  if (!file && !isExtracting) {
+  const reset = () => {
+    setFile(null);
+    setExtractedText('');
+    setMessages([]);
+    setError('');
+  };
+
+  if (isExtracting) {
     return (
-      <div className="pdf-upload-screen animate-fade-in">
-        <div className="pdf-upload-header">
-          <div className="pdf-upload-icon">
-            <BookOpen size={32} />
+      <div className="pdf-upload-screen">
+        <Spinner size={48} />
+        <h2 style={{ marginTop: '1.5rem', fontWeight: 600 }}>Extracting Document Text...</h2>
+        <p style={{ color: 'var(--text-subtle)' }}>This may take a few seconds.</p>
+      </div>
+    );
+  }
+
+  if (!file && !extractedText) {
+    return (
+      <div className="pdf-upload-screen">
+        <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+          <div style={{ display: 'inline-flex', padding: '1rem', background: 'var(--primary-light)', borderRadius: '50%', color: 'var(--primary)', marginBottom: '1rem' }}>
+            <FileText size={48} />
           </div>
-          <h1>PDF Analysis</h1>
-          <p>Upload a research paper to extract insights and have an AI-powered conversation about it.</p>
+          <h1 style={{ fontSize: '2rem', fontWeight: 800, margin: '0 0 0.5rem' }}>Chat with your PDF</h1>
+          <p style={{ color: 'var(--text-subtle)' }}>Upload a research paper to extract insights, find gaps, and summarize methodology.</p>
         </div>
 
         {error && (
-          <div className="pdf-error-banner">
-            <AlertCircle size={14} /> {error}
+          <div style={{ color: 'var(--danger)', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <AlertCircle size={16} /> {error}
           </div>
         )}
 
@@ -256,7 +261,12 @@ export default function PdfAnalysis() {
           className={`pdf-dropzone ${isDragging ? 'dragging' : ''}`}
           onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
           onDragLeave={() => setIsDragging(false)}
-          onDrop={handleDrop}
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsDragging(false);
+            const files = e.dataTransfer.files;
+            if (files.length) handleFileChange(files[0]);
+          }}
           onClick={() => fileInputRef.current?.click()}
         >
           <input
@@ -264,157 +274,72 @@ export default function PdfAnalysis() {
             type="file"
             accept="application/pdf"
             style={{ display: 'none' }}
-            onChange={handleInputFileChange}
+            onChange={e => handleFileChange(e.target.files?.[0])}
           />
-          <UploadCloud size={40} className="pdf-dropzone-icon" />
-          <p className="pdf-dropzone-title">Drop your PDF here</p>
-          <p className="pdf-dropzone-sub">or click to browse files</p>
-          <div className="pdf-dropzone-badge">PDF up to 10MB</div>
-        </div>
-
-        <div className="pdf-suggestion-preview">
-          <p className="pdf-suggestion-preview-label">What you can ask:</p>
-          <div className="pdf-suggestion-chips-preview">
-            {SUGGESTIONS.map((s, i) => (
-              <span key={i} className="pdf-chip-preview">
-                {s.icon} {s.label}
-              </span>
-            ))}
-          </div>
+          <UploadCloud size={48} className="pdf-dropzone-icon" />
+          <h3 style={{ fontSize: '1.2rem', fontWeight: 600, margin: '0 0 0.5rem' }}>Drop your PDF here</h3>
+          <p style={{ color: 'var(--text-subtle)', fontSize: '0.9rem', margin: 0 }}>or click to browse from your computer</p>
         </div>
       </div>
     );
   }
 
-  // ── EXTRACTING SCREEN ──────────────────────────────────────
-  if (isExtracting) {
-    return (
-      <div className="pdf-upload-screen animate-fade-in">
-        <div className="pdf-extracting">
-          <Player autoplay loop src={loadingAnimation} style={{ height: 120, width: 120 }} />
-          <h2>Processing PDF…</h2>
-          <p>Extracting text from <strong>{file?.name}</strong></p>
-        </div>
-      </div>
-    );
-  }
-
-  // ── CHAT SCREEN ──────────────────────────────────────────
   return (
-    <div className="pdf-chat-root animate-fade-in">
-
-      {/* ── Document panel ── */}
-      <div className={`pdf-doc-panel ${docPanelOpen ? 'open' : 'closed'}`}>
-        <div className="pdf-doc-header">
-          <div className="pdf-doc-title">
-            <FileText size={15} />
-            <span title={file?.name}>{file?.name}</span>
-          </div>
-          <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-            <label className="pdf-change-btn" title="Change PDF">
-              <UploadCloud size={13} />
-              <span>Change</span>
-              <input type="file" accept="application/pdf" style={{ display: 'none' }} onChange={handleInputFileChange} />
-            </label>
-            <button className="pdf-panel-toggle" onClick={() => setDocPanelOpen(o => !o)} title="Collapse panel">
-              <ChevronLeft size={15} />
+    <div className="pdf-chat-container">
+      <div className="pdf-chat-header">
+        <div className="pdf-chat-title">
+          <Bot size={20} style={{ color: 'var(--primary)' }} />
+          PDF Assistant
+        </div>
+        {file && (
+          <div className="pdf-file-badge">
+            <FileText size={14} />
+            {file.name}
+            <button onClick={reset} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', marginLeft: '0.25rem', color: 'currentColor' }}>
+              <X size={14} />
             </button>
           </div>
-        </div>
-        <div className="pdf-doc-body">
-          <pre className="pdf-extracted-text">{extractedText}</pre>
-        </div>
+        )}
       </div>
 
-      {/* ── Collapsed tab ── */}
-      {!docPanelOpen && (
-        <button className="pdf-panel-reopen" onClick={() => setDocPanelOpen(true)} title="Open document panel">
-          <ChevronRight size={15} />
-          <FileText size={14} />
-        </button>
-      )}
-
-      {/* ── Chat area ── */}
-      <div className="pdf-chat-area">
-
-        {/* Header */}
-        <div className="pdf-chat-header">
-          <div className="pdf-chat-header-left">
-            <div className="pdf-chat-avatar-sm">
-              <Sparkles size={14} />
-            </div>
-            <div>
-              <div className="pdf-chat-model-name">Research AI</div>
-              <div className="pdf-chat-model-sub">Powered by LLM analysis</div>
-            </div>
-          </div>
-          {error && (
-            <div className="pdf-error-inline">
-              <AlertCircle size={13} /> {error}
-            </div>
-          )}
-        </div>
-
-        {/* Messages */}
-        <div className="pdf-messages-scroll">
-          {messages.length === 0 && (
-            <div className="pdf-empty-chat">
-              <Sparkles size={28} />
-              <p>Ask anything about your paper</p>
-            </div>
-          )}
-          {messages.map(msg => (
-            <MessageBubble key={msg.id} msg={msg} />
-          ))}
-          <div ref={chatEndRef} />
-        </div>
-
-        {/* Suggestions */}
-        {extractedText && !isAnalyzing && (
-          <div className="pdf-suggestions-bar">
-            {SUGGESTIONS.map((s, i) => (
-              <button
-                key={i}
-                className="pdf-suggestion-pill"
-                onClick={() => runAnalysis(s.prompt)}
-                disabled={isAnalyzing}
-              >
-                <span>{s.icon}</span> {s.label}
+      <div className="pdf-messages-area">
+        {messages.map(msg => (
+          <MessageBubble key={msg.id} msg={msg} />
+        ))}
+        
+        {messages.length === 1 && (
+          <div className="pdf-suggestions">
+            {SUGGESTIONS.map(s => (
+              <button key={s.label} className="pdf-suggestion-chip" onClick={() => runAnalysis(s.prompt)}>
+                <span>{s.icon}</span>
+                <span style={{ fontWeight: 500 }}>{s.label}</span>
               </button>
             ))}
           </div>
         )}
+        <div ref={chatEndRef} style={{ height: 10 }} />
+      </div>
 
-        {/* Input bar */}
-        <div className="pdf-input-bar">
-          <label className="pdf-attach-btn" title="Change PDF">
-            <Paperclip size={17} />
-            <input type="file" accept="application/pdf" style={{ display: 'none' }} onChange={handleInputFileChange} />
-          </label>
-          <textarea
+      <div className="pdf-input-container">
+        <div className="pdf-input-wrapper">
+          <textarea 
             ref={inputRef}
-            className="pdf-input-textarea"
+            className="pdf-textarea"
+            placeholder="Ask a question about this paper..."
             value={customPrompt}
             onChange={e => setCustomPrompt(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask a question about the paper…"
-            disabled={isAnalyzing || !extractedText}
             rows={1}
+            disabled={isAnalyzing}
           />
-          <button
-            className={`pdf-send-btn ${customPrompt.trim() ? 'active' : ''}`}
+          <button 
+            className="pdf-send-btn"
             onClick={() => runAnalysis()}
-            disabled={isAnalyzing || !customPrompt.trim() || !extractedText}
-            title="Send"
+            disabled={!customPrompt.trim() || isAnalyzing}
           >
-            {isAnalyzing ? (
-              <span className="pdf-send-spinner" />
-            ) : (
-              <Send size={16} />
-            )}
+            {isAnalyzing ? <Spinner size={16} /> : <Send size={16} />}
           </button>
         </div>
-        <p className="pdf-input-hint">Press Enter to send · Shift+Enter for newline</p>
       </div>
     </div>
   );

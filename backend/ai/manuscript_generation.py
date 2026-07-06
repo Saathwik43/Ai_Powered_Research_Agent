@@ -13,6 +13,7 @@ from integrations.paper_search import search_all
 from fastapi import HTTPException
 from ai.numerical_validator import validate_numerical_claims
 from ai.evidence_extraction import extract_evidence
+from ai.citation_grounding import check_citation_grounding
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,20 @@ def _check_unverified_citations(content: str, context: str) -> dict:
         if re.search(r'[A-Z][a-z]+ et al\.?\s*\(\d{4}\)', content):
             flags["unverified_citations"] = True
     return flags
+
+
+async def _citation_flags(content: str, context: str, references_mapping: dict) -> dict:
+    """
+    Phase 3: sentence-level grounding when a numbered reference list (with
+    Phase 2 evidence) exists for this section. Falls back to the old
+    author-year regex heuristic only when there's no reference list to check
+    against — e.g. very short/context-less generations, where the writer LLM
+    occasionally invents an APA-style inline citation instead of using [N]
+    markers at all.
+    """
+    if references_mapping:
+        return await check_citation_grounding(content, references_mapping)
+    return _check_unverified_citations(content, context)
 
 
 # _filter_relevant_papers is imported from ai.relevance (shared module).
@@ -153,7 +168,7 @@ async def generate_section(topic: str, section: str, context: str, citation_styl
             cache_entry = _cache[cache_key]
             # TTL check (1 hour = 3600 seconds)
             if time.time() - cache_entry['time'] < 3600:
-                flags = _check_unverified_citations(cache_entry['content'], context)
+                flags = await _citation_flags(cache_entry['content'], context, references_mapping)
                 flags.update(validate_numerical_claims(cache_entry['content'], papers))
                 if references_mapping:
                     flags["references"] = references_mapping
@@ -175,7 +190,7 @@ async def generate_section(topic: str, section: str, context: str, citation_styl
         result = await generate_completion(system_prompt, user_prompt, max_tokens=1200, temperature=0.45, provider_override=provider_override)
         if cache_key is not None:
             _cache[cache_key] = {'content': result, 'time': time.time()}
-        flags = _check_unverified_citations(result, context)
+        flags = await _citation_flags(result, context, references_mapping)
         flags.update(validate_numerical_claims(result, papers))
         if references_mapping:
             flags["references"] = references_mapping

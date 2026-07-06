@@ -39,12 +39,14 @@ class TestManuscriptGeneration(unittest.IsolatedAsyncioTestCase):
         # Clear cache before each test
         manuscript_generation._cache.clear()
 
+    @patch('ai.manuscript_generation.check_citation_grounding', new_callable=AsyncMock)
     @patch('ai.manuscript_generation.extract_evidence', new_callable=AsyncMock)
     @patch('ai.manuscript_generation.search_all', new_callable=AsyncMock)
     @patch('ai.manuscript_generation._filter_relevant_papers', new_callable=AsyncMock)
     @patch('ai.manuscript_generation.generate_completion', new_callable=AsyncMock)
-    async def test_groq_called_first(self, mock_gen, mock_filter, mock_search, mock_extract):
+    async def test_groq_called_first(self, mock_gen, mock_filter, mock_search, mock_extract, mock_citation):
         mock_extract.return_value = {"objective": "Mock objective"}
+        mock_citation.return_value = {}
         """Verify generate_section calls generate_completion (which uses Groq first in auto)."""
         mock_search.return_value = MOCK_PAPERS
         mock_filter.return_value = MOCK_PAPERS
@@ -73,13 +75,15 @@ class TestManuscriptGeneration(unittest.IsolatedAsyncioTestCase):
         self.assertIn("methodology", result)
         self.assertIn("AI generation is temporarily unavailable", result)
 
+    @patch('ai.manuscript_generation.check_citation_grounding', new_callable=AsyncMock)
     @patch('ai.manuscript_generation.extract_evidence', new_callable=AsyncMock)
     @patch('ai.manuscript_generation.search_all', new_callable=AsyncMock)
     @patch('ai.manuscript_generation._filter_relevant_papers', new_callable=AsyncMock)
     @patch('ai.manuscript_generation.generate_completion', new_callable=AsyncMock)
-    async def test_cache_hit_skips_network(self, mock_gen, mock_filter, mock_search, mock_extract):
+    async def test_cache_hit_skips_network(self, mock_gen, mock_filter, mock_search, mock_extract, mock_citation):
         """Cached results should skip network calls."""
         mock_extract.return_value = {"objective": "Mock objective"}
+        mock_citation.return_value = {}
         mock_gen.return_value = "Fallback if missed"
         mock_search.return_value = MOCK_PAPERS
         mock_filter.return_value = MOCK_PAPERS
@@ -104,13 +108,15 @@ class TestManuscriptGeneration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, "Cached Draft", f"Cache missed! Expected Cached Draft, got {result}")
         mock_gen.assert_not_called()
 
+    @patch('ai.manuscript_generation.check_citation_grounding', new_callable=AsyncMock)
     @patch('ai.manuscript_generation.extract_evidence', new_callable=AsyncMock)
     @patch('ai.manuscript_generation.search_all', new_callable=AsyncMock)
     @patch('ai.manuscript_generation._filter_relevant_papers', new_callable=AsyncMock)
     @patch('ai.manuscript_generation.generate_completion', new_callable=AsyncMock)
-    async def test_lit_review_uses_gemini_override(self, mock_gen, mock_filter, mock_search, mock_extract):
+    async def test_lit_review_uses_gemini_override(self, mock_gen, mock_filter, mock_search, mock_extract, mock_citation):
         """lit_review section should pass provider_override='gemini'."""
         mock_extract.return_value = {"objective": "Mock objective"}
+        mock_citation.return_value = {}
         mock_search.return_value = MOCK_PAPERS
         mock_filter.return_value = MOCK_PAPERS
         mock_gen.return_value = "Gemini Lit Review Draft"
@@ -122,11 +128,12 @@ class TestManuscriptGeneration(unittest.IsolatedAsyncioTestCase):
         call_kwargs = mock_gen.call_args
         self.assertEqual(call_kwargs.kwargs.get('provider_override') or call_kwargs[1].get('provider_override'), "gemini")
 
+    @patch('ai.manuscript_generation.check_citation_grounding', new_callable=AsyncMock)
     @patch('ai.manuscript_generation.extract_evidence', new_callable=AsyncMock)
     @patch('ai.manuscript_generation.search_all', new_callable=AsyncMock)
     @patch('ai.manuscript_generation._filter_relevant_papers', new_callable=AsyncMock)
     @patch('ai.manuscript_generation.generate_completion', new_callable=AsyncMock)
-    async def test_abstract_uses_groq_not_gemini_in_auto(self, mock_gen, mock_filter, mock_search, mock_extract):
+    async def test_abstract_uses_groq_not_gemini_in_auto(self, mock_gen, mock_filter, mock_search, mock_extract, mock_citation):
         """
         REGRESSION TEST: The 'abstract' section (non-lit_review) must NOT use
         provider_override='gemini'. It should go through the standard auto
@@ -136,6 +143,7 @@ class TestManuscriptGeneration(unittest.IsolatedAsyncioTestCase):
         making every section try Gemini first.
         """
         mock_extract.return_value = {"objective": "Mock objective"}
+        mock_citation.return_value = {}
         mock_search.return_value = MOCK_PAPERS
         mock_filter.return_value = MOCK_PAPERS
         mock_gen.return_value = "Abstract content via Groq"
@@ -175,14 +183,16 @@ class TestManuscriptGeneration(unittest.IsolatedAsyncioTestCase):
         # references_mapping should be empty since < 2 papers passed
         self.assertNotIn("references", flags)
 
+    @patch('ai.manuscript_generation.check_citation_grounding', new_callable=AsyncMock)
     @patch('ai.manuscript_generation.search_all', new_callable=AsyncMock)
     @patch('ai.manuscript_generation._filter_relevant_papers', new_callable=AsyncMock)
     @patch('ai.manuscript_generation.generate_completion', new_callable=AsyncMock)
-    async def test_filter_called_with_papers(self, mock_gen, mock_filter, mock_search):
+    async def test_filter_called_with_papers(self, mock_gen, mock_filter, mock_search, mock_citation):
         """Verify _filter_relevant_papers is called when search returns papers."""
         mock_search.return_value = MOCK_PAPERS
         mock_filter.return_value = MOCK_PAPERS
         mock_gen.return_value = "Draft"
+        mock_citation.return_value = {}
 
         await generate_section("Topic F", "methodology", "Context F")
 

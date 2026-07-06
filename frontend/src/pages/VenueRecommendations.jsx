@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Search, Star, ExternalLink, X, CheckCircle, BookMarked } from 'lucide-react';
+import { Search, Star, ExternalLink, X, CheckCircle, BookMarked, Sparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { Player } from '@lottiefiles/react-lottie-player';
-import loadingAnimation from '../assets/groovyWalk.json';
+import { Spinner, SkeletonList } from '../components/Loader';
+
 const matchColor = m => m >= 90 ? 'var(--success)' : m >= 75 ? 'var(--primary)' : m >= 60 ? 'var(--warning)' : 'var(--text-muted)';
 
 function GuidelinesModal({ g, onClose }) {
@@ -156,7 +156,7 @@ export default function VenueRecommendations() {
         <div className="responsive-row" style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
           <textarea placeholder="Paste your abstract for more accurate matching (optional)..." value={abstract} onChange={e => setAbstract(e.target.value)} style={{ flex: 1, minHeight: '88px', resize: 'vertical' }} />
           <button className="btn btn-primary responsive-fit" onClick={recommend} disabled={loading || !domain.trim()} style={{ minWidth: '130px', height: '88px' }}>
-            {loading ? <><Spin /> Finding...</> : <><Search size={14} /> Find Venues</>}
+            {loading ? <Spinner size={16} /> : <><Search size={14} /> Find Venues</>}
           </button>
         </div>
 
@@ -167,64 +167,69 @@ export default function VenueRecommendations() {
         )}
       </div>
 
+      {loading && (
+        <div style={{ marginTop: '2rem' }}>
+          <h2 style={{ fontSize: '1.25rem', fontWeight: 600, margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Sparkles size={18} style={{ color: 'var(--primary)' }} /> Analyzing topic and finding venues...
+          </h2>
+          <SkeletonList count={3} />
+        </div>
+      )}
+
       {/* Venue grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1rem' }}>
-        {venues.length === 0 && !loading && !hasSearched && (
-          <div className="empty-state" style={{ gridColumn: '1 / -1' }}>
-            <BookMarked size={38} style={{ margin: '0 auto 0.875rem', color: 'var(--text-subtle)', display: 'block' }} />
-            Enter your research domain to get venue recommendations.
-          </div>
-        )}
-        
-        {venues.length === 0 && !loading && hasSearched && !error && (
-          <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '3rem 1.5rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)' }}>
-            <Search size={32} style={{ color: 'var(--text-subtle)', marginBottom: '1rem', opacity: 0.5 }} />
-            <h3 style={{ margin: '0 0 0.5rem', fontSize: '1.1rem', color: 'var(--text)' }}>No venues found for "{domain}"</h3>
-            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>Try a different research domain.</p>
-          </div>
-        )}
-        {venues.map((v, i) => (
-          <div key={v.id || i} className="animate-slide-up" style={{ animationDelay: `${i * 0.07}s`, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.5rem', transition: 'transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease' }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(0,87,255,0.32)'; e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = 'var(--shadow-glow)'; }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = 'none'; }}
-          >
-            {/* Name + match */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.875rem' }}>
-              <div style={{ flex: 1, minWidth: 0, paddingRight: '0.75rem' }}>
-                <h3 style={{ margin: '0 0 0.35rem', fontSize: '0.97rem', lineHeight: 1.35 }}>{v.name}</h3>
-                <span style={{ fontSize: '0.72rem', color: 'var(--text-subtle)', background: 'var(--bg-elevated)', border: '1px solid var(--border)', padding: '0.15rem 0.55rem', borderRadius: '999px' }}>{v.type}</span>
+      {!loading && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1rem' }}>
+          {venues.length === 0 && !hasSearched && (
+            <div className="empty-state" style={{ gridColumn: '1 / -1' }}>
+              <BookMarked size={38} style={{ margin: '0 auto 0.875rem', color: 'var(--text-subtle)', display: 'block' }} />
+              Enter your research domain to get venue recommendations.
+            </div>
+          )}
+          
+          {venues.length === 0 && hasSearched && !error && (
+            <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '3rem 1.5rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)' }}>
+              <Search size={32} style={{ color: 'var(--text-subtle)', marginBottom: '1rem', opacity: 0.5 }} />
+              <h3 style={{ margin: '0 0 0.5rem', fontSize: '1.1rem', color: 'var(--text)' }}>No venues found for "{domain}"</h3>
+              <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>Try a different research domain.</p>
+            </div>
+          )}
+          {venues.map((v, i) => (
+            <div key={v.id || i} className="animate-slide-up" style={{ animationDelay: `${i * 0.07}s`, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.5rem', transition: 'transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease' }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(0,87,255,0.32)'; e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = 'var(--shadow-glow)'; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = 'none'; }}
+            >
+              {/* Name + match */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.875rem' }}>
+                <div style={{ flex: 1, minWidth: 0, paddingRight: '0.75rem' }}>
+                  <h3 style={{ margin: '0 0 0.35rem', fontSize: '0.97rem', lineHeight: 1.35 }}>{v.name}</h3>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-subtle)', background: 'var(--bg-elevated)', border: '1px solid var(--border)', padding: '0.15rem 0.55rem', borderRadius: '999px' }}>{v.type}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontWeight: 700, fontSize: '1rem', color: matchColor(v.match), flexShrink: 0 }}>
+                  <Star size={14} fill={matchColor(v.match)} color={matchColor(v.match)} />{v.match}%
+                </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontWeight: 700, fontSize: '1rem', color: matchColor(v.match), flexShrink: 0 }}>
-                <Star size={14} fill={matchColor(v.match)} color={matchColor(v.match)} />{v.match}%
+
+              {/* Details */}
+              <div style={{ fontSize: '0.83rem', color: 'var(--text-muted)', marginBottom: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                <span><span style={{ color: 'var(--text-subtle)', fontWeight: 600 }}>Impact:</span> {v.impact}</span>
+                <span><span style={{ color: 'var(--text-subtle)', fontWeight: 600 }}>Scope:</span> {v.scope}</span>
+              </div>
+
+              {/* Actions */}
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button className="btn btn-primary" style={{ flex: 1, fontSize: '0.83rem' }} onClick={() => viewGuidelines(v)} disabled={guideLoading === (v.id || v.name)}>
+                  {guideLoading === (v.id || v.name) ? <Spinner size={16} /> : 'View Guidelines'}
+                </button>
+                <button className="btn btn-icon" onClick={() => window.open(`https://scholar.google.com/scholar?q=${encodeURIComponent(v.name)}`, '_blank')} title="Search on Google Scholar">
+                  <ExternalLink size={14} />
+                </button>
               </div>
             </div>
-
-            {/* Details */}
-            <div style={{ fontSize: '0.83rem', color: 'var(--text-muted)', marginBottom: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-              <span><span style={{ color: 'var(--text-subtle)', fontWeight: 600 }}>Impact:</span> {v.impact}</span>
-              <span><span style={{ color: 'var(--text-subtle)', fontWeight: 600 }}>Scope:</span> {v.scope}</span>
-            </div>
-
-            {/* Actions */}
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button className="btn btn-primary" style={{ flex: 1, fontSize: '0.83rem' }} onClick={() => viewGuidelines(v)} disabled={guideLoading === (v.id || v.name)}>
-                {guideLoading === (v.id || v.name) ? <><Spin /> Loading...</> : 'View Guidelines'}
-              </button>
-              <button className="btn btn-icon" onClick={() => window.open(`https://scholar.google.com/scholar?q=${encodeURIComponent(v.name)}`, '_blank')} title="Search on Google Scholar">
-                <ExternalLink size={14} />
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {guidelines && <GuidelinesModal g={guidelines} onClose={() => setGuidelines(null)} />}
     </div>
   );
 }
-
-const Spin = () => (
-  <span style={{ width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', verticalAlign: 'middle', marginRight: '0.35rem' }}>
-    <Player autoplay loop src={loadingAnimation} style={{ height: '100%', width: '100%' }} />
-  </span>
-);

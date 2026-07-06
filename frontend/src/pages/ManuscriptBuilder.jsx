@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { CheckCircle, Circle, Save, FileText, Wand2, FolderOpen, X, Search } from 'lucide-react';
+import { CheckCircle, Circle, Save, FileText, Wand2, FolderOpen, X, Search, Sparkles, Send } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { Player } from '@lottiefiles/react-lottie-player';
-import loadingAnimation from '../assets/groovyWalk.json';
+import { Spinner, SkeletonText } from '../components/Loader';
+
 const STEPS = [
   { id: 'abstract',    label: 'Abstract' },
   { id: 'lit_review',  label: 'Literature Review' },
@@ -247,7 +247,7 @@ export default function ManuscriptBuilder() {
             <h2 style={{ margin: 0, fontSize: '1.1rem' }}>{currentStep?.label}</h2>
             <div className="responsive-actions" style={{ display: 'flex', gap: '0.5rem' }}>
               <button className="btn btn-secondary" onClick={generate} disabled={generating || !topic.trim()}>
-                {generating ? <><Spin /> Writing...</> : <><Wand2 size={14} /> Generate</>}
+                {generating ? <Spinner size={14} /> : <><Sparkles size={14} /> Generate</>}
               </button>
               <button className="btn btn-ghost" onClick={save} disabled={!topic || !Object.keys(content).length || saveStatus === 'saving'}>
                 <Save size={14} /> {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : 'Save'}
@@ -325,16 +325,27 @@ export default function ManuscriptBuilder() {
             </div>
           )}
 
-          <textarea
-            placeholder={`Write your ${currentStep?.label.toLowerCase()} here, or click Generate for AI assistance...`}
-            value={content[active] || ''}
-            onChange={e => setContent(prev => ({ ...prev, [active]: e.target.value }))}
-            style={{ width: '100%', minHeight: '420px', padding: '1rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', color: 'var(--text)', fontFamily: 'inherit', fontSize: '0.93rem', resize: 'vertical', outline: 'none', lineHeight: 1.75, transition: 'var(--transition)', boxSizing: 'border-box' }}
-            onFocus={e => { e.target.style.borderColor = 'var(--border-focus)'; e.target.style.boxShadow = '0 0 0 3px var(--primary-light)'; }}
-            onBlur={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.boxShadow = 'none'; }}
-          />
+          {generating && (
+            <div style={{ marginTop: '2rem' }}>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 600, margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)' }}>
+                <Sparkles size={18} style={{ color: 'var(--primary)' }} /> Generating manuscript...
+              </h2>
+              <SkeletonText lines={12} />
+            </div>
+          )}
+
+          {!generating && (
+            <textarea
+              placeholder={`Write your ${currentStep?.label.toLowerCase()} here, or click Generate for AI assistance...`}
+              value={content[active] || ''}
+              onChange={e => setContent(prev => ({ ...prev, [active]: e.target.value }))}
+              style={{ width: '100%', minHeight: '420px', padding: '1rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', color: 'var(--text)', fontFamily: 'inherit', fontSize: '0.93rem', resize: 'vertical', outline: 'none', lineHeight: 1.75, transition: 'var(--transition)', boxSizing: 'border-box' }}
+              onFocus={e => { e.target.style.borderColor = 'var(--border-focus)'; e.target.style.boxShadow = '0 0 0 3px var(--primary-light)'; }}
+              onBlur={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.boxShadow = 'none'; }}
+            />
+          )}
           
-          {content[active] && (
+          {content[active] && !generating && (
             <div style={{ marginTop: '1rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '1.25rem' }}>
               <p style={{ margin: '0 0 0.75rem 0', fontSize: '0.85rem', fontWeight: 600 }}>Revise Section with AI</p>
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -347,7 +358,7 @@ export default function ManuscriptBuilder() {
                   onKeyDown={e => { if (e.key === 'Enter') applyEdit(); }}
                 />
                 <button className="btn btn-primary" onClick={applyEdit} disabled={editing || generating || !editPrompt.trim()}>
-                  {editing ? <><Spin /> Revising...</> : 'Apply Revision'}
+                  {editing ? <Spinner size={14} /> : <Send size={14} />} Apply Revision
                 </button>
               </div>
               {editError && <p style={{ color: 'var(--danger)', fontSize: '0.8rem', marginTop: '0.5rem', marginBottom: 0 }}>{editError}</p>}
@@ -398,9 +409,3 @@ export default function ManuscriptBuilder() {
     </div>
   );
 }
-
-const Spin = () => (
-  <span style={{ width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', verticalAlign: 'middle', marginRight: '0.35rem' }}>
-    <Player autoplay loop src={loadingAnimation} style={{ height: '100%', width: '100%' }} />
-  </span>
-);
