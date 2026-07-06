@@ -11,6 +11,7 @@ from ai.relevance import _filter_relevant_papers
 from ai.citation_format import format_citation
 from integrations.paper_search import search_all
 from fastapi import HTTPException
+from ai.numerical_validator import validate_numerical_claims
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +134,7 @@ async def generate_section(topic: str, section: str, context: str, citation_styl
             # TTL check (1 hour = 3600 seconds)
             if time.time() - cache_entry['time'] < 3600:
                 flags = _check_unverified_citations(cache_entry['content'], context)
+                flags.update(validate_numerical_claims(cache_entry['content'], papers))
                 if references_mapping:
                     flags["references"] = references_mapping
                     flags["formatted_references"] = {
@@ -154,6 +156,7 @@ async def generate_section(topic: str, section: str, context: str, citation_styl
         if cache_key is not None:
             _cache[cache_key] = {'content': result, 'time': time.time()}
         flags = _check_unverified_citations(result, context)
+        flags.update(validate_numerical_claims(result, papers))
         if references_mapping:
             flags["references"] = references_mapping
             flags["formatted_references"] = {

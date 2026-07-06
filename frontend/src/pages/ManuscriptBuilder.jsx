@@ -28,6 +28,7 @@ export default function ManuscriptBuilder() {
   const [editError, setEditError]   = useState('');
   const [generateError, setGenerateError] = useState('');
   const [unverifiedWarning, setUnverifiedWarning] = useState('');
+  const [unverifiedNumbers, setUnverifiedNumbers] = useState([]);
   
   // Phase B additions
   const [citationStyle, setCitationStyle] = useState('ieee');
@@ -42,6 +43,7 @@ export default function ManuscriptBuilder() {
     setGenerating(true);
     setGenerateError('');
     setUnverifiedWarning('');
+    setUnverifiedNumbers([]);
     try {
       const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript`, {
         method: 'POST',
@@ -72,6 +74,9 @@ export default function ManuscriptBuilder() {
       }
       if (data.unverified_citations) {
         setUnverifiedWarning('Warning: The generated text contains citations that could not be verified against the provided context. Please verify them independently.');
+      }
+      if (data.unverified_numbers && data.unverified_numbers.length > 0) {
+        setUnverifiedNumbers(data.unverified_numbers);
       }
       
       if (data.gap_analysis) {
@@ -310,6 +315,15 @@ export default function ManuscriptBuilder() {
             </div>
           )}
           {unverifiedWarning && <p style={{ color: 'var(--warning)', fontSize: '0.85rem', marginBottom: '1rem', background: 'rgba(255,176,0,0.1)', padding: '0.75rem', borderRadius: 'var(--radius-md)' }}>{unverifiedWarning}</p>}
+          {unverifiedNumbers.length > 0 && (
+            <div style={{ color: 'var(--danger)', fontSize: '0.85rem', marginBottom: '1rem', background: 'rgba(229,28,35,0.08)', border: '1px solid rgba(229,28,35,0.2)', padding: '0.75rem', borderRadius: 'var(--radius-md)' }}>
+              <p style={{ margin: '0 0 0.5rem 0', fontWeight: 600 }}>⚠️ Unverified Statistics Detected</p>
+              <p style={{ margin: '0 0 0.5rem 0' }}>The following numbers were not found in the source papers and may be hallucinated:</p>
+              <ul style={{ margin: 0, paddingLeft: '1.5rem' }}>
+                {unverifiedNumbers.map((num, i) => <li key={i}><strong>{num}</strong></li>)}
+              </ul>
+            </div>
+          )}
 
           <textarea
             placeholder={`Write your ${currentStep?.label.toLowerCase()} here, or click Generate for AI assistance...`}
