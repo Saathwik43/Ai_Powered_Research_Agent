@@ -311,34 +311,14 @@ export default function ManuscriptBuilder() {
           )}
           {unverifiedWarning && <p style={{ color: 'var(--warning)', fontSize: '0.85rem', marginBottom: '1rem', background: 'rgba(255,176,0,0.1)', padding: '0.75rem', borderRadius: 'var(--radius-md)' }}>{unverifiedWarning}</p>}
 
-          {active === 'references' && manuscriptRefs && Object.keys(manuscriptRefs).length > 0 ? (
-            <div style={{ width: '100%', minHeight: '420px', padding: '1.5rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', color: 'var(--text)', fontFamily: 'inherit', fontSize: '0.93rem', lineHeight: 1.75, boxSizing: 'border-box', overflowY: 'auto' }}>
-              <h3 style={{ marginTop: 0, marginBottom: '1rem', fontSize: '1.05rem' }}>Formatted References ({citationStyle.toUpperCase()})</h3>
-              {Object.entries(manuscriptRefs).map(([num, citeStr]) => (
-                <div key={num} style={{ marginBottom: '1rem', paddingLeft: '1.5rem', textIndent: '-1.5rem' }}>
-                  [{num}] {citeStr}
-                </div>
-              ))}
-              <div style={{ marginTop: '2rem', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
-                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Note: This list is compiled from the cited sources. You can still generate text below if you need manual edits.</p>
-                <textarea
-                  placeholder="Additional reference notes..."
-                  value={content[active] || ''}
-                  onChange={e => setContent(prev => ({ ...prev, [active]: e.target.value }))}
-                  style={{ width: '100%', minHeight: '100px', padding: '1rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', color: 'var(--text)', fontFamily: 'inherit', fontSize: '0.93rem', resize: 'vertical', outline: 'none', marginTop: '0.5rem' }}
-                />
-              </div>
-            </div>
-          ) : (
-            <textarea
-              placeholder={`Write your ${currentStep?.label.toLowerCase()} here, or click Generate for AI assistance...`}
-              value={content[active] || ''}
-              onChange={e => setContent(prev => ({ ...prev, [active]: e.target.value }))}
-              style={{ width: '100%', minHeight: '420px', padding: '1rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', color: 'var(--text)', fontFamily: 'inherit', fontSize: '0.93rem', resize: 'vertical', outline: 'none', lineHeight: 1.75, transition: 'var(--transition)', boxSizing: 'border-box' }}
-              onFocus={e => { e.target.style.borderColor = 'var(--border-focus)'; e.target.style.boxShadow = '0 0 0 3px var(--primary-light)'; }}
-              onBlur={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.boxShadow = 'none'; }}
-            />
-          )}
+          <textarea
+            placeholder={`Write your ${currentStep?.label.toLowerCase()} here, or click Generate for AI assistance...`}
+            value={content[active] || ''}
+            onChange={e => setContent(prev => ({ ...prev, [active]: e.target.value }))}
+            style={{ width: '100%', minHeight: '420px', padding: '1rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', color: 'var(--text)', fontFamily: 'inherit', fontSize: '0.93rem', resize: 'vertical', outline: 'none', lineHeight: 1.75, transition: 'var(--transition)', boxSizing: 'border-box' }}
+            onFocus={e => { e.target.style.borderColor = 'var(--border-focus)'; e.target.style.boxShadow = '0 0 0 3px var(--primary-light)'; }}
+            onBlur={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.boxShadow = 'none'; }}
+          />
           
           {content[active] && (
             <div style={{ marginTop: '1rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '1.25rem' }}>

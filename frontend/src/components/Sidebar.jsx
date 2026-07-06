@@ -11,6 +11,7 @@ const Sidebar = ({ open, onClose }) => {
   const navItems = [
     { name: 'Dashboard', path: '/dashboard', icon: <LayoutDashboard size={18} /> },
     { name: 'Literature Survey', path: '/literature-survey', icon: <BookOpen size={18} /> },
+    { name: 'PDF Analysis', path: '/pdf-analysis', icon: <BookOpen size={18} /> },
     { name: 'Manuscript Builder', path: '/manuscript-builder', icon: <PenTool size={18} /> },
     { name: 'Venue Recommendations', path: '/venue-recommendations', icon: <LayoutList size={18} /> },
   ];

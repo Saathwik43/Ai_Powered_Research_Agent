@@ -1,7 +1,9 @@
-from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Depends
-from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+load_dotenv()
+
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, HTTPException, Depends, File, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timezone
 import logging
 import asyncio
@@ -21,6 +23,7 @@ from ai.manuscript_generation import generate_section, edit_section
 from ai.gap_analysis import analyze_gaps
 from ai.venue_recommendation import recommend_venues
 from ai.guideline_alignment import align_guidelines
+from ai.pdf_analysis import extract_pdf_text, analyze_uploaded_paper
 from integrations.paper_search import search_all
 from ai.relevance import _filter_relevant_papers
 from integrations.arxiv import fetch_category_feed, fetch_multiple_feeds, CATEGORY_MAP
@@ -33,8 +36,6 @@ from integrations.github_knowledge import (
 
 from database import db, ping_db, ensure_indexes
 from auth import signup_user, login_user, get_current_user, seed_admin
-
-load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -122,6 +123,10 @@ class ManuscriptEditPayload(BaseModel):
 class ManuscriptSavePayload(BaseModel):
     topic: str
     content: Dict[str, Any]
+
+class PdfAnalyzePayload(BaseModel):
+    text: str
+    custom_prompt: Optional[str] = None
 
 class VenuePayload(BaseModel):
     abstract: str = ""
@@ -360,6 +365,27 @@ async def list_manuscript_drafts(current_user: dict = Depends(get_current_user))
     return {"data": drafts}
 
 
+@app.post("/api/manuscript/extract-pdf")
+@limiter.limit("10/minute")
+async def extract_pdf_endpoint(request: Request, file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
+    if not file.filename.lower().endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="File must be a PDF")
+    
+    contents = await file.read()
+    if len(contents) > 10 * 1024 * 1024:  # 10MB limit
+        raise HTTPException(status_code=400, detail="File too large. Limit is 10MB.")
+        
+    text = extract_pdf_text(contents)
+    return {"text": text}
+
+
+@app.post("/api/manuscript/analyze-pdf")
+@limiter.limit("5/minute")
+async def analyze_pdf_endpoint(request: Request, payload: PdfAnalyzePayload, current_user: dict = Depends(get_current_user)):
+    result = await analyze_uploaded_paper(payload.text, payload.custom_prompt)
+    return result
+
+
 # ─── Venue Recommendations ─────────────────────────────────────────────────────
 
 @app.post("/api/venues")
@@ -422,3 +448,5 @@ async def list_literature_surveys(current_user: dict = Depends(get_current_user)
     cursor = collection.find({"user_id": user_id}, {"_id": 0, "user_id": 0}).sort("_id", -1)
     surveys = [doc async for doc in cursor]
     return {"data": surveys}
+
+# Trigger reload

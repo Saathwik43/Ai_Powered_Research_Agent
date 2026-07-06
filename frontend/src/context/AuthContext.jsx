@@ -32,11 +32,16 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const authFetch = useCallback(async (url, options = {}) => {
+    const isFormData = options.body instanceof FormData;
     const headers = {
-      'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.headers || {}),
     };
+
+    if (!isFormData && !headers['Content-Type']) {
+      headers['Content-Type'] = 'application/json';
+    }
+
     return fetch(url, { ...options, headers });
   }, [token]);
 

@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard';
 import LiteratureSurvey from './pages/LiteratureSurvey';
 import ManuscriptBuilder from './pages/ManuscriptBuilder';
 import VenueRecommendations from './pages/VenueRecommendations';
+import PdfAnalysis from './pages/PdfAnalysis';
 import LandingPage from './pages/LandingPage';
 import { Login, Signup } from './pages/AuthPages';
 import './App.css';
@@ -41,6 +42,7 @@ const ProtectedLayout = () => {
         <Routes>
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/literature-survey" element={<LiteratureSurvey />} />
+          <Route path="/pdf-analysis" element={<PdfAnalysis />} />
           <Route path="/manuscript-builder" element={<ManuscriptBuilder />} />
           <Route path="/venue-recommendations" element={<VenueRecommendations />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />

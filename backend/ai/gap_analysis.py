@@ -69,13 +69,13 @@ Based on ONLY the papers listed above, produce a JSON object with exactly three 
 Output ONLY valid JSON with these three fields. No markdown, no explanation, no preamble."""
 
 
-async def analyze_gaps(topic: str) -> dict:
+async def analyze_gaps(topic: str, papers: list = None) -> dict:
     """
     Run structured gap analysis for *topic*.
 
-    1. Retrieves papers via search_all + relevance filter (reusing existing infra).
+    1. Retrieves papers via search_all + relevance filter (reusing existing infra) if not provided.
     2. If < 2 papers pass filter, returns insufficient_literature.
-    3. Prompts Gemini Pro for structured gap/opportunity JSON.
+    3. Prompts Groq for structured gap/opportunity JSON.
     4. Applies vagueness heuristic; retries once on failure.
 
     Returns
@@ -90,9 +90,10 @@ async def analyze_gaps(topic: str) -> dict:
         raise HTTPException(status_code=400, detail="The provided topic is unclear or appears to be nonsense.")
 
     # Retrieve and filter
-    papers = await search_all(topic, limit=15) or []
-    if papers:
-        papers = await _filter_relevant_papers(topic, papers)
+    if papers is None:
+        papers = await search_all(topic, limit=15) or []
+        if papers:
+            papers = await _filter_relevant_papers(topic, papers)
 
     if len(papers) < 2:
         return {
@@ -135,7 +136,7 @@ async def analyze_gaps(topic: str) -> dict:
                 user_prompt=prompt,
                 max_tokens=1200,
                 temperature=0.3,
-                provider_override="gemini",
+                provider_override="groq",
             )
 
             # Check for topic_unclear escape hatch

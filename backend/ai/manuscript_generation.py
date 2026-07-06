@@ -108,7 +108,7 @@ async def generate_section(topic: str, section: str, context: str, citation_styl
     if section.lower().replace(" ", "_") in ("lit_review", "literature_review"):
         from ai.gap_analysis import analyze_gaps
         try:
-            gap_results = await analyze_gaps(topic)
+            gap_results = await analyze_gaps(topic, papers=papers)
             if gap_results.get("status") != "insufficient_literature" and "well_covered" in gap_results:
                 gap_context = (
                     "\n\nGap Analysis Findings to Incorporate:\n"

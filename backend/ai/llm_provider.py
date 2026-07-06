@@ -29,8 +29,12 @@ if GEMINI_API_KEY:
 _executor = ThreadPoolExecutor(max_workers=4)
 
 async def _generate_gemini(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float) -> str:
+    global _gemini_client
     if not _gemini_client:
-        raise RuntimeError("GEMINI_API_KEY is not configured.")
+        key = os.getenv("GEMINI_API_KEY")
+        if not key:
+            raise RuntimeError("GEMINI_API_KEY is not configured.")
+        _gemini_client = genai.Client(api_key=key)
 
     config = genai_types.GenerateContentConfig(
         system_instruction=system_prompt or None,
@@ -39,21 +43,23 @@ async def _generate_gemini(system_prompt: str, user_prompt: str, max_tokens: int
     )
     try:
         response = await _gemini_client.aio.models.generate_content(
-            model="gemini-2.5-pro",
+            model=os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
             contents=user_prompt,
             config=config,
         )
         return response.text.strip()
     except Exception as e:
-        raise RuntimeError(f"Gemini generation failed: {e}") from e
+        logger.error(f"Gemini API Error ({type(e).__name__}): {e}", exc_info=True)
+        raise RuntimeError(f"Gemini generation failed: {type(e).__name__} - {e}") from e
 
 
 
 async def _generate_groq(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float) -> str:
-    if not GROQ_API_KEY:
+    key = os.getenv("GROQ_API_KEY")
+    if not key:
         raise RuntimeError("GROQ_API_KEY is not configured.")
     payload = {
-        "model": GROQ_MODEL,
+        "model": os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -73,10 +79,11 @@ async def _generate_groq(system_prompt: str, user_prompt: str, max_tokens: int, 
 
 
 async def _generate_openrouter(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float) -> str:
-    if not OPENROUTER_API_KEY:
+    key = os.getenv("OPENROUTER_API_KEY")
+    if not key:
         raise RuntimeError("OPENROUTER_API_KEY is not configured.")
     payload = {
-        "model": OPENROUTER_MODEL,
+        "model": os.getenv("OPENROUTER_MODEL", "anthropic/claude-3.5-sonnet"),
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -98,15 +105,16 @@ async def _generate_openrouter(system_prompt: str, user_prompt: str, max_tokens:
 
 
 def _run_huggingface(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float) -> str:
-    if not HUGGINGFACE_TOKEN:
+    key = os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN")
+    if not key:
         raise RuntimeError("HUGGINGFACEHUB_API_TOKEN or HF_TOKEN is not configured.")
     
     llm = HuggingFaceEndpoint(
-        repo_id=HF_MODEL,
+        repo_id=os.getenv("HUGGINGFACE_MANUSCRIPT_MODEL", "mistralai/Mixtral-8x7B-Instruct-v0.1"),
         task="text-generation",
         max_new_tokens=max_tokens,
         temperature=temperature,
-        huggingfacehub_api_token=HUGGINGFACE_TOKEN,
+        huggingfacehub_api_token=key,
     )
     prompt = f"{system_prompt}\n\n{user_prompt}" if system_prompt else user_prompt
     if "[INST]" not in prompt:

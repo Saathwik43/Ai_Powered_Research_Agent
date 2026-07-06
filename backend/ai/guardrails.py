@@ -1,5 +1,28 @@
 import re
 
+def validate_layer_b(text: str) -> bool:
+    """
+    Validates input using Layer B (injection/sanitization check).
+    Returns False if the input fails validation.
+    """
+    if not text or not text.strip():
+        return False
+        
+    injection_patterns = [
+        r"ignore all previous instructions",
+        r"system prompt",
+        r"bypass",
+        r"drop table",
+        r"exec\(",
+        r"eval\(",
+    ]
+    text_lower = text.lower()
+    for pattern in injection_patterns:
+        if re.search(pattern, text_lower):
+            return False
+            
+    return True
+
 def validate_input_layers_a_b(text: str) -> bool:
     """
     Validates input using Layer A (syntactic) and Layer B (injection).
@@ -25,17 +48,4 @@ def validate_input_layers_a_b(text: str) -> bool:
             return False
 
     # Layer B: Injection/sanitization check
-    injection_patterns = [
-        r"ignore all previous instructions",
-        r"system prompt",
-        r"bypass",
-        r"drop table",
-        r"exec\(",
-        r"eval\(",
-    ]
-    text_lower = text.lower()
-    for pattern in injection_patterns:
-        if re.search(pattern, text_lower):
-            return False
-            
-    return True
+    return validate_layer_b(text)

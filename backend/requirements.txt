@@ -1,4 +1,4 @@
-﻿annotated-doc==0.0.4
+annotated-doc==0.0.4
 annotated-types==0.7.0
 anyio==4.14.1
 bcrypt==5.0.0
@@ -73,3 +73,5 @@ wrapt==2.2.2
 xxhash==3.8.0
 zstandard==0.25.0
 google-genai
+pypdf==5.1.0
+python-multipart==0.0.9

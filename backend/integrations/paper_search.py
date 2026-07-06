@@ -21,15 +21,45 @@ def _normalize_title(title: str) -> str:
     return re.sub(r"[^a-z0-9 ]", "", title.lower()).strip()
 
 
+def _normalize_doi(doi: str) -> str:
+    """Lowercase and strip URL prefixes for DOI."""
+    if not doi:
+        return ""
+    return doi.replace("https://doi.org/", "").replace("http://doi.org/", "").strip().lower()
+
+
 def _deduplicate(papers: list) -> list:
-    """Remove duplicate papers by normalized title similarity."""
-    seen = set()
+    """Remove duplicate papers by DOI, falling back to normalized title similarity."""
+    seen_dois = set()
+    seen_titles = set()
     unique = []
+    
     for paper in papers:
-        key = _normalize_title(paper.get("title", ""))[:60]
-        if key and key not in seen:
-            seen.add(key)
-            unique.append(paper)
+        doi = paper.get("doi", paper.get("url", ""))
+        norm_doi = _normalize_doi(doi)
+        
+        # If we have a valid DOI, try deduplicating by DOI
+        if norm_doi:
+            if norm_doi in seen_dois:
+                continue
+        
+        # Fall back to title deduplication if no DOI or it's a new DOI
+        title = paper.get("title", "")
+        norm_title = _normalize_title(title)[:60]
+        
+        if not norm_title or norm_title in seen_titles:
+            # If title is empty or already seen, we consider it a duplicate (even if DOI is new, to be safe)
+            if not norm_doi: # Only skip if there's also no DOI to match on
+                continue
+            elif norm_title in seen_titles:
+                continue
+                
+        # Unique paper
+        seen_titles.add(norm_title)
+        if norm_doi:
+            seen_dois.add(norm_doi)
+        unique.append(paper)
+        
     return unique
 
 
