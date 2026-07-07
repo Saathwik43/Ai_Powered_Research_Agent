@@ -75,3 +75,5 @@ zstandard==0.25.0
 google-genai
 pypdf==5.1.0
 python-multipart==0.0.9
+llama-parse
+pymupdf

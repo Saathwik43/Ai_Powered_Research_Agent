@@ -375,7 +375,7 @@ async def extract_pdf_endpoint(request: Request, file: UploadFile = File(...), c
     if len(contents) > 10 * 1024 * 1024:  # 10MB limit
         raise HTTPException(status_code=400, detail="File too large. Limit is 10MB.")
         
-    text = extract_pdf_text(contents)
+    text = await extract_pdf_text(contents)
     return {"text": text}
 
 

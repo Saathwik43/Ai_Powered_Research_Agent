@@ -9,7 +9,7 @@ def clear_cache():
     yield
     _evidence_cache.clear()
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_extract_evidence_success():
     paper = {
         "title": "Quantum Error Correction",
@@ -37,7 +37,7 @@ async def test_extract_evidence_success():
         
         assert len(_evidence_cache) == 1
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_extract_evidence_failure_fail_open():
     paper = {
         "title": "Broken Extraction",
@@ -58,7 +58,7 @@ async def test_extract_evidence_failure_fail_open():
         # Cache shouldn't be populated for failures
         assert len(_evidence_cache) == 0
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_extract_evidence_invalid_json():
     paper = {
         "title": "Invalid JSON",
@@ -73,7 +73,7 @@ async def test_extract_evidence_invalid_json():
         assert result["objective"] == ""
         assert result["results"] == ""
         
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_extract_evidence_cache():
     paper = {
         "title": "Cached Paper Title",

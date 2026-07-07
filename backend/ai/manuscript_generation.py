@@ -12,7 +12,7 @@ from ai.citation_format import format_citation
 from integrations.paper_search import search_all
 from fastapi import HTTPException
 from ai.numerical_validator import validate_numerical_claims
-from ai.evidence_extraction import extract_evidence
+from ai.evidence_extraction import extract_evidence_for_paper
 from ai.citation_grounding import check_citation_grounding
 
 logger = logging.getLogger(__name__)
@@ -89,7 +89,7 @@ async def generate_section(topic: str, section: str, context: str, citation_styl
         papers = await _filter_relevant_papers(topic, papers)
         
         async def fetch_evidence(p):
-            p["evidence"] = await extract_evidence(p)
+            p["evidence"], p["evidence_source"] = await extract_evidence_for_paper(p)
             return p
             
         await asyncio.gather(*(fetch_evidence(p) for p in papers), return_exceptions=True)

@@ -24,7 +24,7 @@ async def main():
             "objective": "Study the electroviscous effect in NF phase.",
             "method": "Dielectric spectroscopy.",
             "results": "Found strong coupling at low frequencies."
-        }
+        }, "llm-fallback"
 
     # Mock analyze_gaps to return a realistic response since APIs are unconfigured
     async def mock_analyze_gaps(*args, **kwargs):
@@ -63,7 +63,7 @@ async def main():
 
     with patch("ai.manuscript_generation.search_all", new=mock_search), \
          patch("ai.manuscript_generation._filter_relevant_papers", new=mock_filter), \
-         patch("ai.manuscript_generation.extract_evidence", new=mock_extract), \
+         patch("ai.manuscript_generation.extract_evidence_for_paper", new=mock_extract), \
          patch("ai.gap_analysis.analyze_gaps", new=mock_analyze_gaps), \
          patch("ai.manuscript_generation.generate_completion", new=mock_generate), \
          patch("ai.manuscript_generation.check_citation_grounding", new=mock_citation_grounding):
@@ -77,4 +77,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-

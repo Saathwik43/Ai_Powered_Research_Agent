@@ -27,8 +27,13 @@ An AI-powered application designed to streamline the academic research and publi
    ```bash
    pip install -r requirements.txt
    ```
-3. Create a `.env` file in the `backend` folder and add your API keys (like `OPENROUTER_API_KEY`, `MONGODB_URI`, `JWT_SECRET_KEY`).
-4. Start the backend server:
+3. Start the scholarly PDF parsing dependency:
+   ```bash
+   docker compose up -d grobid
+   ```
+   The backend expects GROBID at `http://localhost:8070` and will use it as a fallback parser when Docling cannot recover enough section structure from an OA PDF.
+4. Create a `.env` file in the `backend` folder and add your API keys (like `OPENROUTER_API_KEY`, `MONGODB_URI`, `JWT_SECRET_KEY`).
+5. Start the backend server:
    ```bash
    uvicorn main:app --reload --port 8000
    ```

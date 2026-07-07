@@ -23,7 +23,7 @@ from ai.relevance import _filter_relevant_papers
 from integrations.paper_search import search_all
 from fastapi import HTTPException
 import asyncio
-from ai.evidence_extraction import extract_evidence
+from ai.evidence_extraction import extract_evidence_for_paper
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +109,7 @@ async def analyze_gaps(topic: str, papers: list = None) -> dict:
             
     if papers:
         async def fetch_evidence(p):
-            p["evidence"] = await extract_evidence(p)
+            p["evidence"], p["evidence_source"] = await extract_evidence_for_paper(p)
             return p
             
         await asyncio.gather(*(fetch_evidence(p) for p in papers), return_exceptions=True)

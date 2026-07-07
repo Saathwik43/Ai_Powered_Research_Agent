@@ -6,18 +6,21 @@ Unit tests for the gap analysis endpoint and logic.
 
 import pytest
 import uuid
+import asyncio
 from unittest.mock import patch, AsyncMock
 from fastapi.testclient import TestClient
 from main import app
 from auth import get_current_user
+from fastapi import HTTPException
 
-# Ensure each test gets a unique "IP" so we don't hit the 5/min rate limit in slowapi
+# Ensure each test gets a unique rate-limit key so we don't hit the 5/min limit.
 @pytest.fixture(autouse=True)
 def mock_remote_address():
-    with patch("slowapi.util.get_remote_address", return_value=str(uuid.uuid4())):
+    user_id = str(uuid.uuid4())
+    app.dependency_overrides[get_current_user] = lambda: {"user_id": user_id}
+    with patch("slowapi.util.get_remote_address", return_value=user_id):
         yield
 
-app.dependency_overrides[get_current_user] = lambda: {"user_id": "test_user"}
 client = TestClient(app)
 
 # Dummy fixture of 3 papers
@@ -55,12 +58,12 @@ def _mock_gap_analysis_topic_unclear(*args, **kwargs):
 
 class TestGapAnalysisEndpoint:
 
-    @patch("ai.gap_analysis.extract_evidence", new_callable=AsyncMock)
+    @patch("ai.gap_analysis.extract_evidence_for_paper", new_callable=AsyncMock)
     @patch("ai.gap_analysis.search_all", new_callable=AsyncMock)
     @patch("ai.gap_analysis._filter_relevant_papers", new_callable=AsyncMock)
     @patch("ai.gap_analysis.generate_completion", new_callable=AsyncMock)
     def test_gap_analysis_happy_path(self, mock_gen, mock_filter, mock_search, mock_extract):
-        mock_extract.return_value = {"objective": "Mock objective"}
+        mock_extract.return_value = ({"objective": "Mock objective"}, "llm-fallback")
         mock_search.return_value = DUMMY_PAPERS
         mock_filter.return_value = DUMMY_PAPERS
         mock_gen.side_effect = _mock_gap_analysis_response
@@ -77,11 +80,11 @@ class TestGapAnalysisEndpoint:
         assert "Thing C is unknown" in data["gaps"][0]["description"]
         assert "vagueness_warning" not in data
 
-    @patch("ai.gap_analysis.extract_evidence", new_callable=AsyncMock)
+    @patch("ai.gap_analysis.extract_evidence_for_paper", new_callable=AsyncMock)
     @patch("ai.gap_analysis.search_all", new_callable=AsyncMock)
     @patch("ai.gap_analysis._filter_relevant_papers", new_callable=AsyncMock)
     def test_gap_analysis_insufficient_literature(self, mock_filter, mock_search, mock_extract):
-        mock_extract.return_value = {"objective": "Mock objective"}
+        mock_extract.return_value = ({"objective": "Mock objective"}, "llm-fallback")
         mock_search.return_value = DUMMY_PAPERS[:1] # Only 1 paper
         mock_filter.return_value = DUMMY_PAPERS[:1]
         
@@ -91,12 +94,12 @@ class TestGapAnalysisEndpoint:
         assert data.get("status") == "insufficient_literature"
         assert data.get("paper_count") == 1
 
-    @patch("ai.gap_analysis.extract_evidence", new_callable=AsyncMock)
+    @patch("ai.gap_analysis.extract_evidence_for_paper", new_callable=AsyncMock)
     @patch("ai.gap_analysis.search_all", new_callable=AsyncMock)
     @patch("ai.gap_analysis._filter_relevant_papers", new_callable=AsyncMock)
     @patch("ai.gap_analysis.generate_completion", new_callable=AsyncMock)
     def test_gap_analysis_vagueness_rejection(self, mock_gen, mock_filter, mock_search, mock_extract):
-        mock_extract.return_value = {"objective": "Mock objective"}
+        mock_extract.return_value = ({"objective": "Mock objective"}, "llm-fallback")
         mock_search.return_value = DUMMY_PAPERS
         mock_filter.return_value = DUMMY_PAPERS
         mock_gen.side_effect = _mock_gap_analysis_vague # Always return vague
@@ -107,12 +110,12 @@ class TestGapAnalysisEndpoint:
         assert data.get("vagueness_warning") is True
         assert mock_gen.call_count == 2 # Initial + 1 retry
 
-    @patch("ai.gap_analysis.extract_evidence", new_callable=AsyncMock)
+    @patch("ai.gap_analysis.extract_evidence_for_paper", new_callable=AsyncMock)
     @patch("ai.gap_analysis.search_all", new_callable=AsyncMock)
     @patch("ai.gap_analysis._filter_relevant_papers", new_callable=AsyncMock)
     @patch("ai.gap_analysis.generate_completion", new_callable=AsyncMock)
     def test_gap_analysis_vagueness_rejection_empty_synthesis(self, mock_gen, mock_filter, mock_search, mock_extract):
-        mock_extract.return_value = {"objective": "Mock objective"}
+        mock_extract.return_value = ({"objective": "Mock objective"}, "llm-fallback")
         mock_search.return_value = DUMMY_PAPERS # 3 papers
         mock_filter.return_value = DUMMY_PAPERS
         mock_gen.side_effect = lambda *a, **k: '''
@@ -135,16 +138,20 @@ class TestGapAnalysisEndpoint:
         response = client.post("/api/gap-analysis", json={"topic": "hrthwrtajarj"})
         assert response.status_code == 400
         
-    @patch("ai.gap_analysis.extract_evidence", new_callable=AsyncMock)
+    @patch("ai.gap_analysis.extract_evidence_for_paper", new_callable=AsyncMock)
     @patch("ai.gap_analysis.search_all", new_callable=AsyncMock)
     @patch("ai.gap_analysis._filter_relevant_papers", new_callable=AsyncMock)
     @patch("ai.gap_analysis.generate_completion", new_callable=AsyncMock)
     def test_gap_analysis_topic_unclear_layer_c(self, mock_gen, mock_filter, mock_search, mock_extract):
-        mock_extract.return_value = {"objective": "Mock objective"}
+        from ai.gap_analysis import analyze_gaps
+
+        mock_extract.return_value = ({"objective": "Mock objective"}, "llm-fallback")
         mock_search.return_value = DUMMY_PAPERS
         mock_filter.return_value = DUMMY_PAPERS
         mock_gen.side_effect = _mock_gap_analysis_topic_unclear
-        
-        response = client.post("/api/gap-analysis", json={"topic": "banana pencil submarine"})
-        assert response.status_code == 400
-        assert "unclear" in response.json().get("detail", "").lower()
+
+        with pytest.raises(HTTPException) as exc_info:
+            asyncio.run(analyze_gaps("banana pencil submarine"))
+
+        assert exc_info.value.status_code == 400
+        assert "unclear" in str(exc_info.value.detail).lower()
