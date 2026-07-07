@@ -179,12 +179,16 @@ export default function PdfAnalysis() {
     setIsAnalyzing(true);
 
     try {
+      const formData = new FormData();
+      formData.append('text', extractedText);
+      if (finalPrompt) formData.append('custom_prompt', finalPrompt);
+      if (file) formData.append('file', file);
+
       const res = await authFetch(
         `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/analyze-pdf`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: extractedText, custom_prompt: finalPrompt }),
+          body: formData,
         }
       );
       if (!res.ok) {

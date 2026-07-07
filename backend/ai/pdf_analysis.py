@@ -12,6 +12,7 @@ from ai.guardrails import validate_input_layers_a_b, validate_layer_b
 from ai.evidence_extraction import extract_evidence
 from ai.llm_provider import generate_completion
 from ai.gap_analysis import _GAP_SYSTEM_PROMPT
+from ai.pdf_structure import extract_structure
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +105,7 @@ async def extract_pdf_text(file_bytes: bytes) -> str:
     return text.strip()
 
 
-async def analyze_uploaded_paper(text: str, custom_prompt: str = None) -> dict:
+async def analyze_uploaded_paper(text: str, custom_prompt: str = None, file_bytes: bytes = None) -> dict:
     """
     Run analysis on extracted PDF text. 
     If custom_prompt is provided, answers the prompt.
@@ -114,7 +115,20 @@ async def analyze_uploaded_paper(text: str, custom_prompt: str = None) -> dict:
     if not validate_layer_b(text):
         raise HTTPException(status_code=400, detail="Invalid text content.")
         
-    evidence = await extract_evidence({"title": "", "abstract": text[:15000]})
+    structure = extract_structure(file_bytes) if file_bytes else {"title": "", "authors": [], "abstract": "", "sections": {}}
+    logger.info(f"Extracted PDF Structure: {json.dumps(structure, indent=2)}")
+        
+    # Construct context for evidence extraction based on structure
+    method_text = structure.get("sections", {}).get("method", "")
+    results_text = structure.get("sections", {}).get("results", "")
+    structure_context = method_text + "\n" + results_text
+    
+    if not structure_context.strip():
+        structure_context = structure.get("abstract", "")
+    if not structure_context.strip():
+        structure_context = text[:15000]
+        
+    evidence = await extract_evidence({"title": structure.get("title", ""), "abstract": structure_context})
     has_evidence = any(v.strip() for v in evidence.values())
     context_text = json.dumps(evidence, indent=2) if has_evidence else text[:30000]
         
@@ -122,6 +136,18 @@ async def analyze_uploaded_paper(text: str, custom_prompt: str = None) -> dict:
         if not validate_input_layers_a_b(custom_prompt):
             raise HTTPException(status_code=400, detail="Invalid custom prompt.")
             
+        lower_prompt = custom_prompt.lower()
+        
+        # Direct structure match bypass
+        for author in structure.get("authors", []):
+            if author and author.lower() in lower_prompt:
+                return {"type": "custom", "content": f"Based on the paper's structural metadata, {author} is listed as an author."}
+                
+        title = structure.get("title", "")
+        if title and title.lower() in lower_prompt:
+             return {"type": "custom", "content": f"The title of the paper is: {title}"}
+             
+        # Fall back to LLM cascade
         prompt = _CUSTOM_PROMPT_TEMPLATE.replace("{text}", context_text).replace("{custom_prompt}", custom_prompt)
         try:
             raw = await generate_completion(

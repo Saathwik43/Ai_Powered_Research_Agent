@@ -2,7 +2,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Depends, File, UploadFile
+from fastapi import FastAPI, HTTPException, Depends, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timezone
 import logging
@@ -381,8 +381,15 @@ async def extract_pdf_endpoint(request: Request, file: UploadFile = File(...), c
 
 @app.post("/api/manuscript/analyze-pdf")
 @limiter.limit("5/minute")
-async def analyze_pdf_endpoint(request: Request, payload: PdfAnalyzePayload, current_user: dict = Depends(get_current_user)):
-    result = await analyze_uploaded_paper(payload.text, payload.custom_prompt)
+async def analyze_pdf_endpoint(
+    request: Request,
+    text: str = Form(...),
+    custom_prompt: Optional[str] = Form(None),
+    file: UploadFile = File(None),
+    current_user: dict = Depends(get_current_user)
+):
+    contents = await file.read() if file else None
+    result = await analyze_uploaded_paper(text, custom_prompt, contents)
     return result
 
 
