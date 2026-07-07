@@ -9,6 +9,7 @@ from llama_parse import LlamaParse
 from pypdf import PdfReader
 from fastapi import HTTPException
 from ai.guardrails import validate_input_layers_a_b, validate_layer_b
+from ai.evidence_extraction import extract_evidence
 from ai.llm_provider import generate_completion
 from ai.gap_analysis import _GAP_SYSTEM_PROMPT
 
@@ -113,18 +114,21 @@ async def analyze_uploaded_paper(text: str, custom_prompt: str = None) -> dict:
     if not validate_layer_b(text):
         raise HTTPException(status_code=400, detail="Invalid text content.")
         
+    evidence = await extract_evidence({"title": "", "abstract": text[:15000]})
+    has_evidence = any(v.strip() for v in evidence.values())
+    context_text = json.dumps(evidence, indent=2) if has_evidence else text[:30000]
+        
     if custom_prompt:
         if not validate_input_layers_a_b(custom_prompt):
             raise HTTPException(status_code=400, detail="Invalid custom prompt.")
             
-        prompt = _CUSTOM_PROMPT_TEMPLATE.replace("{text}", text[:30000]).replace("{custom_prompt}", custom_prompt)
+        prompt = _CUSTOM_PROMPT_TEMPLATE.replace("{text}", context_text).replace("{custom_prompt}", custom_prompt)
         try:
             raw = await generate_completion(
                 system_prompt="You are a helpful academic research assistant.",
                 user_prompt=prompt,
                 max_tokens=1000,
-                temperature=0.3,
-                provider_override="gemini"
+                temperature=0.3
             )
             return {"type": "custom", "content": raw.strip()}
         except Exception as e:
@@ -132,14 +136,13 @@ async def analyze_uploaded_paper(text: str, custom_prompt: str = None) -> dict:
             raise HTTPException(status_code=500, detail="Analysis failed.")
 
     # Default structured analysis
-    prompt = _PDF_ANALYSIS_USER_TEMPLATE.replace("{text}", text[:30000]) # Cap text to avoid massive context limits if needed
+    prompt = _PDF_ANALYSIS_USER_TEMPLATE.replace("{text}", context_text)
     try:
         raw = await generate_completion(
             system_prompt=_GAP_SYSTEM_PROMPT,
             user_prompt=prompt,
             max_tokens=1200,
-            temperature=0.3,
-            provider_override="gemini"
+            temperature=0.3
         )
         
         content = raw.strip()
