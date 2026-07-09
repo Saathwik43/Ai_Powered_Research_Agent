@@ -12,12 +12,14 @@ logger = logging.getLogger(__name__)
 # Providers and configurations
 LLM_PROVIDER = os.getenv("MANUSCRIPT_PROVIDER", "auto").lower()
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "anthropic/claude-3.5-sonnet")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "~anthropic/claude-sonnet-latest")
 HUGGINGFACE_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN")
 HF_MODEL = os.getenv("HUGGINGFACE_MANUSCRIPT_MODEL", "mistralai/Mixtral-8x7B-Instruct-v0.1")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
 
 # google-genai Client — created once at module level if key is available.
 # The old google-generativeai SDK used genai.configure() globally; the new SDK
@@ -52,6 +54,29 @@ async def _generate_gemini(system_prompt: str, user_prompt: str, max_tokens: int
         logger.error(f"Gemini API Error ({type(e).__name__}): {e}", exc_info=True)
         raise RuntimeError(f"Gemini generation failed: {type(e).__name__} - {e}") from e
 
+async def _generate_openai(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float) -> str:
+    key = os.getenv("OPENAI_API_KEY")
+    if not key:
+        raise RuntimeError("OPENAI_API_KEY is not configured.")
+    payload = {
+        "model": os.getenv("OPENAI_MODEL", "gpt-4o"),
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+    }
+    async with httpx.AsyncClient(timeout=60) as client:
+        response = await client.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
+        response.raise_for_status()
+        data = response.json()
+        return data["choices"][0]["message"]["content"].strip()
+
 
 
 async def _generate_groq(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float) -> str:
@@ -83,7 +108,7 @@ async def _generate_openrouter(system_prompt: str, user_prompt: str, max_tokens:
     if not key:
         raise RuntimeError("OPENROUTER_API_KEY is not configured.")
     payload = {
-        "model": os.getenv("OPENROUTER_MODEL", "anthropic/claude-3.5-sonnet"),
+        "model": os.getenv("OPENROUTER_MODEL", "~anthropic/claude-sonnet-latest"),
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -147,14 +172,16 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
         raise RuntimeError("Gemini provider failed to generate a completion.")
 
     providers = []
+    if LLM_PROVIDER in ("auto", "openai") and os.getenv("OPENAI_API_KEY"):
+        providers.append(("OpenAI", _generate_openai))
+    if LLM_PROVIDER in ("auto", "gemini") and os.getenv("GEMINI_API_KEY"):
+        providers.append(("Gemini", _generate_gemini))
     if LLM_PROVIDER in ("auto", "groq"):
         providers.append(("Groq", _generate_groq))
     if LLM_PROVIDER in ("auto", "openrouter"):
         providers.append(("OpenRouter", _generate_openrouter))
     if LLM_PROVIDER in ("auto", "huggingface"):
         providers.append(("Hugging Face", _generate_huggingface))
-    if LLM_PROVIDER == "gemini":
-        providers.append(("Gemini", _generate_gemini))
 
     for provider_name, provider in providers:
         for attempt in range(2):

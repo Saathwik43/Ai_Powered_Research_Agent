@@ -6,6 +6,13 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Spinner, TypingDots } from '../components/Loader';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { ghcolors } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import 'katex/dist/katex.min.css';
 import './PdfAnalysis.css';
 
 const SUGGESTIONS = [
@@ -72,7 +79,35 @@ function MessageBubble({ msg }) {
         </div>
       );
     }
-    return <div>{msg.content}</div>;
+    return (
+      <div className="pdf-markdown-body">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm, remarkMath]}
+          rehypePlugins={[rehypeKatex]}
+          components={{
+            code({ node, inline, className, children, ...props }) {
+              const match = /language-(\w+)/.exec(className || '');
+              return !inline && match ? (
+                <SyntaxHighlighter
+                  style={ghcolors}
+                  language={match[1]}
+                  PreTag="div"
+                  {...props}
+                >
+                  {String(children).replace(/\n$/, '')}
+                </SyntaxHighlighter>
+              ) : (
+                <code className={className} {...props}>
+                  {children}
+                </code>
+              );
+            }
+          }}
+        >
+          {msg.content}
+        </ReactMarkdown>
+      </div>
+    );
   };
 
   return (
@@ -98,6 +133,7 @@ export default function PdfAnalysis() {
   const { authFetch } = useAuth();
   const [file, setFile] = useState(null);
   const [extractedText, setExtractedText] = useState('');
+  const [structure, setStructure] = useState(null);
   const [isExtracting, setIsExtracting] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState('');
@@ -123,6 +159,7 @@ export default function PdfAnalysis() {
     setFile(selected);
     setError('');
     setExtractedText('');
+    setStructure(null);
     setMessages([]);
     setCustomPrompt('');
     setIsExtracting(true);
@@ -141,6 +178,7 @@ export default function PdfAnalysis() {
       }
       const data = await res.json();
       setExtractedText(data.text);
+      setStructure(data.structure);
 
       setMessages([{
         id: Date.now(),
@@ -182,7 +220,7 @@ export default function PdfAnalysis() {
       const formData = new FormData();
       formData.append('text', extractedText);
       if (finalPrompt) formData.append('custom_prompt', finalPrompt);
-      if (file) formData.append('file', file);
+      if (structure) formData.append('structure', JSON.stringify(structure));
 
       const res = await authFetch(
         `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/analyze-pdf`,
@@ -230,6 +268,7 @@ export default function PdfAnalysis() {
   const reset = () => {
     setFile(null);
     setExtractedText('');
+    setStructure(null);
     setMessages([]);
     setError('');
   };

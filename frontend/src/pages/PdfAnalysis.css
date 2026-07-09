@@ -280,3 +280,98 @@
   color: var(--primary);
   margin-bottom: 1rem;
 }
+
+/* ── Markdown & Math Rendering ───────────────────────── */
+.pdf-markdown-body {
+  font-family: inherit;
+  line-height: 1.6;
+}
+
+.pdf-markdown-body p {
+  margin-bottom: 1rem;
+}
+.pdf-markdown-body p:last-child {
+  margin-bottom: 0;
+}
+
+.pdf-markdown-body strong {
+  font-weight: 600;
+}
+
+.pdf-markdown-body h1,
+.pdf-markdown-body h2,
+.pdf-markdown-body h3,
+.pdf-markdown-body h4 {
+  margin-top: 1.5em;
+  margin-bottom: 0.75em;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.pdf-markdown-body h1:first-child,
+.pdf-markdown-body h2:first-child,
+.pdf-markdown-body h3:first-child {
+  margin-top: 0;
+}
+
+.pdf-markdown-body ul,
+.pdf-markdown-body ol {
+  margin-bottom: 1rem;
+  padding-left: 2em;
+}
+
+.pdf-markdown-body li {
+  margin-bottom: 0.25rem;
+}
+
+.pdf-markdown-body a {
+  color: var(--primary);
+  text-decoration: none;
+}
+.pdf-markdown-body a:hover {
+  text-decoration: underline;
+}
+
+.pdf-markdown-body blockquote {
+  padding: 0 1em;
+  color: var(--text-muted);
+  border-left: 0.25em solid var(--border-strong);
+  margin: 0 0 1rem 0;
+}
+
+.pdf-markdown-body code {
+  padding: 0.2em 0.4em;
+  margin: 0;
+  font-size: 85%;
+  background-color: rgba(175, 184, 193, 0.2);
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+}
+
+.pdf-markdown-body pre {
+  margin-bottom: 1rem;
+  border-radius: 6px;
+  background-color: var(--bg-elevated);
+  overflow: auto;
+}
+
+.pdf-markdown-body table {
+  border-spacing: 0;
+  border-collapse: collapse;
+  margin-bottom: 1rem;
+  width: 100%;
+}
+.pdf-markdown-body table th,
+.pdf-markdown-body table td {
+  padding: 6px 13px;
+  border: 1px solid var(--border-strong);
+}
+.pdf-markdown-body table tr:nth-child(2n) {
+  background-color: rgba(175, 184, 193, 0.05);
+}
+
+/* Ensure math expressions wrap properly if they are too long */
+.katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.5rem 0;
+}

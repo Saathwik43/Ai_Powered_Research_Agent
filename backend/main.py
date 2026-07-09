@@ -23,7 +23,7 @@ from ai.manuscript_generation import generate_section, edit_section
 from ai.gap_analysis import analyze_gaps
 from ai.venue_recommendation import recommend_venues
 from ai.guideline_alignment import align_guidelines
-from ai.pdf_analysis import extract_pdf_text, analyze_uploaded_paper
+from ai.pdf_analysis import extract_pdf_text, extract_pdf_structure, analyze_uploaded_paper
 from integrations.paper_search import search_all
 from ai.relevance import _filter_relevant_papers
 from integrations.arxiv import fetch_category_feed, fetch_multiple_feeds, CATEGORY_MAP
@@ -375,8 +375,11 @@ async def extract_pdf_endpoint(request: Request, file: UploadFile = File(...), c
     if len(contents) > 10 * 1024 * 1024:  # 10MB limit
         raise HTTPException(status_code=400, detail="File too large. Limit is 10MB.")
         
-    text = await extract_pdf_text(contents)
-    return {"text": text}
+    text, structure = await asyncio.gather(
+        extract_pdf_text(contents),
+        extract_pdf_structure(contents)
+    )
+    return {"text": text, "structure": structure}
 
 
 @app.post("/api/manuscript/analyze-pdf")
@@ -384,12 +387,13 @@ async def extract_pdf_endpoint(request: Request, file: UploadFile = File(...), c
 async def analyze_pdf_endpoint(
     request: Request,
     text: str = Form(...),
+    structure: Optional[str] = Form(None),
     custom_prompt: Optional[str] = Form(None),
-    file: UploadFile = File(None),
     current_user: dict = Depends(get_current_user)
 ):
-    contents = await file.read() if file else None
-    result = await analyze_uploaded_paper(text, custom_prompt, contents)
+    import json
+    struct_dict = json.loads(structure) if structure else None
+    result = await analyze_uploaded_paper(text, custom_prompt, struct_dict)
     return result
 
 

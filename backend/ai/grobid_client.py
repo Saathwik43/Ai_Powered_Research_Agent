@@ -104,11 +104,27 @@ def _parse_fulltext_sections(tei_xml):
         if not head_text:
             if not sections and not headless_intro:
                 paras = div.findall("tei:p", _TEI_NS)
-                headless_intro = "\n".join(_text_of(p) for p in paras if _text_of(p)).strip()
+                abs_paras = []
+                intro_paras = []
+                word_count = 0
+                for p in paras:
+                    ptxt = _text_of(p).strip()
+                    if not ptxt:
+                        continue
+                    if word_count < 250:
+                        abs_paras.append(ptxt)
+                        word_count += len(ptxt.split())
+                    else:
+                        intro_paras.append(ptxt)
+                
+                headless_intro = "\n".join(abs_paras).strip()
+                if intro_paras:
+                    sections["introduction"] = "\n".join(intro_paras).strip()
             continue
 
-        # guard against figure-caption-style headings slipping through
-        if _CAPTION_LABEL_RE.match(head_text.strip()) or len(head_text) < 3:
+        # guard against figure-caption-style headings slipping through and citation fragments
+        lower_head = head_text.lower()
+        if _CAPTION_LABEL_RE.match(head_text.strip()) or len(head_text) < 3 or "et al" in lower_head:
             continue
 
         paras = div.findall("tei:p", _TEI_NS)
@@ -141,6 +157,19 @@ def _parse_fulltext_sections(tei_xml):
             sections[key] = sections[key] + "\n" + body_text
         else:
             sections[key] = body_text
+
+    # Extract from back matter (references, acknowledgments)
+    back_divs = root.findall(".//tei:text/tei:back/tei:div", _TEI_NS)
+    for div in back_divs:
+        div_type = div.get("type", "")
+        if div_type == "references":
+            bibls = div.findall(".//tei:listBibl/tei:biblStruct", _TEI_NS)
+            if bibls:
+                sections["references"] = "\n\n".join(_text_of(b) for b in bibls).strip()
+            else:
+                sections["references"] = _text_of(div).strip()
+        elif div_type == "acknowledgement":
+            sections["acknowledgments"] = _text_of(div).strip()
 
     return sections, headless_intro
 
