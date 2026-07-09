@@ -14,12 +14,14 @@ EVIDENCE_FIELDS = (
 
 SECTION_ALIASES = {
     "objective": ("abstract", "introduction", "objective", "objectives", "aim", "aims", "background"),
-    "method": ("method", "methods", "materials and methods", "methodology", "approach", "experimental setup"),
+    "method": ("method", "methods", "materials and methods", "methodology", "approach", "experimental setup", "materials"),
     "dataset": ("dataset", "data", "data set", "corpus", "benchmarks", "benchmark", "participants"),
-    "results": ("results", "findings", "evaluation", "experiments", "experimental results", "analysis"),
-    "limitations": ("limitations", "limitation", "threats to validity", "constraints", "discussion"),
+    "results": ("results", "findings", "evaluation", "experiments", "experimental results", "analysis", "results_and_discussion", "discussion"),
+    "limitations": ("limitations", "limitation", "threats to validity", "constraints"),
     "future_work": ("future work", "conclusion", "conclusions", "outlook", "next steps"),
 }
+
+IGNORED_SECTIONS = {"acknowledgments", "acknowledgements", "references", "appendix"}
 
 _FETCH_TIMEOUT_SECONDS = 5.0
 
@@ -61,6 +63,10 @@ def _match_alias(name: str) -> str | None:
     for target, aliases in SECTION_ALIASES.items():
         if normalized in aliases:
             return target
+    if normalized in IGNORED_SECTIONS:
+        logger.debug("Explicitly ignoring section: %s", name)
+    else:
+        logger.info("Unrecognized section silently dropped: %s", name)
     return None
 
 

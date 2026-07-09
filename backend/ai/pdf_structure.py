@@ -198,6 +198,10 @@ def extract_structure(file_bytes: bytes) -> dict:
         if len(words) >= 12:
             continue
 
+        # Guard against caption label bleed (e.g. "(c)", "(c) (d)")
+        if re.match(r'^\(?[a-hA-H]\)?(\s*\(?[a-hA-H]\)?)*$', text):
+            continue
+
         size = b["size"]
         is_head = False
         
