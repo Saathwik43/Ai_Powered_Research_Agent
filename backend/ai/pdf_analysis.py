@@ -130,7 +130,13 @@ async def analyze_uploaded_paper(text: str, custom_prompt: str = None, file_byte
         
     evidence = await extract_evidence({"title": structure.get("title", ""), "abstract": structure_context})
     has_evidence = any(v.strip() for v in evidence.values())
-    context_text = json.dumps(evidence, indent=2) if has_evidence else text[:30000]
+    
+    # Prepend essential metadata so the LLM can answer questions about it
+    meta_title = structure.get("title", "Unknown")
+    meta_authors = ", ".join(structure.get("authors", [])) if structure.get("authors") else "Unknown"
+    metadata_prefix = f"Paper Title: {meta_title}\nAuthors: {meta_authors}\n\n"
+    
+    context_text = metadata_prefix + (json.dumps(evidence, indent=2) if has_evidence else text[:30000])
         
     if custom_prompt:
         if not validate_input_layers_a_b(custom_prompt):
@@ -138,14 +144,13 @@ async def analyze_uploaded_paper(text: str, custom_prompt: str = None, file_byte
             
         lower_prompt = custom_prompt.lower()
         
-        # Direct structure match bypass
-        for author in structure.get("authors", []):
-            if author and author.lower() in lower_prompt:
-                return {"type": "custom", "content": f"Based on the paper's structural metadata, {author} is listed as an author."}
-                
-        title = structure.get("title", "")
-        if title and title.lower() in lower_prompt:
-             return {"type": "custom", "content": f"The title of the paper is: {title}"}
+        # Direct structure match bypass for short, direct queries
+        if len(lower_prompt.split()) < 10:
+            if "author" in lower_prompt and structure.get("authors"):
+                return {"type": "custom", "content": f"Based on the paper's structural metadata, the authors are: {meta_authors}."}
+            title = structure.get("title", "")
+            if title and title.lower() in lower_prompt:
+                 return {"type": "custom", "content": f"The title of the paper is: {title}"}
              
         # Fall back to LLM cascade
         prompt = _CUSTOM_PROMPT_TEMPLATE.replace("{text}", context_text).replace("{custom_prompt}", custom_prompt)
