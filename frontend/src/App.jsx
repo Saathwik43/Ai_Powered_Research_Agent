@@ -15,6 +15,15 @@ import './App.css';
 const ProtectedLayout = () => {
   const { user, loading } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    return localStorage.getItem('sidebarCollapsed') === 'true';
+  });
+
+  const toggleCollapse = () => {
+    const val = !sidebarCollapsed;
+    setSidebarCollapsed(val);
+    localStorage.setItem('sidebarCollapsed', val);
+  };
 
   if (loading) return <AppLoader />;
   if (!user) return <Navigate to="/" replace />;
@@ -37,8 +46,13 @@ const ProtectedLayout = () => {
         <div style={{ width: 30 }} />
       </div>
 
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <main className="main-content">
+      <Sidebar 
+        open={sidebarOpen} 
+        onClose={() => setSidebarOpen(false)} 
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={toggleCollapse}
+      />
+      <main className={`main-content ${sidebarCollapsed ? 'collapsed' : ''}`}>
         <Routes>
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/literature-survey" element={<LiteratureSurvey />} />

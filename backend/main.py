@@ -128,6 +128,13 @@ class PdfAnalyzePayload(BaseModel):
     text: str
     custom_prompt: Optional[str] = None
 
+class PdfChatSavePayload(BaseModel):
+    chat_id: Optional[str] = None
+    filename: str
+    text: str
+    structure: Optional[Dict[str, Any]] = None
+    messages: List[Dict[str, Any]]
+
 class VenuePayload(BaseModel):
     abstract: str = ""
     domain: str = ""
@@ -459,5 +466,87 @@ async def list_literature_surveys(current_user: dict = Depends(get_current_user)
     cursor = collection.find({"user_id": user_id}, {"_id": 0, "user_id": 0}).sort("_id", -1)
     surveys = [doc async for doc in cursor]
     return {"data": surveys}
+
+@app.delete("/api/literature/delete/{query}")
+async def delete_literature(query: str, current_user: dict = Depends(get_current_user)):
+    user_id = current_user["user_id"]
+    collection = db["literature"]
+    result = await collection.delete_one({"user_id": user_id, "query": query})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Survey not found.")
+    return {"message": "Literature survey deleted successfully."}
+
+
+# ─── PDF Chat History ──────────────────────────────────────────────────────────
+
+from bson import ObjectId
+
+@app.post("/api/pdf-chats/save")
+async def save_pdf_chat(payload: PdfChatSavePayload, current_user: dict = Depends(get_current_user)):
+    user_id = current_user["user_id"]
+    collection = db["pdf_chats"]
+    now = datetime.now(timezone.utc).isoformat()
+    
+    doc = {
+        "user_id": user_id,
+        "filename": payload.filename,
+        "text": payload.text,
+        "structure": payload.structure,
+        "messages": payload.messages,
+        "updated_at": now
+    }
+    
+    if payload.chat_id:
+        try:
+            obj_id = ObjectId(payload.chat_id)
+            await collection.update_one({"_id": obj_id, "user_id": user_id}, {"$set": doc})
+            return {"message": "Chat updated", "chat_id": payload.chat_id}
+        except Exception:
+            pass # fallback to insert if invalid chat_id
+
+    doc["created_at"] = now
+    result = await collection.insert_one(doc)
+    return {"message": "Chat saved", "chat_id": str(result.inserted_id)}
+
+@app.get("/api/pdf-chats/list")
+async def list_pdf_chats(current_user: dict = Depends(get_current_user)):
+    user_id = current_user["user_id"]
+    collection = db["pdf_chats"]
+    # only return metadata, not full text or messages
+    cursor = collection.find(
+        {"user_id": user_id},
+        {"text": 0, "structure": 0, "messages": 0, "user_id": 0}
+    ).sort("updated_at", -1)
+    
+    chats = []
+    async for doc in cursor:
+        doc["chat_id"] = str(doc.pop("_id"))
+        chats.append(doc)
+    return {"data": chats}
+
+@app.get("/api/pdf-chats/{chat_id}")
+async def load_pdf_chat(chat_id: str, current_user: dict = Depends(get_current_user)):
+    user_id = current_user["user_id"]
+    collection = db["pdf_chats"]
+    try:
+        doc = await collection.find_one({"_id": ObjectId(chat_id), "user_id": user_id}, {"user_id": 0})
+        if not doc:
+            raise HTTPException(status_code=404, detail="Chat not found.")
+        doc["chat_id"] = str(doc.pop("_id"))
+        return {"data": doc}
+    except Exception:
+        raise HTTPException(status_code=404, detail="Invalid chat ID.")
+
+@app.delete("/api/pdf-chats/{chat_id}")
+async def delete_pdf_chat(chat_id: str, current_user: dict = Depends(get_current_user)):
+    user_id = current_user["user_id"]
+    collection = db["pdf_chats"]
+    try:
+        result = await collection.delete_one({"_id": ObjectId(chat_id), "user_id": user_id})
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Chat not found.")
+        return {"message": "Chat deleted"}
+    except Exception:
+        raise HTTPException(status_code=404, detail="Invalid chat ID.")
 
 # Trigger reload

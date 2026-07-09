@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, TrendingUp, ArrowUpRight, ExternalLink, FileText, X, Sparkles } from 'lucide-react';
+import { Search, TrendingUp, ArrowUpRight, ExternalLink, FileText, X, Sparkles, Trash2, ArrowRight } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { useAuth } from '../context/AuthContext';
 import { Spinner, SkeletonList } from '../components/Loader';
@@ -49,6 +49,8 @@ export default function Dashboard() {
   const [catLoading, setCatLoading] = useState(false);
   const [error, setError] = useState('');
   const [hasSearched, setHasSearched] = useState(false);
+  const [recentSurveys, setRecentSurveys] = useState([]);
+  const [loadingRecent, setLoadingRecent] = useState(false);
   const debounce = useRef(null);
   const inputWrap = useRef(null);
   const navigate = useNavigate();
@@ -146,6 +148,34 @@ export default function Dashboard() {
     return () => document.removeEventListener('mousedown', h);
   }, []);
 
+  useEffect(() => {
+    const fetchRecentSurveys = async () => {
+      setLoadingRecent(true);
+      try {
+        const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature/list`);
+        if (res.ok) {
+          const data = await res.json();
+          setRecentSurveys((data.data || []).slice(0, 3));
+        }
+      } catch(e) {}
+      setLoadingRecent(false);
+    };
+    fetchRecentSurveys();
+  }, [authFetch]);
+
+  const deleteRecentSurvey = async (query, e) => {
+    e.stopPropagation();
+    if (!window.confirm(`Are you sure you want to delete the survey "${query}"?`)) return;
+    try {
+      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature/delete/${encodeURIComponent(query)}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        setRecentSurveys(prev => prev.filter(s => s.query !== query));
+      }
+    } catch (err) {}
+  };
+
   const chartData = results.map(t => ({ ...t, score: impactScore(t.impact) }));
 
   return (
@@ -234,22 +264,40 @@ export default function Dashboard() {
             {/* Recent Activity */}
             <div>
               <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text)' }}>
-                <FileText size={16} style={{ color: 'var(--accent)' }} /> Recent Workspace Activity
+                <FileText size={16} style={{ color: 'var(--accent)' }} /> Recent Surveys
               </h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-                {[
-                  { action: "Saved Paper", title: "Attention Is All You Need", time: "2 hours ago" },
-                  { action: "Draft Updated", title: "Literature Survey: Neural Nets", time: "Yesterday" },
-                  { action: "Venue Matched", title: "Nature Machine Intelligence", time: "2 days ago" }
-                ].map((act, i) => (
-                  <div key={i} className="glass-panel animate-slide-up" style={{ padding: '1.25rem', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '0.5rem', animationDelay: `${i * 0.1}s` }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{act.action}</span>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{act.time}</span>
-                    </div>
-                    <div style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--text)' }}>{act.title}</div>
+                {loadingRecent ? (
+                  <div style={{ padding: '1rem', display: 'flex', justifyContent: 'center' }}><Spinner size={16}/></div>
+                ) : recentSurveys.length === 0 ? (
+                  <div className="glass-panel" style={{ padding: '1.25rem', borderRadius: '12px', textAlign: 'center', color: 'var(--text-subtle)' }}>
+                    No recent surveys found.
                   </div>
-                ))}
+                ) : (
+                  recentSurveys.map((survey, i) => (
+                    <div key={i} className="glass-panel animate-slide-up" style={{ padding: '1.25rem', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '0.5rem', animationDelay: `${i * 0.1}s` }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Literature Survey</span>
+                        <button 
+                          className="btn btn-icon"
+                          onClick={(e) => deleteRecentSurvey(survey.query, e)}
+                          style={{ color: 'var(--danger)', padding: '0.2rem', margin: '-0.2rem' }}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                      <div style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--text)' }}>{survey.query}</div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{survey.papers?.length || 0} papers saved</div>
+                      <button 
+                        className="btn btn-ghost" 
+                        onClick={() => navigate('/literature-survey')}
+                        style={{ alignSelf: 'flex-start', padding: 0, marginTop: '0.25rem', color: 'var(--primary)', fontSize: '0.85rem' }}
+                      >
+                        View in Surveys <ArrowRight size={12} />
+                      </button>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
 

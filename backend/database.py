@@ -24,4 +24,5 @@ async def ensure_indexes():
     await db["manuscripts"].create_index([("user_id", 1), ("topic", 1)])
     await db["literature"].create_index([("user_id", 1), ("query", 1)])
     await db["users"].create_index("email", unique=True)
+    await db["pdf_chats"].create_index([("user_id", 1), ("updated_at", -1)])
     logger.info("Database indexes ensured.")

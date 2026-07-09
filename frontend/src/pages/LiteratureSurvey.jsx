@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Download, ExternalLink, Save, BookOpen, FileText, X, Bookmark, Unlock, ChevronDown, Sparkles } from 'lucide-react';
+import { Search, Download, ExternalLink, Save, BookOpen, FileText, X, Bookmark, Unlock, ChevronDown, Sparkles, Trash2 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { useAuth } from '../context/AuthContext';
@@ -146,6 +146,20 @@ export default function LiteratureSurvey() {
       setSaveStatus(res.ok ? 'saved' : 'error');
       if (res.ok) setTimeout(() => setSaveStatus(''), 3000);
     } catch { setSaveStatus('error'); }
+  };
+
+  const deleteSurvey = async (surveyQuery) => {
+    if (!window.confirm(`Are you sure you want to delete the survey "${surveyQuery}"?`)) return;
+    try {
+      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature/delete/${encodeURIComponent(surveyQuery)}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        fetchSavedSurveys();
+      }
+    } catch (e) {
+      console.error("Failed to delete survey", e);
+    }
   };
 
   return (
@@ -341,6 +355,13 @@ export default function LiteratureSurvey() {
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <button className="btn btn-secondary" onClick={() => exportSurveyToPDF(survey.papers, survey.query)}>
                     <Download size={14} /> Download PDF
+                  </button>
+                  <button 
+                    className="btn btn-icon" 
+                    onClick={() => deleteSurvey(survey.query)} 
+                    style={{ color: 'var(--danger)', background: 'rgba(229, 28, 35, 0.1)', border: 'none' }}
+                  >
+                    <Trash2 size={16} />
                   </button>
                 </div>
               </div>

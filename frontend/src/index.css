@@ -112,6 +112,12 @@ select:focus-visible {
   padding: 2.25rem;
   margin-left: var(--sidebar-width);
   max-width: calc(100vw - var(--sidebar-width));
+  transition: margin-left var(--transition), max-width var(--transition), padding var(--transition);
+}
+
+.main-content.collapsed {
+  margin-left: 80px;
+  max-width: calc(100vw - 80px);
 }
 
 h1 {
