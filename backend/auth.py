@@ -7,6 +7,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from database import db
 from dotenv import load_dotenv
+import usage_tracker
 
 load_dotenv()
 
@@ -58,7 +59,18 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(b
     user_id = payload.get("sub")
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload.")
-    return {"user_id": user_id, "email": payload.get("email")}
+    
+    # Set the current user ID for usage tracking in the current async context
+    usage_tracker.current_user_id.set(user_id)
+    
+    # Also attach role if possible, but standard token only has email. 
+    # Let's fetch the user to get the role.
+    collection = db["users"]
+    from bson import ObjectId
+    user = await collection.find_one({"_id": ObjectId(user_id)})
+    role = user.get("role", "user") if user else "user"
+    
+    return {"user_id": user_id, "email": payload.get("email"), "role": role}
 
 
 # ─── Signup ────────────────────────────────────────────────────────────────────
@@ -79,7 +91,7 @@ async def signup_user(email: str, password: str, name: str) -> dict:
     result = await collection.insert_one(user_doc)
     user_id = str(result.inserted_id)
     token = create_access_token(user_id, email)
-    return {"token": token, "user": {"id": user_id, "email": email, "name": name}}
+    return {"token": token, "user": {"id": user_id, "email": email, "name": name, "role": "user"}}
 
 
 # ─── Login ─────────────────────────────────────────────────────────────────────
@@ -92,7 +104,7 @@ async def login_user(email: str, password: str) -> dict:
 
     user_id = str(user["_id"])
     token = create_access_token(user_id, email)
-    return {"token": token, "user": {"id": user_id, "email": email, "name": user.get("name", "")}}
+    return {"token": token, "user": {"id": user_id, "email": email, "name": user.get("name", ""), "role": user.get("role", "user")}}
 
 
 # ─── Seed Admin ────────────────────────────────────────────────────────────────

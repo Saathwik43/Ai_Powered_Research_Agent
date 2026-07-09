@@ -2,6 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { CheckCircle, Circle, Save, FileText, Wand2, FolderOpen, X, Search, Sparkles, Send } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Spinner, SkeletonText } from '../components/Loader';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { ghcolors } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import 'katex/dist/katex.min.css';
 
 const STEPS = [
   { id: 'abstract',    label: 'Abstract' },
@@ -19,6 +26,7 @@ export default function ManuscriptBuilder() {
   const [generating, setGenerating] = useState(false);
   const [saveStatus, setSaveStatus] = useState('');
   const [showLoad, setShowLoad]     = useState(false);
+  const [viewMode, setViewMode]     = useState('write');
   const [drafts, setDrafts]         = useState([]);
   const [draftFilter, setDraftFilter] = useState('');
   const [draftLoading, setDraftLoading] = useState(false);
@@ -358,14 +366,58 @@ export default function ManuscriptBuilder() {
           )}
 
           {!generating && (
-            <textarea
-              placeholder={`Write your ${currentStep?.label.toLowerCase()} here, or click Generate for AI assistance...`}
-              value={content[active] || ''}
-              onChange={e => setContent(prev => ({ ...prev, [active]: e.target.value }))}
-              style={{ width: '100%', minHeight: '420px', padding: '1rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', color: 'var(--text)', fontFamily: 'inherit', fontSize: '0.93rem', resize: 'vertical', outline: 'none', lineHeight: 1.75, transition: 'var(--transition)', boxSizing: 'border-box' }}
-              onFocus={e => { e.target.style.borderColor = 'var(--border-focus)'; e.target.style.boxShadow = '0 0 0 3px var(--primary-light)'; }}
-              onBlur={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.boxShadow = 'none'; }}
-            />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid var(--border)' }}>
+                <button 
+                  onClick={() => setViewMode('write')} 
+                  style={{ background: 'none', border: 'none', padding: '0.5rem 1rem', borderBottom: viewMode === 'write' ? '2px solid var(--primary)' : '2px solid transparent', color: viewMode === 'write' ? 'var(--primary)' : 'var(--text-subtle)', fontWeight: viewMode === 'write' ? 600 : 400, cursor: 'pointer', transition: 'var(--transition)' }}
+                >
+                  Write
+                </button>
+                <button 
+                  onClick={() => setViewMode('preview')} 
+                  style={{ background: 'none', border: 'none', padding: '0.5rem 1rem', borderBottom: viewMode === 'preview' ? '2px solid var(--primary)' : '2px solid transparent', color: viewMode === 'preview' ? 'var(--primary)' : 'var(--text-subtle)', fontWeight: viewMode === 'preview' ? 600 : 400, cursor: 'pointer', transition: 'var(--transition)' }}
+                >
+                  Preview
+                </button>
+              </div>
+              
+              {viewMode === 'write' ? (
+                <textarea
+                  placeholder={`Write your ${currentStep?.label.toLowerCase()} here, or click Generate for AI assistance...\nUse LaTeX for math (e.g. $E = mc^2$ for inline, $$x^2$$ for block).`}
+                  value={content[active] || ''}
+                  onChange={e => setContent(prev => ({ ...prev, [active]: e.target.value }))}
+                  style={{ width: '100%', minHeight: '420px', padding: '1rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', color: 'var(--text)', fontFamily: 'inherit', fontSize: '0.93rem', resize: 'vertical', outline: 'none', lineHeight: 1.75, transition: 'var(--transition)', boxSizing: 'border-box' }}
+                  onFocus={e => { e.target.style.borderColor = 'var(--border-focus)'; e.target.style.boxShadow = '0 0 0 3px var(--primary-light)'; }}
+                  onBlur={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.boxShadow = 'none'; }}
+                />
+              ) : (
+                <div className="pdf-markdown-body" style={{ width: '100%', minHeight: '420px', padding: '1rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', color: 'var(--text)', overflowY: 'auto', boxSizing: 'border-box' }}>
+                  {content[active] ? (
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm, remarkMath]}
+                      rehypePlugins={[rehypeKatex]}
+                      components={{
+                        code({ node, inline, className, children, ...props }) {
+                          const match = /language-(\w+)/.exec(className || '');
+                          return !inline && match ? (
+                            <SyntaxHighlighter style={ghcolors} language={match[1]} PreTag="div" {...props}>
+                              {String(children).replace(/\n$/, '')}
+                            </SyntaxHighlighter>
+                          ) : (
+                            <code className={className} {...props}>{children}</code>
+                          );
+                        }
+                      }}
+                    >
+                      {content[active]}
+                    </ReactMarkdown>
+                  ) : (
+                    <p style={{ color: 'var(--text-subtle)', fontStyle: 'italic', margin: 0 }}>Nothing to preview.</p>
+                  )}
+                </div>
+              )}
+            </div>
           )}
           
           {content[active] && !generating && (

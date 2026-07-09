@@ -4,7 +4,15 @@ import re
 import time
 
 from ai.llm_provider import generate_completion
-from ai.pdf_extraction import extract_evidence_from_pdf_with_source
+from ai.pdf_extraction import (
+    _fetch_pdf_bytes,
+    _match_alias,
+    _append_text,
+    _collapse_sections,
+    _has_usable_evidence,
+    _empty_evidence,
+)
+from ai.grobid_client import extract_via_grobid
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +29,7 @@ EVIDENCE_FIELDS = (
 
 
 def empty_evidence() -> dict:
-    return {field: "" for field in EVIDENCE_FIELDS}
+    return _empty_evidence()
 
 
 # In-memory evidence cache.
@@ -37,8 +45,7 @@ def _cache_key(paper: dict) -> str:
     return title
 
 
-def _has_usable_evidence(evidence: dict | None) -> bool:
-    return bool(evidence and any((evidence.get(field) or "").strip() for field in EVIDENCE_FIELDS))
+
 
 
 def _get_cached_evidence(paper: dict) -> tuple[dict, str] | None:
@@ -132,13 +139,35 @@ async def extract_evidence(paper: dict) -> dict:
     return evidence
 
 
+def _map_grobid_to_evidence(grobid_res: dict) -> dict:
+    sections: dict[str, list[str]] = {}
+    
+    abstract = grobid_res.get("abstract", "").strip()
+    if abstract:
+        _append_text(sections, "objective", abstract)
+        
+    for key, text in grobid_res.get("sections", {}).items():
+        mapped = _match_alias(key)
+        if mapped:
+            _append_text(sections, mapped, text)
+            
+    evidence = _collapse_sections(sections)
+    
+    if not evidence["dataset"] and evidence["method"]:
+        method_lower = evidence["method"].lower()
+        if "dataset" in method_lower or "data" in method_lower or "corpus" in method_lower:
+            evidence["dataset"] = evidence["method"]
+            
+    return evidence
+
+
 async def extract_evidence_for_paper(paper: dict) -> tuple[dict, str]:
     """
     Layered extraction with cache and explicit source tracking.
 
     Order:
     1. Cache
-    2. PDF extraction (Docling -> GROBID) when oa_url exists
+    2. PDF extraction via grobid_client when oa_url exists
     3. Existing LLM title/abstract extraction
     """
     cached = _get_cached_evidence(paper)
@@ -149,11 +178,15 @@ async def extract_evidence_for_paper(paper: dict) -> tuple[dict, str]:
     oa_url = (paper.get("oa_url") or "").strip()
 
     if oa_url:
-        pdf_evidence, pdf_source = await extract_evidence_from_pdf_with_source(oa_url)
-        if _has_usable_evidence(pdf_evidence):
-            _store_cached_evidence(paper, pdf_evidence, pdf_source)
-            logger.info("Evidence extraction path for '%s': %s", title, pdf_source)
-            return pdf_evidence, pdf_source
+        pdf_bytes = await _fetch_pdf_bytes(oa_url)
+        if pdf_bytes:
+            grobid_res = await extract_via_grobid(pdf_bytes)
+            if grobid_res:
+                pdf_evidence = _map_grobid_to_evidence(grobid_res)
+                if _has_usable_evidence(pdf_evidence):
+                    _store_cached_evidence(paper, pdf_evidence, "grobid")
+                    logger.info("Evidence extraction path for '%s': grobid", title)
+                    return pdf_evidence, "grobid"
 
     llm_evidence = await _extract_evidence_via_llm(paper)
     if _has_usable_evidence(llm_evidence):

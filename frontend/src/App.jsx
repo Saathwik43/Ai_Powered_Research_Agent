@@ -9,6 +9,7 @@ import ManuscriptBuilder from './pages/ManuscriptBuilder';
 import VenueRecommendations from './pages/VenueRecommendations';
 import PdfAnalysis from './pages/PdfAnalysis';
 import LandingPage from './pages/LandingPage';
+import AdminDashboard from './pages/AdminDashboard';
 import { Login, Signup } from './pages/AuthPages';
 import './App.css';
 
@@ -59,6 +60,7 @@ const ProtectedLayout = () => {
           <Route path="/pdf-analysis" element={<PdfAnalysis />} />
           <Route path="/manuscript-builder" element={<ManuscriptBuilder />} />
           <Route path="/venue-recommendations" element={<VenueRecommendations />} />
+          <Route path="/admin" element={<AdminDashboard />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </main>

@@ -42,8 +42,9 @@ Instructions:
 4. Keep all claims appropriately cautious and academically sound (e.g., use "suggests", "indicates", "may").
 5. Format the output in clean Markdown, using paragraphs, lists, or bold text only where academically appropriate.
 6. Make it comprehensive, detailed, and at least 3-4 paragraphs long.
-7. CRITICAL: Cite ONLY from the numbered reference list provided in the context, using [1], [2], etc. inline markers. If no numbered reference list is provided, you may generate without citations but ensure academic rigor.
-8. IMPORTANT: If a provided reference doesn't directly support a claim, state the claim as general background without a citation marker rather than force-citing an irrelevant source."""
+7. CRITICAL: Use LaTeX formatting for any mathematical or chemical formulas, subscripts, and superscripts (e.g., $O_2$, $x^2$, $$ E = mc^2 $$) so they render correctly.
+8. CRITICAL: Cite ONLY from the numbered reference list provided in the context, using [1], [2], etc. inline markers. If no numbered reference list is provided, you may generate without citations but ensure academic rigor.
+9. IMPORTANT: If a provided reference doesn't directly support a claim, state the claim as general background without a citation marker rather than force-citing an irrelevant source."""
 )
 def _prompt(topic: str, section: str, context: str) -> str:
     return prompt_template.format(topic=topic, section=section, context=context)

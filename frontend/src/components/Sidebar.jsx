@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, BookOpen, PenTool, LayoutList, LogOut, X, ChevronLeft, ChevronRight, FileText } from 'lucide-react';
+import { LayoutDashboard, BookOpen, PenTool, LayoutList, LogOut, X, ChevronLeft, ChevronRight, FileText, Shield } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import './Sidebar.css';
 
@@ -16,6 +16,10 @@ const Sidebar = ({ open, onClose, collapsed, onToggleCollapse }) => {
     { name: 'Venue Recommendations', path: '/venue-recommendations', icon: <LayoutList size={18} /> },
   ];
 
+  if (user?.role === 'admin') {
+    navItems.push({ name: 'Admin Dashboard', path: '/admin', icon: <Shield size={18} /> });
+  }
+
   const handleLogout = () => {
     logout();
     navigate('/');
@@ -24,6 +28,25 @@ const Sidebar = ({ open, onClose, collapsed, onToggleCollapse }) => {
   const initials = user?.name
     ? user.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
     : 'U';
+
+  const [usage, setUsage] = useState(null);
+  const { authFetch } = useAuth();
+  
+  useEffect(() => {
+    if (!user) return;
+    const fetchUsage = async () => {
+      try {
+        const res = await authFetch('http://localhost:8000/api/user/usage');
+        if (res.ok) {
+          const data = await res.json();
+          setUsage(data);
+        }
+      } catch (err) {
+        console.error("Failed to fetch usage:", err);
+      }
+    };
+    fetchUsage();
+  }, [user, authFetch]);
 
   return (
     <>
@@ -56,6 +79,19 @@ const Sidebar = ({ open, onClose, collapsed, onToggleCollapse }) => {
             </NavLink>
           ))}
         </nav>
+
+        {usage && !collapsed && (
+          <div style={{ padding: '1rem 1.25rem', borderTop: '1px solid var(--border)', fontSize: '0.8rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem', color: 'var(--text)' }}>
+              <span>Session: {Math.min(100, (usage.used / usage.quota) * 100).toFixed(0)}%</span>
+              <span>Reset in: {usage.reset_in}</span>
+            </div>
+            <div style={{ height: '6px', background: 'var(--bg-hover)', borderRadius: '4px', overflow: 'hidden', marginBottom: '0.4rem' }}>
+              <div style={{ height: '100%', width: `${Math.min(100, (usage.used / usage.quota) * 100)}%`, background: 'var(--primary)', borderRadius: '4px', transition: 'width 0.3s ease' }}></div>
+            </div>
+            <div style={{ color: 'var(--text-muted)' }}>Messages left: {usage.messages_left}</div>
+          </div>
+        )}
 
         <div className="sidebar-footer">
           {user && (

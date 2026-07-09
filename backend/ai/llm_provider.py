@@ -6,6 +6,7 @@ import httpx
 from langchain_huggingface import HuggingFaceEndpoint
 from google import genai
 from google.genai import types as genai_types
+import usage_tracker
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,8 @@ async def _generate_gemini(system_prompt: str, user_prompt: str, max_tokens: int
             contents=user_prompt,
             config=config,
         )
-        return response.text.strip()
+        usage = response.usage_metadata.total_token_count if hasattr(response, 'usage_metadata') and response.usage_metadata else 0
+        return response.text.strip(), usage
     except Exception as e:
         logger.error(f"Gemini API Error ({type(e).__name__}): {e}", exc_info=True)
         raise RuntimeError(f"Gemini generation failed: {type(e).__name__} - {e}") from e
@@ -75,7 +77,8 @@ async def _generate_openai(system_prompt: str, user_prompt: str, max_tokens: int
         response = await client.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
         response.raise_for_status()
         data = response.json()
-        return data["choices"][0]["message"]["content"].strip()
+        usage = data.get("usage", {}).get("total_tokens", 0)
+        return data["choices"][0]["message"]["content"].strip(), usage
 
 
 
@@ -100,7 +103,8 @@ async def _generate_groq(system_prompt: str, user_prompt: str, max_tokens: int, 
         response = await client.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload)
         response.raise_for_status()
         data = response.json()
-        return data["choices"][0]["message"]["content"].strip()
+        usage = data.get("usage", {}).get("total_tokens", 0)
+        return data["choices"][0]["message"]["content"].strip(), usage
 
 
 async def _generate_openrouter(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float) -> str:
@@ -126,7 +130,8 @@ async def _generate_openrouter(system_prompt: str, user_prompt: str, max_tokens:
         response = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
         response.raise_for_status()
         data = response.json()
-        return data["choices"][0]["message"]["content"].strip()
+        usage = data.get("usage", {}).get("total_tokens", 0)
+        return data["choices"][0]["message"]["content"].strip(), usage
 
 
 def _run_huggingface(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float) -> str:
@@ -146,7 +151,9 @@ def _run_huggingface(system_prompt: str, user_prompt: str, max_tokens: int, temp
         prompt = f"[INST] {prompt} [/INST]"
         
     try:
-        return llm.invoke(prompt).strip()
+        content = llm.invoke(prompt).strip()
+        usage = (len(prompt) + len(content)) // 4
+        return content, usage
     except StopIteration as e:
         raise RuntimeError(f"LangChain StopIteration: {e}") from e
 
@@ -163,7 +170,12 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
     if provider_override == "gemini":
         for attempt in range(2):
             try:
-                result = await asyncio.wait_for(_generate_gemini(system_prompt, user_prompt, max_tokens, temperature), timeout=60)
+                user_id = usage_tracker.current_user_id.get()
+                if user_id:
+                    await usage_tracker.check_quota(user_id)
+                result, tokens = await asyncio.wait_for(_generate_gemini(system_prompt, user_prompt, max_tokens, temperature), timeout=60)
+                if user_id:
+                    await usage_tracker.log_usage(user_id, tokens, "Gemini")
                 return result
             except Exception as e:
                 logger.error(f"Gemini generation failed (attempt {attempt + 1}): {e}")
@@ -186,7 +198,12 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
     for provider_name, provider in providers:
         for attempt in range(2):
             try:
-                result = await asyncio.wait_for(provider(system_prompt, user_prompt, max_tokens, temperature), timeout=60)
+                user_id = usage_tracker.current_user_id.get()
+                if user_id:
+                    await usage_tracker.check_quota(user_id)
+                result, tokens = await asyncio.wait_for(provider(system_prompt, user_prompt, max_tokens, temperature), timeout=60)
+                if user_id:
+                    await usage_tracker.log_usage(user_id, tokens, provider_name)
                 return result
             except Exception as e:
                 logger.error(f"{provider_name} generation failed (attempt {attempt + 1}): {e}")

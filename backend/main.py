@@ -549,4 +549,47 @@ async def delete_pdf_chat(chat_id: str, current_user: dict = Depends(get_current
     except Exception:
         raise HTTPException(status_code=404, detail="Invalid chat ID.")
 
+from usage_tracker import get_user_usage
+
+@app.get("/api/user/usage")
+async def get_my_usage(current_user: dict = Depends(get_current_user)):
+    return await get_user_usage(current_user["user_id"])
+
+@app.get("/api/admin/usage")
+async def admin_usage_endpoint(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+        
+    collection = db["usage_logs"]
+    today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    
+    # Aggregate usage for all users today
+    pipeline = [
+        {"$match": {"date": today}},
+        {"$group": {"_id": "$user_id", "total_tokens": {"$sum": "$tokens"}}}
+    ]
+    cursor = collection.aggregate(pipeline)
+    usage = await cursor.to_list(length=1000)
+    
+    users_collection = db["users"]
+    
+    results = []
+    for u in usage:
+        user_id = u["_id"]
+        total_tokens = u["total_tokens"]
+        user_doc = await users_collection.find_one({"_id": ObjectId(user_id)})
+        email = user_doc["email"] if user_doc else user_id
+        
+        from usage_tracker import DAILY_TOKEN_QUOTA, TOKENS_PER_MESSAGE
+        messages_left = max(0.0, (DAILY_TOKEN_QUOTA - total_tokens) / TOKENS_PER_MESSAGE)
+        results.append({
+            "user_id": user_id,
+            "email": email,
+            "used": total_tokens,
+            "messages_left": round(messages_left, 1),
+            "quota": DAILY_TOKEN_QUOTA
+        })
+        
+    return {"data": results}
+
 # Trigger reload
