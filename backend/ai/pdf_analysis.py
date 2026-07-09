@@ -13,6 +13,7 @@ from ai.evidence_extraction import extract_evidence
 from ai.llm_provider import generate_completion
 from ai.gap_analysis import _GAP_SYSTEM_PROMPT
 from ai.pdf_structure import extract_structure
+from ai.grobid_client import extract_via_grobid
 
 logger = logging.getLogger(__name__)
 
@@ -115,12 +116,41 @@ async def analyze_uploaded_paper(text: str, custom_prompt: str = None, file_byte
     if not validate_layer_b(text):
         raise HTTPException(status_code=400, detail="Invalid text content.")
         
-    structure = extract_structure(file_bytes) if file_bytes else {"title": "", "authors": [], "abstract": "", "sections": {}}
+    structure = {"title": "", "authors": [], "abstract": "", "sections": {}}
+    if file_bytes:
+        grobid_structure = await extract_via_grobid(file_bytes)
+        low_fields = (
+            sum(1 for v in grobid_structure.get("confidence", {}).values() if v == "low")
+            if grobid_structure else 4
+        )
+
+        if grobid_structure is None:
+            logger.warning("GROBID unreachable, falling back to PyMuPDF heuristic.")
+            structure = extract_structure(file_bytes)
+        elif low_fields == 0:
+            structure = grobid_structure
+        else:
+            # GROBID partially low-confidence -- rescue only the weak fields
+            # from the heuristic tier, don't discard GROBID's good fields.
+            logger.info(f"GROBID low-confidence on {low_fields} field(s), rescuing from heuristic.")
+            heuristic_structure = extract_structure(file_bytes)
+            merged = dict(grobid_structure)
+            merged_conf = dict(grobid_structure.get("confidence", {}))
+            for field in ("title", "authors", "abstract", "sections"):
+                if grobid_structure.get("confidence", {}).get(field) == "low":
+                    heur_conf = heuristic_structure.get("confidence", {}).get(field, "low")
+                    if heur_conf == "high" and heuristic_structure.get(field):
+                        merged[field] = heuristic_structure[field]
+                        merged_conf[field] = "high"
+            merged["confidence"] = merged_conf
+            structure = merged
+
     logger.info(f"Extracted PDF Structure: {json.dumps(structure, indent=2)}")
         
     # Construct context for evidence extraction based on structure
-    method_text = structure.get("sections", {}).get("method", "")
-    results_text = structure.get("sections", {}).get("results", "")
+    sections = structure.get("sections", {})
+    method_text = sections.get("method", "")
+    results_text = sections.get("results", "") or sections.get("results_and_discussion", "")
     structure_context = method_text + "\n" + results_text
     
     if not structure_context.strip():
