@@ -81,9 +81,9 @@ async def _citation_flags(content: str, context: str, references_mapping: dict) 
 # 'ai.manuscript_generation._filter_relevant_papers' continue to work.
 
 
-async def generate_section(topic: str, section: str, context: str, citation_style: str = "ieee", use_premium: bool = False):
+async def _prepare_generation(topic: str, section: str, context: str, citation_style: str, use_premium: bool):
     if not validate_input_layers_a_b(topic):
-        return '{"error": "topic_unclear"}', {}
+        return None, None, None, None, None, '{"error": "topic_unclear"}'
         
     papers = await search_all(topic, limit_per_source=15, use_premium=use_premium) or []
     if papers:
@@ -105,7 +105,6 @@ async def generate_section(topic: str, section: str, context: str, citation_styl
             year = p.get('year', 'Unknown Year')
             doi = p.get('doi', p.get('url', ''))
             
-            # Use structured evidence if available and not completely empty
             ev = p.get("evidence", {})
             has_evidence = any(ev.get(k) for k in ["objective", "method", "dataset", "results", "limitations", "future_work"])
             
@@ -152,37 +151,24 @@ async def generate_section(topic: str, section: str, context: str, citation_styl
         except Exception as e:
             logger.warning(f"Internal gap analysis failed during lit_review generation: {e}")
 
-    cache_key = None
-    if context and context.strip():
-        cache_key = hash(topic + section + context + str(use_premium))
-        if cache_key in _cache:
-            cache_entry = _cache[cache_key]
-            # TTL check (1 hour = 3600 seconds)
-            if time.time() - cache_entry['time'] < 3600:
-                flags = await _citation_flags(cache_entry['content'], context, references_mapping)
-                flags.update(validate_numerical_claims(cache_entry['content'], papers))
-                if references_mapping:
-                    flags["references"] = references_mapping
-                    flags["formatted_references"] = {
-                        k: format_citation(v, style=citation_style) for k, v in references_mapping.items()
-                    }
-                if gap_analysis_data:
-                    flags["gap_analysis"] = gap_analysis_data
-                return cache_entry['content'], flags
-
     system_prompt = "You write rigorous, concise academic manuscript sections."
     user_prompt = _prompt(topic, section, context)
+    return user_prompt, system_prompt, references_mapping, gap_analysis_data, papers, None
+
+
+async def generate_section(topic: str, section: str, context: str, citation_style: str = "ieee", use_premium: bool = False):
+    user_prompt, system_prompt, references_mapping, gap_analysis_data, papers, err = await _prepare_generation(topic, section, context, citation_style, use_premium)
+    if err:
+        return err, {}
     
-    provider_override = None
     max_tokens_limit = 1200
+    provider_override = None
     if section.lower().replace(" ", "_") in ("lit_review", "literature_review"):
         provider_override = "gemini"
         max_tokens_limit = 2000
     
     try:
         result = await generate_completion(system_prompt, user_prompt, max_tokens=max_tokens_limit, temperature=0.45, provider_override=provider_override)
-        if cache_key is not None:
-            _cache[cache_key] = {'content': result, 'time': time.time()}
         flags = await _citation_flags(result, context, references_mapping)
         flags.update(validate_numerical_claims(result, papers))
         if references_mapping:
@@ -199,6 +185,41 @@ async def generate_section(topic: str, section: str, context: str, citation_styl
             status_code=503,
             detail={"verification_unavailable": True, "message": "AI generation is temporarily unavailable. Please try again in a moment."}
         )
+
+from ai.llm_provider import stream_completion
+
+async def generate_section_stream(topic: str, section: str, context: str, citation_style: str, use_premium: bool, provider: str, model: str = None):
+    user_prompt, system_prompt, references_mapping, gap_analysis_data, papers, err = await _prepare_generation(topic, section, context, citation_style, use_premium)
+    if err:
+        yield {"type": "stopped", "reason": "error", "message": "Topic unclear"}
+        return
+        
+    max_tokens_limit = 2000 if section.lower().replace(" ", "_") in ("lit_review", "literature_review") else 1200
+    
+    full_text = ""
+    async for chunk in stream_completion(system_prompt, user_prompt, max_tokens_limit, 0.45, provider, model):
+        if chunk.get("type") == "chunk":
+            full_text += chunk.get("text", "")
+            yield chunk
+        elif chunk.get("type") == "done" or chunk.get("type") == "stopped":
+            # Run post-processing before sending the final signal
+            flags = await _citation_flags(full_text, context, references_mapping)
+            flags.update(validate_numerical_claims(full_text, papers))
+            
+            metadata = {"type": "metadata"}
+            metadata.update(flags)
+            if references_mapping:
+                metadata["references"] = references_mapping
+                metadata["formatted_references"] = {
+                    k: format_citation(v, style=citation_style) for k, v in references_mapping.items()
+                }
+            if gap_analysis_data:
+                metadata["gap_analysis"] = gap_analysis_data
+                
+            yield metadata
+            yield chunk
+            if chunk.get("type") == "stopped":
+                break
 
 
 edit_prompt_template = PromptTemplate(

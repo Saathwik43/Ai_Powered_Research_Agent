@@ -112,6 +112,10 @@ class ManuscriptPayload(BaseModel):
     citation_style: str = "ieee"
     use_premium: bool = False
 
+class ManuscriptStreamPayload(ManuscriptPayload):
+    provider: str
+    model: str = None
+
 class GapAnalysisPayload(BaseModel):
     topic: str
 
@@ -310,6 +314,7 @@ async def search_github(query: str, current_user: dict = Depends(get_current_use
 @app.post("/api/manuscript")
 @limiter.limit("5/minute")
 async def draft_manuscript(request: Request, payload: ManuscriptPayload, current_user: dict = Depends(get_current_user)):
+    from ai.manuscript_generation import generate_section
     content, flags = await generate_section(payload.topic, payload.section, payload.context, payload.citation_style, payload.use_premium)
     if '{"error": "topic_unclear"}' in content:
         raise HTTPException(status_code=400, detail="The provided topic is unclear or appears to be nonsense.")
@@ -317,6 +322,31 @@ async def draft_manuscript(request: Request, payload: ManuscriptPayload, current
     response = {"section": payload.section, "content": content}
     response.update(flags)
     return response
+
+from fastapi.responses import StreamingResponse
+import json
+
+async def _sse_wrap(generator):
+    async for chunk in generator:
+        yield f"data: {json.dumps(chunk)}\n\n"
+
+@app.post("/api/manuscript/stream")
+@limiter.limit("15/minute")
+async def draft_manuscript_stream(request: Request, payload: ManuscriptStreamPayload, current_user: dict = Depends(get_current_user)):
+    from ai.manuscript_generation import generate_section_stream
+    # No usage_tracker.check_quota here per user request, rely on provider limits
+    
+    gen = generate_section_stream(
+        payload.topic, 
+        payload.section, 
+        payload.context, 
+        payload.citation_style, 
+        payload.use_premium, 
+        payload.provider, 
+        payload.model
+    )
+    
+    return StreamingResponse(_sse_wrap(gen), media_type="text/event-stream")
 
 @app.post("/api/manuscript/edit")
 @limiter.limit("5/minute")

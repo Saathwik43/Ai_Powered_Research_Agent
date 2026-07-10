@@ -213,3 +213,124 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
             break
             
     raise RuntimeError("All configured AI providers failed to generate a completion.")
+
+
+import json
+
+async def _stream_openai_compatible(url: str, headers: dict, payload: dict):
+    payload["stream"] = True
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            async with client.stream("POST", url, headers=headers, json=payload) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    data_str = line[6:].strip()
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        data = json.loads(data_str)
+                        delta = data.get("choices", [{}])[0].get("delta", {}).get("content")
+                        if delta:
+                            yield {"type": "chunk", "text": delta}
+                    except json.JSONDecodeError:
+                        pass
+                yield {"type": "done"}
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 429:
+            retry_after = e.response.headers.get("Retry-After")
+            if not retry_after:
+                retry_after = e.response.headers.get("x-ratelimit-reset-requests") or e.response.headers.get("x-ratelimit-reset-tokens")
+            retry_val = None
+            try:
+                if retry_after:
+                    retry_val = float(retry_after.replace('s',''))
+            except:
+                pass
+            yield {"type": "stopped", "reason": "rate_limit", "retry_after_seconds": retry_val}
+        else:
+            yield {"type": "stopped", "reason": "error", "message": f"HTTP Error {e.response.status_code}"}
+    except Exception as e:
+        yield {"type": "stopped", "reason": "error", "message": str(e)}
+
+async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float, provider: str, model: str = None):
+    provider = provider.lower()
+    
+    if provider == "groq":
+        key = os.getenv("GROQ_API_KEY")
+        if not key:
+            yield {"type": "stopped", "reason": "error", "message": "GROQ_API_KEY not configured."}
+            return
+        payload = {
+            "model": model or os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+            "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+        async for chunk in _stream_openai_compatible("https://api.groq.com/openai/v1/chat/completions", headers, payload):
+            yield chunk
+
+    elif provider == "openrouter":
+        key = os.getenv("OPENROUTER_API_KEY")
+        if not key:
+            yield {"type": "stopped", "reason": "error", "message": "OPENROUTER_API_KEY not configured."}
+            return
+        payload = {
+            "model": model or os.getenv("OPENROUTER_MODEL", "anthropic/claude-3-haiku"),
+            "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+        async for chunk in _stream_openai_compatible("https://openrouter.ai/api/v1/chat/completions", headers, payload):
+            yield chunk
+
+    elif provider == "openai":
+        key = os.getenv("OPENAI_API_KEY")
+        if not key:
+            yield {"type": "stopped", "reason": "error", "message": "OPENAI_API_KEY not configured."}
+            return
+        payload = {
+            "model": model or os.getenv("OPENAI_MODEL", "gpt-4o"),
+            "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+        async for chunk in _stream_openai_compatible("https://api.openai.com/v1/chat/completions", headers, payload):
+            yield chunk
+
+    elif provider == "gemini":
+        global _gemini_client
+        if not _gemini_client:
+            key = os.getenv("GEMINI_API_KEY")
+            if not key:
+                yield {"type": "stopped", "reason": "error", "message": "GEMINI_API_KEY not configured."}
+                return
+            _gemini_client = genai.Client(api_key=key)
+            
+        config = genai_types.GenerateContentConfig(
+            system_instruction=system_prompt or None,
+            temperature=temperature,
+            max_output_tokens=max_tokens,
+        )
+        try:
+            response_stream = await _gemini_client.aio.models.generate_content_stream(
+                model=model or os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
+                contents=user_prompt,
+                config=config,
+            )
+            async for chunk in response_stream:
+                if chunk.text:
+                    yield {"type": "chunk", "text": chunk.text}
+            yield {"type": "done"}
+        except Exception as e:
+            if "429" in str(e):
+                yield {"type": "stopped", "reason": "rate_limit", "retry_after_seconds": None}
+            else:
+                yield {"type": "stopped", "reason": "error", "message": str(e)}
+    else:
+        yield {"type": "stopped", "reason": "error", "message": f"Unknown provider {provider}"}
+

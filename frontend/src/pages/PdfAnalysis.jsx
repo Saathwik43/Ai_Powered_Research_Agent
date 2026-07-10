@@ -2,7 +2,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   UploadCloud, FileText, Send, Sparkles, AlertCircle,
   ChevronLeft, ChevronRight, Bot, User, Paperclip, X,
-  CheckCircle, AlertTriangle, ArrowRight, Zap, BookOpen, History
+  CheckCircle, AlertTriangle, ArrowRight, Zap, BookOpen, History,
+  Minus, Plus
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Spinner, TypingDots } from '../components/Loader';
@@ -149,6 +150,7 @@ export default function PdfAnalysis() {
 
   const [numPages, setNumPages] = useState(null);
   const [pageNumber, setPageNumber] = useState(1);
+  const [zoom, setZoom] = useState(1.2);
 
   // Chat History States
   const [chatList, setChatList] = useState([]);
@@ -396,7 +398,7 @@ export default function PdfAnalysis() {
                       pageNumber={pageNumber} 
                       renderTextLayer={true} 
                       renderAnnotationLayer={true} 
-                      width={400} 
+                      scale={zoom} 
                    />
                  </Document>
                </div>
@@ -407,9 +409,16 @@ export default function PdfAnalysis() {
             )}
             {file.size && numPages && (
               <div className="pdf-viewer-controls">
-                <button className="btn btn-secondary btn-icon" disabled={pageNumber <= 1} onClick={() => setPageNumber(p => p - 1)}><ChevronLeft size={16} /></button>
-                <span>Page {pageNumber} of {numPages}</span>
-                <button className="btn btn-secondary btn-icon" disabled={pageNumber >= numPages} onClick={() => setPageNumber(p => p + 1)}><ChevronRight size={16} /></button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <button className="btn btn-secondary btn-icon" title="Zoom Out" onClick={() => setZoom(z => Math.max(0.5, z - 0.2))}><Minus size={16} /></button>
+                  <span style={{ minWidth: '3.5rem', textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
+                  <button className="btn btn-secondary btn-icon" title="Zoom In" onClick={() => setZoom(z => Math.min(3.0, z + 0.2))}><Plus size={16} /></button>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <button className="btn btn-secondary btn-icon" disabled={pageNumber <= 1} onClick={() => setPageNumber(p => p - 1)}><ChevronLeft size={16} /></button>
+                  <span>Page {pageNumber} of {numPages}</span>
+                  <button className="btn btn-secondary btn-icon" disabled={pageNumber >= numPages} onClick={() => setPageNumber(p => p + 1)}><ChevronRight size={16} /></button>
+                </div>
               </div>
             )}
           </div>

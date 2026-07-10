@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { CheckCircle, Circle, Save, FileText, Wand2, FolderOpen, X, Search, Sparkles, Send } from 'lucide-react';
+import { CheckCircle, Circle, Save, FileText, Wand2, FolderOpen, X, Search, Sparkles, Send, BookOpen } from 'lucide-react';
 import './ManuscriptBuilder.css';
 import { useAuth } from '../context/AuthContext';
 import { Spinner, SkeletonText } from '../components/Loader';
@@ -42,7 +42,9 @@ export default function ManuscriptBuilder() {
   
   // Phase B additions
   const [citationStyle, setCitationStyle] = useState('ieee');
+  const [provider, setProvider] = useState('groq');
   const [manuscriptRefs, setManuscriptRefs] = useState(null);
+  const [rateLimitWait, setRateLimitWait] = useState(null);
   
   const [gapAnalysis, setGapAnalysis] = useState(null);
   const [customContext, setCustomContext] = useState('');
@@ -56,46 +58,77 @@ export default function ManuscriptBuilder() {
     setGenerateError('');
     setUnverifiedWarning('');
     setUnverifiedNumbers([]);
+    setRateLimitWait(null);
+    setContent(prev => ({ ...prev, [active]: '' })); // Clear old content
+    
     try {
       const payloadContext = customContext.trim() || 'Use latest research trends and cite recent advancements.';
-      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript`, {
+      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/stream`, {
         method: 'POST',
-        body: JSON.stringify({ topic, section: active, context: payloadContext, citation_style: citationStyle, use_premium: usePremium }),
+        body: JSON.stringify({ topic, section: active, context: payloadContext, citation_style: citationStyle, use_premium: usePremium, provider: provider }),
       });
-      if (res.status === 429 || res.status === 503) {
-        if (res.status === 503) {
-          try {
-            const data = await res.json();
-            if (data?.detail?.verification_unavailable) {
-              setGenerateError('Verification temporarily unavailable, please try again shortly.');
-              return;
-            }
-          } catch(e) {}
-        }
-      setGenerateError("Rate limit exceeded. Please wait a minute before generating again.");
-      return;
-      }
+      
       if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        setGenerateError(errorData.detail || 'Failed to generate section. Please try again.');
+        if (res.status === 429) {
+            setGenerateError("Rate limit exceeded. Please wait before generating again.");
+        } else if (res.status === 503) {
+            setGenerateError("AI generation is temporarily unavailable. Please try again shortly.");
+        } else {
+            const errorData = await res.json().catch(() => ({}));
+            setGenerateError(errorData.detail || 'Failed to generate section. Please try again.');
+        }
+        setGenerating(false);
         return;
       }
-      const data = await res.json();
-      setContent(prev => ({ ...prev, [active]: data.content }));
-      if (data.formatted_references) {
-        setManuscriptRefs(data.formatted_references);
-      }
-      if (data.unverified_citations) {
-        setUnverifiedWarning('Warning: The generated text contains citations that could not be verified against the provided context. Please verify them independently.');
-      }
-      if (data.unverified_numbers && data.unverified_numbers.length > 0) {
-        setUnverifiedNumbers(data.unverified_numbers);
-      }
-      
-      if (data.gap_analysis) {
-        setGapAnalysis(data.gap_analysis);
-      } else if (active === 'lit_review' || active === 'literature_review') {
-        setGapAnalysis(null);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let buffer = "";
+
+      while (true) {
+        const { done: readerDone, value } = await reader.read();
+        if (readerDone) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        let boundary = buffer.indexOf("\n\n");
+        while (boundary !== -1) {
+          const chunkStr = buffer.slice(0, boundary).trim();
+          buffer = buffer.slice(boundary + 2);
+          boundary = buffer.indexOf("\n\n");
+          
+          if (chunkStr.startsWith("data: ")) {
+            const dataStr = chunkStr.slice(6);
+            if (dataStr === "[DONE]") continue;
+            try {
+              const data = JSON.parse(dataStr);
+              if (data.type === "chunk") {
+                setContent(prev => ({ ...prev, [active]: (prev[active] || "") + data.text }));
+              } else if (data.type === "metadata") {
+                if (data.formatted_references) setManuscriptRefs(data.formatted_references);
+                if (data.unverified_citations) setUnverifiedWarning('Warning: The generated text contains citations that could not be verified against the provided context. Please verify them independently.');
+                if (data.unverified_numbers && data.unverified_numbers.length > 0) setUnverifiedNumbers(data.unverified_numbers);
+                if (data.gap_analysis) setGapAnalysis(data.gap_analysis);
+                else if (active === 'lit_review' || active === 'literature_review') setGapAnalysis(null);
+              } else if (data.type === "stopped") {
+                if (data.reason === "rate_limit") {
+                  const waitSecs = data.retry_after_seconds;
+                  if (waitSecs) {
+                     setRateLimitWait(waitSecs);
+                     setContent(prev => ({ ...prev, [active]: (prev[active] || "") + `\n\n*[Generation paused — rate limit reached. You can resume in ~${waitSecs}s.]*` }));
+                  } else {
+                     setContent(prev => ({ ...prev, [active]: (prev[active] || "") + `\n\n*[Generation paused — rate limit reached. Try again shortly.]*` }));
+                  }
+                } else if (data.reason === "error") {
+                  setContent(prev => ({ ...prev, [active]: (prev[active] || "") + `\n\n*[Generation stopped: ${data.message}]*` }));
+                }
+              } else if (data.type === "done") {
+                setGenerating(false);
+              }
+            } catch (err) {
+              console.error("Error parsing stream chunk:", err, chunkStr);
+            }
+          }
+        }
       }
     } catch (e) {
       console.error(e);
@@ -103,6 +136,21 @@ export default function ManuscriptBuilder() {
     }
     finally { setGenerating(false); }
   };
+
+  // Countdown timer effect
+  useEffect(() => {
+    if (rateLimitWait === null || rateLimitWait <= 0) return;
+    const timer = setInterval(() => {
+      setRateLimitWait(prev => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return null;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [rateLimitWait]);
 
 
 
@@ -283,6 +331,17 @@ export default function ManuscriptBuilder() {
                 <option value="oxford">Oxford Style</option>
               </select>
 
+              <select 
+                value={provider} 
+                onChange={e => setProvider(e.target.value)}
+                style={{ padding: '0.6rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: '0.85rem', width: '100%' }}
+              >
+                <option value="groq">Groq (Llama 3.3 70B)</option>
+                <option value="openrouter">OpenRouter (Claude)</option>
+                <option value="gemini">Gemini 2.0 Flash</option>
+                <option value="openai">OpenAI GPT-4o</option>
+              </select>
+
               {/* Premium Source Toggle */}
               <div 
                 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem', background: usePremium ? 'rgba(0, 87, 255, 0.05)' : 'var(--bg-input)', border: `1px solid ${usePremium ? 'var(--primary)' : 'var(--border)'}`, borderRadius: 'var(--radius-md)', transition: 'var(--transition)', cursor: 'pointer' }} 
@@ -305,8 +364,8 @@ export default function ManuscriptBuilder() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.5rem' }}>
             <h2 style={{ margin: 0, fontSize: '1.1rem' }}>{currentStep?.label}</h2>
             <div className="responsive-actions" style={{ display: 'flex', gap: '0.5rem' }}>
-              <button className="btn btn-secondary" onClick={generate} disabled={generating || !topic.trim()}>
-                {generating ? <Spinner size={14} /> : <><Sparkles size={14} /> Generate</>}
+              <button className="btn btn-secondary" onClick={generate} disabled={generating || !topic.trim() || rateLimitWait > 0}>
+                {generating ? <Spinner size={14} /> : <><Sparkles size={14} /> {rateLimitWait ? `Wait ${rateLimitWait}s` : 'Generate'}</>}
               </button>
               <button className="btn btn-ghost" onClick={save} disabled={!topic || !Object.keys(content).length || saveStatus === 'saving'}>
                 <Save size={14} /> {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : 'Save'}
@@ -449,9 +508,10 @@ export default function ManuscriptBuilder() {
               {viewMode === 'write' ? (
                 <textarea
                   placeholder={`Write your ${currentStep?.label.toLowerCase()} here, or click Generate for AI assistance...\nUse LaTeX for math (e.g. $E = mc^2$ for inline, $$x^2$$ for block).`}
-                  value={content[active] || ''}
+                  value={(content[active] || '') + (generating ? '▋' : '')}
                   onChange={e => setContent(prev => ({ ...prev, [active]: e.target.value }))}
-                  style={{ width: '100%', minHeight: '420px', padding: '1rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', color: 'var(--text)', fontFamily: 'inherit', fontSize: '0.93rem', resize: 'vertical', outline: 'none', lineHeight: 1.75, transition: 'var(--transition)', boxSizing: 'border-box' }}
+                  disabled={generating}
+                  style={{ width: '100%', minHeight: '420px', padding: '1rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', color: 'var(--text)', fontFamily: 'inherit', fontSize: '0.93rem', resize: 'vertical', outline: 'none', lineHeight: 1.75, transition: 'var(--transition)', boxSizing: 'border-box', opacity: generating ? 0.8 : 1 }}
                   onFocus={e => { e.target.style.borderColor = 'var(--border-focus)'; e.target.style.boxShadow = '0 0 0 3px var(--primary-light)'; }}
                   onBlur={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.boxShadow = 'none'; }}
                 />
@@ -474,7 +534,7 @@ export default function ManuscriptBuilder() {
                         }
                       }}
                     >
-                      {content[active]}
+                      {(content[active] || '') + (generating ? ' ▋' : '')}
                     </ReactMarkdown>
                   ) : (
                     <p style={{ color: 'var(--text-subtle)', fontStyle: 'italic', margin: 0 }}>Nothing to preview.</p>
