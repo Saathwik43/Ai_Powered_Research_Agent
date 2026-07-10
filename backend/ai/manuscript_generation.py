@@ -19,22 +19,22 @@ logger = logging.getLogger(__name__)
 
 import time
 import re
-_cache = {}
-
-prompt_template = PromptTemplate(
-    input_variables=["topic", "section", "context"],
-    template="""You are an expert, highly-cited academic researcher and writer.
+def _prompt(topic: str, section: str, context: str) -> str:
+    base = f"""You are an expert, highly-cited academic researcher and writer.
 You are writing a formal, peer-reviewed research paper on the topic: "{topic}".
 Your current task is exclusively to write the "{section}" section of the paper.
 
 CRITICAL INSTRUCTION: If the topic "{topic}" is complete gibberish, a random string of characters, a nonsensical combination of unrelated everyday words, or doesn't correspond to a coherent, recognizable academic research subject, you MUST immediately output EXACTLY the following JSON and nothing else:
 {{"error": "topic_unclear"}}
-
+"""
+    if context:
+        base += f"""
 Here is the background context and literature survey information you MUST incorporate and synthesize:
 <context>
 {context}
 </context>
-
+"""
+    base += f"""
 Instructions:
 1. Write a highly rigorous, well-structured, and formal academic "{section}" section.
 2. DO NOT include a title or heading for the section. Start directly with the content.
@@ -45,9 +45,7 @@ Instructions:
 7. CRITICAL: Use LaTeX formatting for any mathematical or chemical formulas, subscripts, and superscripts (e.g., $O_2$, $x^2$, $$ E = mc^2 $$) so they render correctly.
 8. CRITICAL: Cite ONLY from the numbered reference list provided in the context, using [1], [2], etc. inline markers. If no numbered reference list is provided, you may generate without citations but ensure academic rigor.
 9. IMPORTANT: If a provided reference doesn't directly support a claim, state the claim as general background without a citation marker rather than force-citing an irrelevant source."""
-)
-def _prompt(topic: str, section: str, context: str) -> str:
-    return prompt_template.format(topic=topic, section=section, context=context)
+    return base
 
 
 
@@ -81,9 +79,9 @@ async def _citation_flags(content: str, context: str, references_mapping: dict) 
 # 'ai.manuscript_generation._filter_relevant_papers' continue to work.
 
 
-async def _prepare_generation(topic: str, section: str, context: str, citation_style: str, use_premium: bool):
+async def _prepare_generation(topic: str, section: str, context: str, citation_style: str, use_premium: bool, provider: str = None, model: str = None):
     if not validate_input_layers_a_b(topic):
-        return None, None, None, None, None, '{"error": "topic_unclear"}'
+        return None, None, None, None, None, '{"error": "topic_unclear"}', None
         
     papers = await search_all(topic, limit_per_source=15, use_premium=use_premium) or []
     if papers:
@@ -152,23 +150,45 @@ async def _prepare_generation(topic: str, section: str, context: str, citation_s
             logger.warning(f"Internal gap analysis failed during lit_review generation: {e}")
 
     system_prompt = "You write rigorous, concise academic manuscript sections."
-    user_prompt = _prompt(topic, section, context)
-    return user_prompt, system_prompt, references_mapping, gap_analysis_data, papers, None
+    
+    cached_content = None
+    if provider == "gemini" and context:
+        from ai.llm_provider import get_or_create_gemini_cache
+        import hashlib
+        cache_key = hashlib.md5(f"{topic}:{provider}:{model or 'default'}".encode()).hexdigest()
+        
+        shared_context = f"Here is the background context and literature survey information you MUST incorporate and synthesize:\n<context>\n{context}\n</context>"
+        cached_content = await get_or_create_gemini_cache(cache_key, system_prompt, shared_context, model)
+        
+        if cached_content:
+            # We omit the evidence block from the per-call user_prompt since it's cached.
+            user_prompt = _prompt(topic, section, "")
+        else:
+            user_prompt = _prompt(topic, section, context)
+    else:
+        user_prompt = _prompt(topic, section, context)
+
+    return user_prompt, system_prompt, references_mapping, gap_analysis_data, papers, None, cached_content
 
 
 async def generate_section(topic: str, section: str, context: str, citation_style: str = "ieee", use_premium: bool = False):
-    user_prompt, system_prompt, references_mapping, gap_analysis_data, papers, err = await _prepare_generation(topic, section, context, citation_style, use_premium)
-    if err:
-        return err, {}
-    
-    max_tokens_limit = 1200
     provider_override = None
+    max_tokens_limit = 1200
     if section.lower().replace(" ", "_") in ("lit_review", "literature_review"):
         provider_override = "gemini"
         max_tokens_limit = 2000
+
+    from ai.llm_provider import LLM_PROVIDER
+    active_provider = provider_override or (LLM_PROVIDER if LLM_PROVIDER != "auto" else "gemini")
+    
+    user_prompt, system_prompt, references_mapping, gap_analysis_data, papers, err, cached_content = await _prepare_generation(
+        topic, section, context, citation_style, use_premium, provider=active_provider
+    )
+    if err:
+        return err, {}
     
     try:
-        result = await generate_completion(system_prompt, user_prompt, max_tokens=max_tokens_limit, temperature=0.45, provider_override=provider_override)
+        result = await generate_completion(system_prompt, user_prompt, max_tokens=max_tokens_limit, temperature=0.45, provider_override=provider_override, cached_content=cached_content)
         flags = await _citation_flags(result, context, references_mapping)
         flags.update(validate_numerical_claims(result, papers))
         if references_mapping:
@@ -189,7 +209,9 @@ async def generate_section(topic: str, section: str, context: str, citation_styl
 from ai.llm_provider import stream_completion
 
 async def generate_section_stream(topic: str, section: str, context: str, citation_style: str, use_premium: bool, provider: str, model: str = None):
-    user_prompt, system_prompt, references_mapping, gap_analysis_data, papers, err = await _prepare_generation(topic, section, context, citation_style, use_premium)
+    user_prompt, system_prompt, references_mapping, gap_analysis_data, papers, err, cached_content = await _prepare_generation(
+        topic, section, context, citation_style, use_premium, provider=provider, model=model
+    )
     if err:
         yield {"type": "stopped", "reason": "error", "message": "Topic unclear"}
         return
@@ -197,7 +219,7 @@ async def generate_section_stream(topic: str, section: str, context: str, citati
     max_tokens_limit = 2000 if section.lower().replace(" ", "_") in ("lit_review", "literature_review") else 1200
     
     full_text = ""
-    async for chunk in stream_completion(system_prompt, user_prompt, max_tokens_limit, 0.45, provider, model):
+    async for chunk in stream_completion(system_prompt, user_prompt, max_tokens_limit, 0.45, provider, model, cached_content):
         if chunk.get("type") == "chunk":
             full_text += chunk.get("text", "")
             yield chunk

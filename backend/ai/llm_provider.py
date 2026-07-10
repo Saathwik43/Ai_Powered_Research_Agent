@@ -7,8 +7,47 @@ from langchain_huggingface import HuggingFaceEndpoint
 from google import genai
 from google.genai import types as genai_types
 import usage_tracker
+import time
 
 logger = logging.getLogger(__name__)
+
+_gemini_caches = {}
+
+async def get_or_create_gemini_cache(cache_key: str, system_instruction: str, shared_context: str, model: str = None) -> str | None:
+    global _gemini_client
+    if not _gemini_client:
+        key = os.getenv("GEMINI_API_KEY")
+        if not key:
+            return None
+        _gemini_client = genai.Client(api_key=key)
+
+    now = time.time()
+    if cache_key in _gemini_caches:
+        cache_name, expiry = _gemini_caches[cache_key]
+        if now < expiry:
+            return cache_name
+        else:
+            del _gemini_caches[cache_key]
+
+    token_est = len(shared_context.split()) * 1.3
+    if token_est < 2048:
+        return None
+
+    try:
+        model_name = model or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        cache = await _gemini_client.aio.caches.create(
+            model=model_name,
+            config=genai_types.CreateCachedContentConfig(
+                contents=[shared_context],
+                system_instruction=system_instruction or None,
+                ttl="1800s"
+            )
+        )
+        _gemini_caches[cache_key] = (cache.name, now + 1800)
+        return cache.name
+    except Exception as e:
+        logger.warning(f"Failed to create Gemini cache for {cache_key}: {e}")
+        return None
 
 # Providers and configurations
 LLM_PROVIDER = os.getenv("MANUSCRIPT_PROVIDER", "auto").lower()
@@ -31,7 +70,7 @@ if GEMINI_API_KEY:
 
 _executor = ThreadPoolExecutor(max_workers=4)
 
-async def _generate_gemini(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float, model: str = None) -> str:
+async def _generate_gemini(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float, model: str = None, cached_content: str = None) -> str:
     global _gemini_client
     if not _gemini_client:
         key = os.getenv("GEMINI_API_KEY")
@@ -40,17 +79,21 @@ async def _generate_gemini(system_prompt: str, user_prompt: str, max_tokens: int
         _gemini_client = genai.Client(api_key=key)
 
     config = genai_types.GenerateContentConfig(
-        system_instruction=system_prompt or None,
+        system_instruction=None if cached_content else (system_prompt or None),
         temperature=temperature,
         max_output_tokens=max_tokens,
+        cached_content=cached_content
     )
+
     try:
         response = await _gemini_client.aio.models.generate_content(
-            model=model or os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
+            model=model or os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
             contents=user_prompt,
             config=config,
         )
         usage = response.usage_metadata.total_token_count if hasattr(response, 'usage_metadata') and response.usage_metadata else 0
+        if hasattr(response, 'usage_metadata') and response.usage_metadata:
+            logger.info(f"Gemini usage: {response.usage_metadata}")
         return response.text.strip(), usage
     except Exception as e:
         logger.error(f"Gemini API Error ({type(e).__name__}): {e}", exc_info=True)
@@ -163,7 +206,7 @@ async def _generate_huggingface(system_prompt: str, user_prompt: str, max_tokens
     return await loop.run_in_executor(_executor, _run_huggingface, system_prompt, user_prompt, max_tokens, temperature)
 
 
-async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: int = 1200, temperature: float = 0.45, provider_override: str = None, model: str = None) -> str:
+async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: int = 1200, temperature: float = 0.45, provider_override: str = None, model: str = None, cached_content: str = None) -> str:
     """
     Attempts to generate a completion by cascading through configured AI providers.
     """
@@ -173,7 +216,7 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
                 user_id = usage_tracker.current_user_id.get()
                 if user_id:
                     await usage_tracker.check_quota(user_id)
-                result, tokens = await asyncio.wait_for(_generate_gemini(system_prompt, user_prompt, max_tokens, temperature, model), timeout=60)
+                result, tokens = await asyncio.wait_for(_generate_gemini(system_prompt, user_prompt, max_tokens, temperature, model, cached_content), timeout=60)
                 if user_id:
                     await usage_tracker.log_usage(user_id, tokens, "Gemini")
                 return result
@@ -254,7 +297,7 @@ async def _stream_openai_compatible(url: str, headers: dict, payload: dict):
     except Exception as e:
         yield {"type": "stopped", "reason": "error", "message": str(e)}
 
-async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float, provider: str, model: str = None):
+async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float, provider: str, model: str = None, cached_content: str = None):
     provider = provider.lower()
     
     if provider == "groq":
@@ -312,19 +355,23 @@ async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: in
             _gemini_client = genai.Client(api_key=key)
             
         config = genai_types.GenerateContentConfig(
-            system_instruction=system_prompt or None,
+            system_instruction=None if cached_content else (system_prompt or None),
             temperature=temperature,
             max_output_tokens=max_tokens,
+            cached_content=cached_content
         )
+
         try:
             response_stream = await _gemini_client.aio.models.generate_content_stream(
-                model=model or os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
+                model=model or os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
                 contents=user_prompt,
                 config=config,
             )
             async for chunk in response_stream:
                 if chunk.text:
                     yield {"type": "chunk", "text": chunk.text}
+                if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
+                    logger.info(f"Gemini stream usage: {chunk.usage_metadata}")
             yield {"type": "done"}
         except Exception as e:
             if "429" in str(e):
