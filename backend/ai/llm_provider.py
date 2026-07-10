@@ -31,7 +31,7 @@ if GEMINI_API_KEY:
 
 _executor = ThreadPoolExecutor(max_workers=4)
 
-async def _generate_gemini(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float) -> str:
+async def _generate_gemini(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float, model: str = None) -> str:
     global _gemini_client
     if not _gemini_client:
         key = os.getenv("GEMINI_API_KEY")
@@ -46,7 +46,7 @@ async def _generate_gemini(system_prompt: str, user_prompt: str, max_tokens: int
     )
     try:
         response = await _gemini_client.aio.models.generate_content(
-            model=os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
+            model=model or os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
             contents=user_prompt,
             config=config,
         )
@@ -163,7 +163,7 @@ async def _generate_huggingface(system_prompt: str, user_prompt: str, max_tokens
     return await loop.run_in_executor(_executor, _run_huggingface, system_prompt, user_prompt, max_tokens, temperature)
 
 
-async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: int = 1200, temperature: float = 0.45, provider_override: str = None) -> str:
+async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: int = 1200, temperature: float = 0.45, provider_override: str = None, model: str = None) -> str:
     """
     Attempts to generate a completion by cascading through configured AI providers.
     """
@@ -173,7 +173,7 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
                 user_id = usage_tracker.current_user_id.get()
                 if user_id:
                     await usage_tracker.check_quota(user_id)
-                result, tokens = await asyncio.wait_for(_generate_gemini(system_prompt, user_prompt, max_tokens, temperature), timeout=60)
+                result, tokens = await asyncio.wait_for(_generate_gemini(system_prompt, user_prompt, max_tokens, temperature, model), timeout=60)
                 if user_id:
                     await usage_tracker.log_usage(user_id, tokens, "Gemini")
                 return result

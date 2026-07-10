@@ -10,6 +10,7 @@ import rehypeKatex from 'rehype-katex';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { ghcolors } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import 'katex/dist/katex.min.css';
+import { MODELS } from '../constants/models';
 
 const STEPS = [
   { id: 'abstract',    label: 'Abstract' },
@@ -42,7 +43,7 @@ export default function ManuscriptBuilder() {
   
   // Phase B additions
   const [citationStyle, setCitationStyle] = useState('ieee');
-  const [provider, setProvider] = useState('groq');
+  const [selectedModelId, setSelectedModelId] = useState('groq-default');
   const [manuscriptRefs, setManuscriptRefs] = useState(null);
   const [rateLimitWait, setRateLimitWait] = useState(null);
   
@@ -63,9 +64,10 @@ export default function ManuscriptBuilder() {
     
     try {
       const payloadContext = customContext.trim() || 'Use latest research trends and cite recent advancements.';
+      const selectedModel = MODELS.find(m => m.id === selectedModelId) || MODELS[0];
       const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/stream`, {
         method: 'POST',
-        body: JSON.stringify({ topic, section: active, context: payloadContext, citation_style: citationStyle, use_premium: usePremium, provider: provider }),
+        body: JSON.stringify({ topic, section: active, context: payloadContext, citation_style: citationStyle, use_premium: usePremium, provider: selectedModel.provider, model: selectedModel.model }),
       });
       
       if (!res.ok) {
@@ -332,14 +334,17 @@ export default function ManuscriptBuilder() {
               </select>
 
               <select 
-                value={provider} 
-                onChange={e => setProvider(e.target.value)}
+                value={selectedModelId} 
+                onChange={e => setSelectedModelId(e.target.value)}
                 style={{ padding: '0.6rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: '0.85rem', width: '100%' }}
               >
-                <option value="groq">Groq (Llama 3.3 70B)</option>
-                <option value="openrouter">OpenRouter (Claude)</option>
-                <option value="gemini">Gemini 2.0 Flash</option>
-                <option value="openai">OpenAI GPT-4o</option>
+                {Array.from(new Set(MODELS.map(m => m.group))).map(group => (
+                  <optgroup key={group} label={group}>
+                    {MODELS.filter(m => m.group === group).map(m => (
+                      <option key={m.id} value={m.id}>{m.label}</option>
+                    ))}
+                  </optgroup>
+                ))}
               </select>
 
               {/* Premium Source Toggle */}

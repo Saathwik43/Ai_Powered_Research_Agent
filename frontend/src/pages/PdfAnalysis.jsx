@@ -137,6 +137,7 @@ function MessageBubble({ msg }) {
 }
 
 export default function PdfAnalysis() {
+  const pixelRatio = window.devicePixelRatio || 1;
   const { authFetch } = useAuth();
   const [file, setFile] = useState(null);
   const [extractedText, setExtractedText] = useState('');
@@ -394,12 +395,14 @@ export default function PdfAnalysis() {
                     onLoadSuccess={({ numPages }) => { setNumPages(numPages); setPageNumber(1); }} 
                     loading={<div style={{padding: '2rem', textAlign: 'center'}}><Spinner size={24} /></div>}
                  >
-                   <Page 
-                      pageNumber={pageNumber} 
-                      renderTextLayer={true} 
-                      renderAnnotationLayer={true} 
-                      scale={zoom} 
-                   />
+                   <div style={{ transform: `scale(${1 / pixelRatio})`, transformOrigin: 'top left', width: `${100 * pixelRatio}%` }}>
+                     <Page 
+                        pageNumber={pageNumber} 
+                        renderTextLayer={true} 
+                        renderAnnotationLayer={true} 
+                        scale={zoom * pixelRatio} 
+                     />
+                   </div>
                  </Document>
                </div>
             ) : (
