@@ -1,0 +1,69 @@
+@media (max-width: 768px) { 
+  .lit-search-row { 
+    flex-direction: column; 
+  } 
+  .lit-search-row > div:first-child { 
+    min-width: 100%; 
+  } 
+  .lit-search-row button { 
+    width: 100%; 
+  } 
+}
+
+@media (max-width: 768px) { 
+  .lit-result-card { 
+    flex-direction: column !important; 
+    align-items: flex-start !important; 
+  } 
+  .lit-result-card .action-buttons { 
+    width: 100%; 
+    justify-content: flex-start; 
+  } 
+}
+
+@media (max-width: 480px) { 
+  .lit-filter-row { 
+    flex-direction: column; 
+    align-items: flex-start !important; 
+  } 
+  .lit-filter-row > div { 
+    width: 100%; 
+  } 
+}
+
+@keyframes cardIn { 
+  from { opacity: 0; transform: translateY(8px); } 
+  to { opacity: 1; transform: translateY(0); } 
+}
+.lit-result-card { 
+  animation: cardIn 0.35s ease-out both; 
+}
+
+@keyframes shimmer { 
+  0% { background-position: -200% 0; } 
+  100% { background-position: 200% 0; } 
+}
+.skeleton-card { 
+  background: linear-gradient(90deg, var(--bg-elevated) 25%, var(--border) 50%, var(--bg-elevated) 75%); 
+  background-size: 200% 100%; 
+  animation: shimmer 1.5s infinite; 
+  border-radius: var(--radius-lg); 
+  height: 100px;
+  margin-bottom: 0.875rem;
+}
+
+.lit-tabs {
+  position: relative;
+  display: flex;
+  gap: 1rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1.75rem;
+}
+
+.lit-tab-indicator {
+  position: absolute;
+  bottom: -1px;
+  height: 2px;
+  background-color: var(--primary);
+  transition: left 0.25s cubic-bezier(0.32,0.72,0,1);
+}

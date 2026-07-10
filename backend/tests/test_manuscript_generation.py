@@ -96,7 +96,7 @@ class TestManuscriptGeneration(unittest.IsolatedAsyncioTestCase):
             ref_text += f"[{idx}] {p['authors']} ({p['year']}). {p['title']}. Objective: Mock objective. {p.get('doi', p.get('url', ''))}\n"
         full_context = context + ref_text
 
-        cache_key = hash(topic + section + full_context)
+        cache_key = hash(topic + section + full_context + str(False))
 
         # Pre-populate cache
         manuscript_generation._cache[cache_key] = {
@@ -211,7 +211,7 @@ class TestProviderCascadeOrder(unittest.IsolatedAsyncioTestCase):
     async def test_auto_cascade_excludes_gemini(self, mock_gemini, mock_hf, mock_or, mock_groq):
         """In auto mode, Gemini should NOT be tried. Only Groq → OpenRouter → HuggingFace."""
         from ai.llm_provider import generate_completion
-        mock_groq.return_value = "Groq result"
+        mock_groq.return_value = ("Groq result", 100)
 
         result = await generate_completion("system", "user", max_tokens=100)
 
@@ -230,7 +230,7 @@ class TestProviderCascadeOrder(unittest.IsolatedAsyncioTestCase):
         OpenRouter and HuggingFace should not be called.
         """
         from ai.llm_provider import generate_completion
-        mock_groq.return_value = "Groq result"
+        mock_groq.return_value = ("Groq result", 100)
 
         result = await generate_completion("system", "user", max_tokens=100)
 

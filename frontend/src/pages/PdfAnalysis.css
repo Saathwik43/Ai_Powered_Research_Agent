@@ -9,6 +9,46 @@
   gap: 1rem;
 }
 
+.pdf-split-view {
+  display: flex;
+  flex: 1;
+  gap: 1rem;
+  height: 100%;
+  min-width: 0;
+}
+
+.pdf-viewer-pane {
+  flex: 0 0 40%;
+  min-width: 320px;
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.pdf-viewer-scroll {
+  flex: 1;
+  overflow: auto;
+  background: #f5f5f5;
+  display: flex;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.pdf-viewer-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border);
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
 .pdf-history-sidebar {
   width: 260px;
   background: rgba(255, 255, 255, 0.4);
@@ -499,8 +539,90 @@
   padding: 6px 13px;
   border: 1px solid var(--border-strong);
 }
-.pdf-markdown-body table tr:nth-child(2n) {
-  background-color: rgba(175, 184, 193, 0.05);
+
+/* Ensure math expressions wrap properly if they are too long */
+.pdf-markdown-body {
+  font-family: inherit;
+  line-height: 1.6;
+}
+
+.pdf-markdown-body p {
+  margin-bottom: 1rem;
+}
+.pdf-markdown-body p:last-child {
+  margin-bottom: 0;
+}
+
+.pdf-markdown-body strong {
+  font-weight: 600;
+}
+
+.pdf-markdown-body h1,
+.pdf-markdown-body h2,
+.pdf-markdown-body h3,
+.pdf-markdown-body h4 {
+  margin-top: 1.5em;
+  margin-bottom: 0.75em;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.pdf-markdown-body h1:first-child,
+.pdf-markdown-body h2:first-child,
+.pdf-markdown-body h3:first-child {
+  margin-top: 0;
+}
+
+.pdf-markdown-body ul,
+.pdf-markdown-body ol {
+  margin-bottom: 1rem;
+  padding-left: 2em;
+}
+
+.pdf-markdown-body li {
+  margin-bottom: 0.25rem;
+}
+
+.pdf-markdown-body a {
+  color: var(--primary);
+  text-decoration: none;
+}
+.pdf-markdown-body a:hover {
+  text-decoration: underline;
+}
+
+.pdf-markdown-body blockquote {
+  padding: 0 1em;
+  color: var(--text-muted);
+  border-left: 0.25em solid var(--border-strong);
+  margin: 0 0 1rem 0;
+}
+
+.pdf-markdown-body code {
+  padding: 0.2em 0.4em;
+  margin: 0;
+  font-size: 85%;
+  background-color: rgba(175, 184, 193, 0.2);
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+}
+
+.pdf-markdown-body pre {
+  margin-bottom: 1rem;
+  border-radius: 6px;
+  background-color: var(--bg-elevated);
+  overflow: auto;
+}
+
+.pdf-markdown-body table {
+  border-spacing: 0;
+  border-collapse: collapse;
+  margin-bottom: 1rem;
+  width: 100%;
+}
+.pdf-markdown-body table th,
+.pdf-markdown-body table td {
+  padding: 6px 13px;
+  border: 1px solid var(--border-strong);
 }
 
 /* Ensure math expressions wrap properly if they are too long */
@@ -508,4 +630,119 @@
   overflow-x: auto;
   overflow-y: hidden;
   padding: 0.5rem 0;
+}
+
+/* ── Media Queries ──────────────────────────────────────── */
+
+/* Desktop hide class for header history button */
+.desktop-hide {
+  display: none;
+}
+
+/* Base hidden overlay */
+.pdf-sidebar-overlay {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 40;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+@media (max-width: 768px) {
+  .pdf-sidebar-overlay.visible {
+    display: block;
+    opacity: 1;
+  }
+
+  /* Force header toggle button to be visible on mobile always */
+  .desktop-hide {
+    display: flex;
+  }
+
+  .pdf-analysis-layout {
+    position: relative;
+    gap: 0;
+  }
+
+  .pdf-split-view {
+    flex-direction: column;
+    overflow: auto;
+  }
+
+  .pdf-viewer-pane {
+    flex: none;
+    height: 40vh;
+    min-width: 0;
+    width: 100%;
+  }
+
+  /* Convert sidebar to slide-in drawer */
+  .pdf-history-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    z-index: 50;
+    border-radius: 0;
+    border-right: 1px solid rgba(255, 255, 255, 0.6);
+    /* By default (when not collapsed), drawer is open */
+    transform: translateX(0);
+    width: 260px;
+    opacity: 1;
+  }
+
+  .pdf-history-sidebar.collapsed {
+    transform: translateX(-100%);
+    width: 260px; /* retain width so it slides properly */
+    min-width: 260px;
+    margin-right: 0;
+    opacity: 1; /* keep opacity 1 for the transform animation */
+    pointer-events: none;
+    border: none;
+  }
+
+  /* Ensure main chat container takes full width when sidebar is absolute */
+  .pdf-chat-container {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .pdf-chat-title-text {
+    font-size: 1rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .pdf-message {
+    max-width: 92%;
+  }
+
+  .pdf-input-container {
+    padding: 0.75rem 1rem;
+  }
+
+  .pdf-dropzone {
+    padding: 2rem 1rem;
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .pdf-suggestions {
+    grid-template-columns: 1fr;
+  }
+
+  .pdf-message.user .pdf-avatar {
+    display: none;
+  }
+
+  .pdf-bubble {
+    font-size: 0.9rem;
+  }
 }

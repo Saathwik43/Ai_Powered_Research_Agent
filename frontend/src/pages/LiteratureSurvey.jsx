@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Download, ExternalLink, Save, BookOpen, FileText, X, Bookmark, Unlock, ChevronDown, Sparkles, Trash2 } from 'lucide-react';
+import './LiteratureSurvey.css';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { useAuth } from '../context/AuthContext';
@@ -175,25 +176,26 @@ export default function LiteratureSurvey() {
         <p className="text-muted">Search research papers from multiple academic sources in one place.</p>
       </div>
 
-      <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid var(--border)', marginBottom: '1.75rem' }}>
+      <div className="lit-tabs">
         <button 
           onClick={() => setActiveTab('search')} 
-          style={{ background: 'none', border: 'none', padding: '0.75rem 1rem', cursor: 'pointer', borderBottom: activeTab === 'search' ? '2px solid var(--primary)' : '2px solid transparent', color: activeTab === 'search' ? 'var(--primary)' : 'var(--text-muted)', fontWeight: activeTab === 'search' ? 600 : 400, display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+          style={{ background: 'none', border: 'none', padding: '0.75rem 1rem', cursor: 'pointer', color: activeTab === 'search' ? 'var(--primary)' : 'var(--text-muted)', fontWeight: activeTab === 'search' ? 600 : 400, display: 'flex', alignItems: 'center', gap: '0.5rem', zIndex: 1 }}
         >
           <Search size={16} /> Search
         </button>
         <button 
           onClick={() => setActiveTab('saved')} 
-          style={{ background: 'none', border: 'none', padding: '0.75rem 1rem', cursor: 'pointer', borderBottom: activeTab === 'saved' ? '2px solid var(--primary)' : '2px solid transparent', color: activeTab === 'saved' ? 'var(--primary)' : 'var(--text-muted)', fontWeight: activeTab === 'saved' ? 600 : 400, display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+          style={{ background: 'none', border: 'none', padding: '0.75rem 1rem', cursor: 'pointer', color: activeTab === 'saved' ? 'var(--primary)' : 'var(--text-muted)', fontWeight: activeTab === 'saved' ? 600 : 400, display: 'flex', alignItems: 'center', gap: '0.5rem', zIndex: 1 }}
         >
           <Bookmark size={16} /> Saved Surveys
         </button>
+        <div className="lit-tab-indicator" style={{ width: '50%', left: activeTab === 'search' ? '0%' : '50%' }} />
       </div>
 
       {activeTab === 'search' ? (
         <>
       {/* Search */}
-      <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.75rem', flexWrap: 'wrap' }}>
+      <div className="lit-search-row" style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.75rem', flexWrap: 'wrap' }}>
         <div style={{ position: 'relative', flex: 1, minWidth: '220px' }}>
           <Search size={15} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-subtle)', pointerEvents: 'none' }} />
           <input
@@ -245,7 +247,7 @@ export default function LiteratureSurvey() {
             </div>
           </div>
           
-          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+          <div className="lit-filter-row" style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>Year:</label>
               <select value={filterYear} onChange={e => { setFilterYear(e.target.value); setVisibleCount(15); }} style={{ padding: '0.4rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: '0.85rem' }}>
@@ -306,7 +308,10 @@ export default function LiteratureSurvey() {
               }
             `}</style>
             
-            <SkeletonList count={3} />
+            <div className="skeleton-card" />
+            <div className="skeleton-card" style={{ animationDelay: '0.1s' }} />
+            <div className="skeleton-card" style={{ animationDelay: '0.2s' }} />
+            <div className="skeleton-card" style={{ animationDelay: '0.3s' }} />
           </div>
         )}
 
@@ -332,15 +337,15 @@ export default function LiteratureSurvey() {
         )}
 
         {displayedPapers.map((p, i) => (
-          <div key={p.id || i} className="animate-slide-up"
-            style={{ animationDelay: `${(i % 15) * 0.03}s`, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.25rem 1.5rem', transition: 'transform 0.18s ease, border-color 0.18s ease' }}
+          <div key={p.id || i} className="lit-result-card animate-slide-up"
+            style={{ animationDelay: `${(i % 15) * 0.04}s`, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.25rem 1.5rem', transition: 'transform 0.18s ease, border-color 0.18s ease' }}
             onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(0,87,255,0.28)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
             onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.transform = ''; }}
           >
             {/* Title + citations */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', marginBottom: '0.4rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', marginBottom: '0.4rem', width: '100%' }}>
               <h3 style={{ margin: 0, fontSize: '0.97rem', fontWeight: 600, lineHeight: 1.45, flex: 1, color: 'var(--text)' }}>{p.title}</h3>
-              <div style={{ display: 'flex', gap: '0.4rem', flexShrink: 0 }}>
+              <div className="action-buttons" style={{ display: 'flex', gap: '0.4rem', flexShrink: 0 }}>
                 {p.oa_url && (
                   <a href={p.oa_url} target="_blank" rel="noreferrer" style={{ fontSize: '0.72rem', fontWeight: 600, color: '#16a34a', background: 'rgba(22,163,74,0.08)', border: '1px solid rgba(22,163,74,0.22)', padding: '0.18rem 0.55rem', borderRadius: '999px', whiteSpace: 'nowrap', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
                     title="Open Access — free full text available"
@@ -423,14 +428,14 @@ export default function LiteratureSurvey() {
             </div>
           ) : (
             savedSurveys.map((survey, i) => (
-              <div key={i} className="animate-slide-up"
-                style={{ animationDelay: `${i * 0.03}s`, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.25rem 1.5rem', transition: 'transform 0.18s ease, border-color 0.18s ease', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}
+              <div key={i} className="lit-result-card animate-slide-up"
+                style={{ animationDelay: `${i * 0.04}s`, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.25rem 1.5rem', transition: 'transform 0.18s ease, border-color 0.18s ease', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}
               >
                 <div>
                   <h3 style={{ margin: '0 0 0.25rem', fontSize: '1.05rem', fontWeight: 600, color: 'var(--text)' }}>{survey.query}</h3>
                   <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>{survey.papers?.length || 0} papers saved</p>
                 </div>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <div className="action-buttons" style={{ display: 'flex', gap: '0.5rem' }}>
                   <button className="btn btn-secondary" onClick={() => exportSurveyToPDF(survey.papers, survey.query)}>
                     <Download size={14} /> Download PDF
                   </button>

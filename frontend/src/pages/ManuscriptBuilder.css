@@ -1,0 +1,12 @@
+@media (max-width: 768px) { 
+  .manuscript-layout { 
+    flex-direction: column; 
+  } 
+  .manuscript-layout > * { 
+    width: 100% !important; 
+  } 
+  .manuscript-outline-panel {
+    order: 2;
+    margin-top: 1rem;
+  }
+}

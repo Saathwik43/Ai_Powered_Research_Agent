@@ -70,6 +70,7 @@ def _deduplicate(papers: list) -> list:
 
 _SOURCE_WEIGHTS = {
     "Semantic Scholar": 0.9,
+    "SemanticScholar": 0.9,
     "Springer": 0.85,
     "IEEE": 0.8,
     "OpenAlex": 0.7,
@@ -145,8 +146,30 @@ def _rank_papers(query: str, papers: list) -> list:
     papers.sort(key=lambda p: p["_relevance_rank"], reverse=True)
     return papers
 
+def _apply_diversity_quota(papers: list) -> list:
+    """Greedily pick top-scored papers but skip/defer a paper if its source already has 9+ picks in the top-15."""
+    diverse = []
+    deferred = []
+    source_counts = {}
+    
+    for p in papers:
+        source = p.get("source", "Unknown")
+        if source.startswith("GitHub"):
+            source = "GitHub"
+            
+        if len(diverse) < 15:
+            if source_counts.get(source, 0) >= 9:
+                deferred.append(p)
+            else:
+                diverse.append(p)
+                source_counts[source] = source_counts.get(source, 0) + 1
+        else:
+            deferred.append(p)
+            
+    return diverse + deferred
 
-async def search_all(query: str, limit_per_source: int = 15, use_premium: bool = False) -> list:
+
+async def search_all(query: str, limit_per_source: int = 15, use_premium: bool = False, diversify: bool = False) -> list:
     """
     Query all configured integrations in parallel using asyncio.
     Aggregates, deduplicates, and ranks results.
@@ -257,17 +280,20 @@ async def search_all(query: str, limit_per_source: int = 15, use_premium: bool =
 
     # Rank by combined lexical relevance score instead of source order
     unique = _rank_papers(query, unique)
-
-    # We removed truncation here to allow frontend to filter all available results.
+    
+    if diversify:
+        unique = _apply_diversity_quota(unique)
 
     # Enrich with Unpaywall open-access links (non-blocking best-effort, 8s ceiling for large lists)
     try:
         from integrations.unpaywall import enrich_papers_with_oa
         unique = await asyncio.wait_for(enrich_papers_with_oa(unique), timeout=8.0)
     except asyncio.TimeoutError:
-        logger.warning("Unpaywall enrichment exceeded 8s ceiling, returning unenriched results.")
+        import logging
+        logging.getLogger(__name__).warning("Unpaywall enrichment exceeded 8s ceiling, returning unenriched results.")
     except Exception as e:
-        logger.warning(f"Unpaywall enrichment failed (non-fatal): {e}")
+        import logging
+        logging.getLogger(__name__).warning(f"Unpaywall enrichment failed (non-fatal): {e}")
 
     _cache[cache_key] = (unique, now)
     return unique

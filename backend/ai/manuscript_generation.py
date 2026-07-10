@@ -85,9 +85,10 @@ async def generate_section(topic: str, section: str, context: str, citation_styl
     if not validate_input_layers_a_b(topic):
         return '{"error": "topic_unclear"}', {}
         
-    papers = (await search_all(topic, limit_per_source=15, use_premium=use_premium) or [])[:15]
+    papers = await search_all(topic, limit_per_source=15, use_premium=use_premium) or []
     if papers:
         papers = await _filter_relevant_papers(topic, papers)
+        papers = papers[:15]
         
         async def fetch_evidence(p):
             p["evidence"], p["evidence_source"] = await extract_evidence_for_paper(p)
@@ -173,11 +174,13 @@ async def generate_section(topic: str, section: str, context: str, citation_styl
     user_prompt = _prompt(topic, section, context)
     
     provider_override = None
+    max_tokens_limit = 1200
     if section.lower().replace(" ", "_") in ("lit_review", "literature_review"):
         provider_override = "gemini"
+        max_tokens_limit = 2000
     
     try:
-        result = await generate_completion(system_prompt, user_prompt, max_tokens=1200, temperature=0.45, provider_override=provider_override)
+        result = await generate_completion(system_prompt, user_prompt, max_tokens=max_tokens_limit, temperature=0.45, provider_override=provider_override)
         if cache_key is not None:
             _cache[cache_key] = {'content': result, 'time': time.time()}
         flags = await _citation_flags(result, context, references_mapping)

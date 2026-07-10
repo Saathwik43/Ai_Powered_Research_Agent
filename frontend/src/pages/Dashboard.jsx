@@ -236,7 +236,7 @@ export default function Dashboard() {
       {/* Preloaded Neat Data (Empty State) */}
       {!loading && results.length === 0 && !error && !activeCategory && (
         <div className="dashboard-welcome animate-fade-in" style={{ marginTop: '1rem', marginBottom: '3rem' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem' }}>
+          <div className="grid-cols-2" style={{ display: 'grid', gap: '2rem' }}>
             
             {/* Trending Research Domains */}
             <div>
@@ -311,7 +311,7 @@ export default function Dashboard() {
           <div style={{ background: 'var(--accent-light)', border: '1px solid rgba(255,77,0,0.2)', borderRadius: 'var(--radius-lg)', padding: '0.9rem 1rem', marginBottom: '1rem', color: 'var(--text)', fontSize: '0.9rem', fontWeight: 700 }}>
             Topic suggestions are ready. Related research papers are shown below so you can continue from discovery into reading.
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
+          <div className="grid-cols-2" style={{ display: 'grid', gap: '1rem', marginBottom: '1.25rem' }}>
             {results.map((t, i) => (
               <div key={i} className="stat-card animate-slide-up" style={{ animationDelay: `${i * 0.07}s`, cursor: 'pointer' }} onClick={() => navigate('/literature-survey')}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.6rem' }}>
@@ -349,7 +349,8 @@ export default function Dashboard() {
                     href={paper.url || `https://scholar.google.com/scholar?q=${encodeURIComponent(paper.title)}`}
                     target="_blank"
                     rel="noreferrer"
-                    style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '1rem', padding: '0.85rem 0.95rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', textDecoration: 'none', color: 'var(--text)', background: '#fff' }}
+                    className="animate-slide-up"
+                    style={{ animationDelay: `${i * 0.04}s`, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '1rem', padding: '0.85rem 0.95rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', textDecoration: 'none', color: 'var(--text)', background: '#fff' }}
                   >
                     <span style={{ minWidth: 0 }}>
                       <strong style={{ display: 'block', fontSize: '0.9rem', lineHeight: 1.4 }}>{paper.title}</strong>
@@ -362,7 +363,7 @@ export default function Dashboard() {
             )}
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
+          <div className="grid-cols-2" style={{ display: 'grid', gap: '1rem' }}>
             <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.5rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '1rem' }}>
                 <TrendingUp size={16} color="var(--primary)" />
@@ -406,7 +407,7 @@ export default function Dashboard() {
       {/* Category cards */}
       <div>
         <h2 style={{ fontSize: '1.05rem', fontWeight: 600, marginBottom: '1rem', color: 'var(--text)' }}>Browse by Field</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '0.875rem' }}>
+        <div className="grid-cols-3" style={{ display: 'grid', gap: '0.875rem' }}>
           {CATEGORIES.map((cat, i) => (
             <div key={i} className="animate-slide-up" onClick={() => openCategory(cat)}
               style={{ animationDelay: `${i * 0.05}s`, position: 'relative', borderRadius: 'var(--radius-lg)', overflow: 'hidden', cursor: 'pointer', border: '1px solid var(--border)', aspectRatio: '16/9', transition: 'transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease' }}
@@ -450,7 +451,7 @@ export default function Dashboard() {
             </div>
           )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '0.875rem' }}>
+          <div className="grid-cols-3" style={{ display: 'grid', gap: '0.875rem' }}>
             {categoryPapers.map((p, i) => (
               <div key={i} className="animate-slide-up" style={{ animationDelay: `${i * 0.04}s`, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.25rem', transition: 'transform 0.2s ease, border-color 0.2s ease' }}
                 onMouseEnter={e => { e.currentTarget.style.borderColor = activeCategory.color + '45'; e.currentTarget.style.transform = 'translateY(-2px)'; }}

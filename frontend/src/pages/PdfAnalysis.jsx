@@ -14,6 +14,11 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { ghcolors } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import 'katex/dist/katex.min.css';
 import './PdfAnalysis.css';
+import { Document, Page, pdfjs } from 'react-pdf';
+import 'react-pdf/dist/Page/AnnotationLayer.css';
+import 'react-pdf/dist/Page/TextLayer.css';
+
+pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 const SUGGESTIONS = [
   { label: "Main Contribution", prompt: "What's the main contribution of this paper?", icon: "🎯" },
@@ -110,6 +115,7 @@ function MessageBubble({ msg }) {
     );
   };
 
+  // TODO: Add citation-click-to-page-jump hook here in the future
   return (
     <div className={`pdf-message ${isUser ? 'user' : 'assistant'}`}>
       {!isUser && (
@@ -140,6 +146,9 @@ export default function PdfAnalysis() {
   const [customPrompt, setCustomPrompt] = useState('');
   const [messages, setMessages] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
+
+  const [numPages, setNumPages] = useState(null);
+  const [pageNumber, setPageNumber] = useState(1);
 
   // Chat History States
   const [chatList, setChatList] = useState([]);
@@ -372,20 +381,53 @@ export default function PdfAnalysis() {
 
   const renderContent = () => {
     return (
-      <div className="pdf-chat-container">
+      <div className="pdf-split-view">
+        {/* PDF Viewer Pane */}
+        {(file && extractedText) && (
+          <div className="pdf-viewer-pane">
+            {file.size ? (
+               <div className="pdf-viewer-scroll">
+                 <Document 
+                    file={file} 
+                    onLoadSuccess={({ numPages }) => { setNumPages(numPages); setPageNumber(1); }} 
+                    loading={<div style={{padding: '2rem', textAlign: 'center'}}><Spinner size={24} /></div>}
+                 >
+                   <Page 
+                      pageNumber={pageNumber} 
+                      renderTextLayer={true} 
+                      renderAnnotationLayer={true} 
+                      width={400} 
+                   />
+                 </Document>
+               </div>
+            ) : (
+               <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem', textAlign: 'center', color: 'var(--text-subtle)' }}>
+                 <p>Preview unavailable for loaded chats.<br/>(PDF file not stored in browser)</p>
+               </div>
+            )}
+            {file.size && numPages && (
+              <div className="pdf-viewer-controls">
+                <button className="btn btn-secondary btn-icon" disabled={pageNumber <= 1} onClick={() => setPageNumber(p => p - 1)}><ChevronLeft size={16} /></button>
+                <span>Page {pageNumber} of {numPages}</span>
+                <button className="btn btn-secondary btn-icon" disabled={pageNumber >= numPages} onClick={() => setPageNumber(p => p + 1)}><ChevronRight size={16} /></button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Chat Pane */}
+        <div className="pdf-chat-container">
         <div className="pdf-chat-header">
           <div className="pdf-chat-title" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            {historyCollapsed && (
-              <button 
-                className="pdf-history-toggle" 
-                onClick={() => setHistoryCollapsed(false)}
-                title="Open Chat History"
-              >
-                <History size={20} />
-              </button>
-            )}
-            <Bot size={20} style={{ color: 'var(--primary)' }} />
-            PDF Assistant
+            <button 
+              className={`pdf-history-toggle ${!historyCollapsed ? 'desktop-hide' : ''}`}
+              onClick={() => setHistoryCollapsed(false)}
+              title="Open Chat History"
+            >
+              <History size={20} />
+            </button>
+            <Bot size={20} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+            <span className="pdf-chat-title-text">PDF Assistant</span>
           </div>
           {file && (
             <div className="pdf-file-badge">
@@ -497,11 +539,18 @@ export default function PdfAnalysis() {
           </div>
         </div>
       </div>
+      </div>
     );
   };
 
   return (
     <div className="animate-fade-in pdf-analysis-layout">
+      {/* Mobile Backdrop Overlay */}
+      <div 
+        className={`pdf-sidebar-overlay ${!historyCollapsed ? 'visible' : ''}`}
+        onClick={() => setHistoryCollapsed(true)}
+      ></div>
+
       {/* History Sidebar */}
       <div className={`pdf-history-sidebar ${historyCollapsed ? 'collapsed' : ''}`}>
         <div className="pdf-history-header">

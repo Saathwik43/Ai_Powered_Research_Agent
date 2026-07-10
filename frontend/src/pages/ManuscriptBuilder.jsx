@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { CheckCircle, Circle, Save, FileText, Wand2, FolderOpen, X, Search, Sparkles, Send } from 'lucide-react';
+import './ManuscriptBuilder.css';
 import { useAuth } from '../context/AuthContext';
 import { Spinner, SkeletonText } from '../components/Loader';
 import ReactMarkdown from 'react-markdown';
@@ -23,6 +24,7 @@ export default function ManuscriptBuilder() {
   const [active, setActive]         = useState('abstract');
   const [topic, setTopic]           = useState('');
   const [content, setContent]       = useState({});
+  const [pendingEdit, setPendingEdit] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [saveStatus, setSaveStatus] = useState('');
   const [showLoad, setShowLoad]     = useState(false);
@@ -136,13 +138,22 @@ export default function ManuscriptBuilder() {
         return;
       }
       const data = await res.json();
-      setContent(prev => ({ ...prev, [active]: data.content }));
+      setPendingEdit(data.content);
       setEditPrompt('');
     } catch (e) {
       setEditError('Network error. Please try again.');
     } finally {
       setEditing(false);
     }
+  };
+
+  const acceptEdit = () => {
+    setContent(prev => ({ ...prev, [active]: pendingEdit }));
+    setPendingEdit(null);
+  };
+
+  const rejectEdit = () => {
+    setPendingEdit(null);
   };
 
   const save = async () => {
@@ -226,10 +237,10 @@ export default function ManuscriptBuilder() {
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: '1.25rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+      <div className="manuscript-layout" style={{ display: 'flex', gap: '1.25rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
 
         {/* Sidebar stepper */}
-        <div style={{ flex: '0 0 210px', minWidth: '180px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.25rem', position: 'sticky', top: '1.5rem' }}>
+        <div className="manuscript-outline-panel" style={{ flex: '0 0 210px', minWidth: '180px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.25rem', position: 'sticky', top: '1.5rem' }}>
           <p style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text-subtle)', marginBottom: '0.875rem' }}>Sections</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
             {STEPS.map(step => {
@@ -250,6 +261,43 @@ export default function ManuscriptBuilder() {
           <div style={{ marginTop: '1rem', paddingTop: '0.875rem', borderTop: '1px solid var(--border)', fontSize: '0.75rem', color: 'var(--text-subtle)', textAlign: 'center' }}>
             {done.length} of {STEPS.length} written
           </div>
+
+          <div style={{ marginTop: '1.5rem', paddingTop: '1.25rem', borderTop: '1px solid var(--border)' }}>
+            <p style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text-subtle)', marginBottom: '0.875rem' }}>Configuration</p>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <input
+                placeholder="Enter research topic..."
+                value={topic}
+                onChange={e => setTopic(e.target.value)}
+                style={{ padding: '0.6rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: '0.85rem', width: '100%' }}
+              />
+              <select 
+                value={citationStyle} 
+                onChange={e => setCitationStyle(e.target.value)}
+                style={{ padding: '0.6rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: '0.85rem', width: '100%' }}
+              >
+                <option value="ieee">IEEE Citation Format</option>
+                <option value="apa">APA Citation Format</option>
+                <option value="chicago">Chicago Style</option>
+                <option value="oxford">Oxford Style</option>
+              </select>
+
+              {/* Premium Source Toggle */}
+              <div 
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem', background: usePremium ? 'rgba(0, 87, 255, 0.05)' : 'var(--bg-input)', border: `1px solid ${usePremium ? 'var(--primary)' : 'var(--border)'}`, borderRadius: 'var(--radius-md)', transition: 'var(--transition)', cursor: 'pointer' }} 
+                onClick={() => setUsePremium(!usePremium)}
+              >
+                <div style={{ width: '32px', height: '18px', background: usePremium ? 'var(--primary)' : 'var(--border)', borderRadius: '20px', position: 'relative', transition: 'var(--transition)', flexShrink: 0 }}>
+                  <div style={{ width: '14px', height: '14px', background: 'white', borderRadius: '50%', position: 'absolute', top: '2px', left: usePremium ? '16px' : '2px', transition: 'var(--transition)' }} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <p style={{ margin: 0, fontWeight: 600, fontSize: '0.75rem', color: usePremium ? 'var(--primary)' : 'var(--text)' }}>Premium Sources</p>
+                  <p style={{ margin: '0.2rem 0 0 0', fontSize: '0.65rem', color: 'var(--text-muted)' }}>Search 9 academic DBs</p>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Editor */}
@@ -266,35 +314,7 @@ export default function ManuscriptBuilder() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
-            <input
-              placeholder="Enter your research topic..."
-              value={topic}
-              onChange={e => setTopic(e.target.value)}
-              style={{ flex: 1, minWidth: '250px' }}
-            />
-            <select 
-              value={citationStyle} 
-              onChange={e => setCitationStyle(e.target.value)}
-              style={{ padding: '0.6rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: '0.85rem' }}
-            >
-              <option value="ieee">IEEE</option>
-              <option value="apa">APA</option>
-              <option value="chicago">Chicago</option>
-              <option value="oxford">Oxford</option>
-            </select>
-          </div>
-          
-          {/* Premium Source Toggle */}
-          <div style={{ marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '1rem', background: usePremium ? 'rgba(0, 87, 255, 0.05)' : 'var(--bg-input)', border: `1px solid ${usePremium ? 'var(--primary)' : 'var(--border)'}`, borderRadius: 'var(--radius-md)', transition: 'var(--transition)', cursor: 'pointer' }} onClick={() => setUsePremium(!usePremium)}>
-            <div style={{ width: '40px', height: '22px', background: usePremium ? 'var(--primary)' : 'var(--border)', borderRadius: '20px', position: 'relative', transition: 'var(--transition)' }}>
-              <div style={{ width: '18px', height: '18px', background: 'white', borderRadius: '50%', position: 'absolute', top: '2px', left: usePremium ? '20px' : '2px', transition: 'var(--transition)' }} />
-            </div>
-            <div>
-              <p style={{ margin: '0 0 0.25rem 0', fontWeight: 600, fontSize: '0.9rem', color: usePremium ? 'var(--primary)' : 'var(--text)' }}>Use Premium Sources (IEEE, Springer, CORE)</p>
-              <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>Searches 9 academic libraries in parallel. May take a few seconds.</p>
-            </div>
-          </div>
+          {/* Topic and settings were moved to the sidebar */}
 
           {/* Gap Analysis Panel */}
           {gapAnalysis && (
@@ -389,7 +409,27 @@ export default function ManuscriptBuilder() {
             </div>
           )}
 
-          {!generating && (
+          {pendingEdit ? (
+            <div className="manuscript-diff-view" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+                <h3 style={{ margin: 0, fontSize: '1rem', color: 'var(--primary)' }}>Review AI Revisions</h3>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button className="btn btn-ghost" onClick={rejectEdit} style={{ color: 'var(--danger)' }}><X size={16} /> Discard</button>
+                  <button className="btn btn-primary" onClick={acceptEdit}><CheckCircle size={16} /> Accept Changes</button>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, minWidth: '300px', background: 'var(--bg-input)', border: '1px solid rgba(229,28,35,0.3)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+                  <div style={{ background: 'rgba(229,28,35,0.08)', padding: '0.5rem 1rem', fontSize: '0.85rem', fontWeight: 600, color: 'var(--danger)', borderBottom: '1px solid rgba(229,28,35,0.1)' }}>Current (Discarded)</div>
+                  <div style={{ padding: '1rem', maxHeight: '400px', overflowY: 'auto', fontSize: '0.9rem', color: 'var(--text-subtle)', whiteSpace: 'pre-wrap', textDecoration: 'line-through' }}>{content[active]}</div>
+                </div>
+                <div style={{ flex: 1, minWidth: '300px', background: 'var(--bg-input)', border: '1px solid rgba(39,201,63,0.3)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+                  <div style={{ background: 'rgba(39,201,63,0.08)', padding: '0.5rem 1rem', fontSize: '0.85rem', fontWeight: 600, color: 'var(--success)', borderBottom: '1px solid rgba(39,201,63,0.1)' }}>AI Revision (New)</div>
+                  <div style={{ padding: '1rem', maxHeight: '400px', overflowY: 'auto', fontSize: '0.9rem', color: 'var(--text)', whiteSpace: 'pre-wrap' }}>{pendingEdit}</div>
+                </div>
+              </div>
+            </div>
+          ) : !generating && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid var(--border)' }}>
                 <button 
@@ -460,7 +500,21 @@ export default function ManuscriptBuilder() {
                   {editing ? <Spinner size={14} /> : <Send size={14} />} Apply Revision
                 </button>
               </div>
-              {editError && <p style={{ color: 'var(--danger)', fontSize: '0.8rem', marginTop: '0.5rem', marginBottom: 0 }}>{editError}</p>}
+              {editError && <div style={{ color: 'var(--danger)', fontSize: '0.8rem', marginTop: '0.5rem' }}>{editError}</div>}
+            </div>
+          )}
+
+          {/* References Panel */}
+          {manuscriptRefs && Object.keys(manuscriptRefs).length > 0 && (
+            <div className="manuscript-references-panel" style={{ marginTop: '2rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border)' }}>
+              <h3 style={{ margin: '0 0 1rem 0', fontSize: '1.05rem', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <BookOpen size={16} color="var(--primary)" /> References
+              </h3>
+              <ol style={{ margin: 0, paddingLeft: '1.5rem', fontSize: '0.88rem', color: 'var(--text-subtle)', lineHeight: 1.6 }}>
+                {Object.entries(manuscriptRefs).map(([idx, refString]) => (
+                  <li key={idx} style={{ marginBottom: '0.5rem' }}>{refString}</li>
+                ))}
+              </ol>
             </div>
           )}
         </div>
