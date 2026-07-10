@@ -110,6 +110,7 @@ class ManuscriptPayload(BaseModel):
     section: str = "abstract"
     context: str = ""
     citation_style: str = "ieee"
+    use_premium: bool = False
 
 class GapAnalysisPayload(BaseModel):
     topic: str
@@ -186,19 +187,15 @@ async def get_topics(intent: str, current_user: dict = Depends(get_current_user)
 # ─── Literature — Unified Search (OpenAlex + arXiv + GitHub) ──────────────────
 
 @app.get("/api/literature")
-async def get_literature(query: str, limit: int = 15, offset: int = 0, current_user: dict = Depends(get_current_user)):
+async def get_literature(query: str, use_premium: bool = False, current_user: dict = Depends(get_current_user)):
     """
     Unified literature search across OpenAlex, arXiv, and GitHub knowledge bases.
-    Results are deduplicated, relevance-ranked, and tagged by source.
-    Supports pagination via offset.
+    Returns all deduplicated results for client-side filtering.
     """
-    papers = await search_all(query, limit=limit)
-    # Apply relevance filtering — same logic used for manuscript generation.
-    papers = await _filter_relevant_papers(query, papers)
+    # Ask for 20 per source, yielding up to 180 total before deduplication
+    papers = await search_all(query, limit_per_source=20, use_premium=use_premium)
     total = len(papers)
-    paginated = papers[offset:offset + limit]
-    has_more = (offset + limit) < total
-    return {"data": paginated, "count": len(paginated), "total": total, "offset": offset, "has_more": has_more}
+    return {"data": papers, "count": total, "total": total, "has_more": False}
 
 
 # ─── arXiv — Keyword Search ────────────────────────────────────────────────────
@@ -313,7 +310,7 @@ async def search_github(query: str, current_user: dict = Depends(get_current_use
 @app.post("/api/manuscript")
 @limiter.limit("5/minute")
 async def draft_manuscript(request: Request, payload: ManuscriptPayload, current_user: dict = Depends(get_current_user)):
-    content, flags = await generate_section(payload.topic, payload.section, payload.context, payload.citation_style)
+    content, flags = await generate_section(payload.topic, payload.section, payload.context, payload.citation_style, payload.use_premium)
     if '{"error": "topic_unclear"}' in content:
         raise HTTPException(status_code=400, detail="The provided topic is unclear or appears to be nonsense.")
     

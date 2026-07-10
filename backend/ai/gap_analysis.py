@@ -103,7 +103,7 @@ async def analyze_gaps(topic: str, papers: list = None) -> dict:
 
     # Retrieve and filter
     if papers is None:
-        papers = await search_all(topic, limit=15) or []
+        papers = (await search_all(topic, limit_per_source=15) or [])[:15]
         if papers:
             papers = await _filter_relevant_papers(topic, papers)
             

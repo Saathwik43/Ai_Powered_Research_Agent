@@ -18,9 +18,10 @@ export default function LiteratureSurvey() {
   const [activeTab, setActiveTab] = useState('search');
   const [savedSurveys, setSavedSurveys] = useState([]);
   const [loadingSaved, setLoadingSaved] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
-  const [offset, setOffset] = useState(0);
-  const [totalResults, setTotalResults] = useState(0);
+  const [visibleCount, setVisibleCount] = useState(15);
+  const [usePremium, setUsePremium] = useState(false);
+  const [filterYear, setFilterYear] = useState('All');
+  const [filterSource, setFilterSource] = useState('All');
 
   const PAGE_SIZE = 15;
 
@@ -47,54 +48,59 @@ export default function LiteratureSurvey() {
 
   const search = async (q = query, newSearch = true) => {
     if (!q.trim()) return;
-    const currentOffset = newSearch ? 0 : offset;
-    if (newSearch) {
-      setLoading(true);
-      setPapers([]);
-      setOffset(0);
-      setHasMore(false);
-      setTotalResults(0);
-    } else {
-      setLoadingMore(true);
-    }
+    setLoading(true);
+    setPapers([]);
+    setVisibleCount(15);
     setSaveStatus(''); setSearchError('');
     setHasSearched(true); setLastQuery(q);
+    setFilterYear('All'); setFilterSource('All');
+    
     try {
-      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature?query=${encodeURIComponent(q)}&limit=${PAGE_SIZE}&offset=${currentOffset}`);
+      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature?query=${encodeURIComponent(q)}&use_premium=${usePremium}`);
       if (res.status === 429 || res.status === 503) {
         setSearchError('Rate limit exceeded. Please wait a minute before trying again.');
-        if (newSearch) setPapers([]);
+        setPapers([]);
         return;
       }
       if (!res.ok) {
         setSearchError('Failed to fetch literature. Please try again.');
-        if (newSearch) setPapers([]);
+        setPapers([]);
         return;
       }
       const data = await res.json();
-      const newPapers = data.data || [];
-      if (newSearch) {
-        setPapers(newPapers);
-      } else {
-        setPapers(prev => [...prev, ...newPapers]);
-      }
-      setHasMore(data.has_more || false);
-      setTotalResults(data.total || 0);
-      setOffset(currentOffset + newPapers.length);
+      setPapers(data.data || []);
     } catch (e) {
       console.error(e);
       setSearchError('Network error. Please try again.');
-      if (newSearch) setPapers([]);
+      setPapers([]);
     }
     finally {
       setLoading(false);
-      setLoadingMore(false);
     }
   };
 
   const loadMore = () => {
-    search(lastQuery, false);
+    setVisibleCount(prev => prev + PAGE_SIZE);
   };
+
+  const filteredPapers = papers.filter(p => {
+    if (filterYear !== 'All') {
+      const year = p.year === 'Unknown' ? p.published : p.year;
+      if (filterYear === 'Last 5 Years') {
+        const y = parseInt(year);
+        if (isNaN(y) || new Date().getFullYear() - y > 5) return false;
+      } else if (String(year) !== filterYear) {
+        return false;
+      }
+    }
+    if (filterSource !== 'All') {
+      if (p.source !== filterSource) return false;
+    }
+    return true;
+  });
+
+  const displayedPapers = filteredPapers.slice(0, visibleCount);
+  const hasMoreFiltered = visibleCount < filteredPapers.length;
 
   const exportSurveyToPDF = (papersToExport, queryName) => {
     if (!papersToExport || !papersToExport.length) return;
@@ -202,6 +208,17 @@ export default function LiteratureSurvey() {
           {loading ? <Spinner size={16} /> : <><Search size={14} /> Search</>}
         </button>
       </div>
+      
+      {/* Premium Source Toggle */}
+      <div style={{ marginBottom: '1.75rem', display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '1rem', background: usePremium ? 'rgba(0, 87, 255, 0.05)' : 'var(--bg-input)', border: `1px solid ${usePremium ? 'var(--primary)' : 'var(--border)'}`, borderRadius: 'var(--radius-md)', transition: 'var(--transition)', cursor: 'pointer' }} onClick={() => setUsePremium(!usePremium)}>
+        <div style={{ width: '40px', height: '22px', background: usePremium ? 'var(--primary)' : 'var(--border)', borderRadius: '20px', position: 'relative', transition: 'var(--transition)' }}>
+          <div style={{ width: '18px', height: '18px', background: 'white', borderRadius: '50%', position: 'absolute', top: '2px', left: usePremium ? '20px' : '2px', transition: 'var(--transition)' }} />
+        </div>
+        <div>
+          <p style={{ margin: '0 0 0.25rem 0', fontWeight: 600, fontSize: '0.9rem', color: usePremium ? 'var(--primary)' : 'var(--text)' }}>Use Premium Sources (IEEE, Springer, CORE)</p>
+          <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>Searches 9 academic libraries in parallel. May take a few seconds.</p>
+        </div>
+      </div>
 
       {searchError && (
         <div style={{ marginBottom: '1.75rem', padding: '0.85rem 1rem', background: 'rgba(229,28,35,0.08)', border: '1px solid rgba(229,28,35,0.2)', borderRadius: 'var(--radius-md)', color: 'var(--danger)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -209,21 +226,54 @@ export default function LiteratureSurvey() {
         </div>
       )}
 
-      {/* Toolbar */}
+      {/* Toolbar and Filters */}
       {papers.length > 0 && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <BookOpen size={15} color="var(--primary)" />
-            <span style={{ fontWeight: 600, fontSize: '0.93rem' }}>{papers.length}{totalResults > papers.length ? ` of ${totalResults}` : ''} results</span>
-            <span style={{ color: 'var(--text-subtle)', fontSize: '0.83rem' }}>for "{lastQuery}"</span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.25rem', background: 'var(--bg-card)', padding: '1.25rem', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <BookOpen size={15} color="var(--primary)" />
+              <span style={{ fontWeight: 600, fontSize: '0.93rem' }}>{filteredPapers.length} results</span>
+              <span style={{ color: 'var(--text-subtle)', fontSize: '0.83rem' }}>for "{lastQuery}"</span>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button className="btn btn-secondary" onClick={saveSurvey} disabled={saveStatus === 'saving'}>
+                <Save size={14} /> {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : 'Save'}
+              </button>
+              <button className="btn btn-secondary" onClick={exportSurvey}>
+                <Download size={14} /> Export
+              </button>
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button className="btn btn-secondary" onClick={saveSurvey} disabled={saveStatus === 'saving'}>
-              <Save size={14} /> {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : 'Save'}
-            </button>
-            <button className="btn btn-secondary" onClick={exportSurvey}>
-              <Download size={14} /> Export
-            </button>
+          
+          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>Year:</label>
+              <select value={filterYear} onChange={e => { setFilterYear(e.target.value); setVisibleCount(15); }} style={{ padding: '0.4rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: '0.85rem' }}>
+                <option value="All">All Years</option>
+                <option value="Last 5 Years">Last 5 Years</option>
+                <option value="2026">2026</option>
+                <option value="2025">2025</option>
+                <option value="2024">2024</option>
+                <option value="2023">2023</option>
+                <option value="2022">2022</option>
+                <option value="2021">2021</option>
+              </select>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>Source:</label>
+              <select value={filterSource} onChange={e => { setFilterSource(e.target.value); setVisibleCount(15); }} style={{ padding: '0.4rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: '0.85rem' }}>
+                <option value="All">All Sources</option>
+                <option value="Semantic Scholar">Semantic Scholar</option>
+                <option value="IEEE">IEEE</option>
+                <option value="Springer">Springer</option>
+                <option value="CORE">CORE</option>
+                <option value="OpenAlex">OpenAlex</option>
+                <option value="PubMed">PubMed</option>
+                <option value="arXiv">arXiv</option>
+                <option value="Crossref">Crossref</option>
+                <option value="GitHub">GitHub</option>
+              </select>
+            </div>
           </div>
         </div>
       )}
@@ -232,9 +282,30 @@ export default function LiteratureSurvey() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
         {loading && (
           <div style={{ marginTop: '2rem' }}>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 600, margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Sparkles size={18} style={{ color: 'var(--primary)' }} /> Searching literature...
-            </h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem', background: 'rgba(0, 87, 255, 0.04)', border: '1px solid rgba(0, 87, 255, 0.1)', padding: '1.25rem', borderRadius: 'var(--radius-lg)' }}>
+              <div style={{ animation: 'spin 3s linear infinite' }}>
+                <Sparkles size={24} style={{ color: 'var(--primary)' }} />
+              </div>
+              <div>
+                <h2 style={{ fontSize: '1.1rem', fontWeight: 600, margin: '0 0 0.35rem 0', color: 'var(--primary)' }}>
+                  Searching Literature...
+                </h2>
+                <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Spinner size={12} /> {usePremium ? 'Querying 9 academic libraries simultaneously. This deep search may take a few seconds...' : 'Fetching relevant research papers...'}
+                </p>
+              </div>
+            </div>
+            
+            <div style={{ width: '100%', height: '4px', background: 'var(--border)', borderRadius: '2px', overflow: 'hidden', marginBottom: '1.5rem' }}>
+              <div style={{ height: '100%', background: 'var(--primary)', width: '0%', animation: usePremium ? 'progressAnim 15s cubic-bezier(0.1, 0.8, 0.3, 1) forwards' : 'progressAnim 5s cubic-bezier(0.1, 0.8, 0.3, 1) forwards' }} />
+            </div>
+            <style>{`
+              @keyframes progressAnim {
+                0% { width: 0%; }
+                100% { width: 95%; } 
+              }
+            `}</style>
+            
             <SkeletonList count={3} />
           </div>
         )}
@@ -253,9 +324,16 @@ export default function LiteratureSurvey() {
           </div>
         )}
 
-        {papers.map((p, i) => (
+        {!loading && papers.length > 0 && filteredPapers.length === 0 && (
+          <div className="empty-state">
+            <BookOpen size={38} style={{ margin: '0 auto 0.875rem', color: 'var(--text-subtle)', display: 'block' }} />
+            No papers match your selected filters.
+          </div>
+        )}
+
+        {displayedPapers.map((p, i) => (
           <div key={p.id || i} className="animate-slide-up"
-            style={{ animationDelay: `${i * 0.03}s`, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.25rem 1.5rem', transition: 'transform 0.18s ease, border-color 0.18s ease' }}
+            style={{ animationDelay: `${(i % 15) * 0.03}s`, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.25rem 1.5rem', transition: 'transform 0.18s ease, border-color 0.18s ease' }}
             onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(0,87,255,0.28)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
             onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.transform = ''; }}
           >
@@ -323,7 +401,7 @@ export default function LiteratureSurvey() {
         ))}
 
         {/* Load more button */}
-        {hasMore && !loading && (
+        {hasMoreFiltered && !loading && (
           <div style={{ display: 'flex', justifyContent: 'center', padding: '1rem 0' }}>
             <button className="btn btn-secondary" onClick={loadMore} disabled={loadingMore}
               style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 1.5rem' }}

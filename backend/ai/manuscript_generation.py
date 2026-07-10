@@ -81,11 +81,11 @@ async def _citation_flags(content: str, context: str, references_mapping: dict) 
 # 'ai.manuscript_generation._filter_relevant_papers' continue to work.
 
 
-async def generate_section(topic: str, section: str, context: str, citation_style: str = "ieee"):
+async def generate_section(topic: str, section: str, context: str, citation_style: str = "ieee", use_premium: bool = False):
     if not validate_input_layers_a_b(topic):
         return '{"error": "topic_unclear"}', {}
         
-    papers = await search_all(topic, limit=15) or []
+    papers = (await search_all(topic, limit_per_source=15, use_premium=use_premium) or [])[:15]
     if papers:
         papers = await _filter_relevant_papers(topic, papers)
         
@@ -153,7 +153,7 @@ async def generate_section(topic: str, section: str, context: str, citation_styl
 
     cache_key = None
     if context and context.strip():
-        cache_key = hash(topic + section + context)
+        cache_key = hash(topic + section + context + str(use_premium))
         if cache_key in _cache:
             cache_entry = _cache[cache_key]
             # TTL check (1 hour = 3600 seconds)

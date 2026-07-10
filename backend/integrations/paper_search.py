@@ -8,6 +8,9 @@ from integrations.semanticscholar import search_papers as s2_search
 from integrations.crossref import search_works as crossref_search
 from integrations.github_knowledge import search_github_knowledge
 from integrations.pubmed import search_papers as pubmed_search
+from integrations.springer import search_papers as springer_search
+from integrations.ieee import search_papers as ieee_search
+from integrations.core_api import search_papers as core_search
 
 logger = logging.getLogger(__name__)
 _cache = {}
@@ -67,7 +70,10 @@ def _deduplicate(papers: list) -> list:
 
 _SOURCE_WEIGHTS = {
     "Semantic Scholar": 0.9,
+    "Springer": 0.85,
+    "IEEE": 0.8,
     "OpenAlex": 0.7,
+    "CORE": 0.65,
     "PubMed": 0.65,
     "Crossref": 0.6,
     "arXiv": 0.5,
@@ -76,86 +82,76 @@ _SOURCE_WEIGHTS = {
 _GITHUB_SOURCE_WEIGHT = 0.3
 
 
-def _compute_score(paper: dict) -> float:
+_STOPWORDS = {"and", "the", "of", "in", "for", "a", "an", "to", "on", "with", "is", "by", "from", "based", "using"}
+
+def _get_keywords(text: str) -> set:
+    import re
+    words = re.sub(r"[^a-z0-9 ]", " ", (text or "").lower()).split()
+    return set(w for w in words if w not in _STOPWORDS and len(w) > 2)
+
+def _compute_score(query: str, paper: dict) -> float:
     """
-    Combined relevance score from three signals:
-      - Citation count (log-scaled, 40% weight)
-      - Source relevance weight (30% weight)
-      - Recency bonus (30% weight — papers from last 3 years boosted)
+    Combined relevance score from five signals:
+      - Text Match Score (40% weight): keyword overlap with title/abstract
+      - Citation count (25% weight): log-scaled
+      - Recency bonus (20% weight): papers from last 10 years boosted
+      - Source relevance weight (10% weight)
+      - Open Access Boost (5% weight): immediate PDF availability
     """
-    # Citation signal — log-scaled, capped at 1.0
+    # 1. Text Match Score (40% weight)
+    query_kw = _get_keywords(query)
+    text_match_score = 0.0
+    if query_kw:
+        title_kw = _get_keywords(paper.get("title", ""))
+        abs_kw = _get_keywords(paper.get("abstract", ""))
+        
+        # Calculate overlap (percentage of query keywords present)
+        title_overlap = len(query_kw.intersection(title_kw)) / len(query_kw)
+        abs_overlap = len(query_kw.intersection(abs_kw)) / len(query_kw)
+        
+        # Weight title more heavily
+        text_match_score = min(title_overlap * 0.7 + abs_overlap * 0.3, 1.0)
+    else:
+        text_match_score = 0.5 # Default if no valid keywords extracted
+
+    # 2. Citation signal — log-scaled, capped at 1.0 (25% weight)
     citations = paper.get("citations", 0) or 0
     citation_score = min(math.log1p(citations) / 10.0, 1.0)
 
-    # Source relevance weight
+    # 3. Source relevance weight (10% weight)
     source = paper.get("source", "")
     if source.startswith("GitHub"):
         source_score = _GITHUB_SOURCE_WEIGHT
     else:
         source_score = _SOURCE_WEIGHTS.get(source, 0.4)
 
-    # Recency bonus — linear decay over 10 years
+    # 4. Recency bonus — linear decay over 10 years (20% weight)
     year = paper.get("year", "")
     try:
         recency = max(0.0, 1.0 - (_CURRENT_YEAR - int(year)) / 10.0) if str(year).isdigit() else 0.3
     except (ValueError, TypeError):
         recency = 0.3
+        
+    # 5. Open Access Boost (5% weight)
+    oa_boost = 1.0 if (paper.get("oa_url") or paper.get("pdf_url") or paper.get("openAccessPdf")) else 0.0
 
-    return 0.4 * citation_score + 0.3 * source_score + 0.3 * recency
+    return (0.40 * text_match_score) + (0.25 * citation_score) + (0.20 * recency) + (0.10 * source_score) + (0.05 * oa_boost)
 
 
-def _rank_papers(papers: list) -> list:
+def _rank_papers(query: str, papers: list) -> list:
     """Sort papers by combined relevance score (descending)."""
     for p in papers:
-        p["_relevance_rank"] = round(_compute_score(p), 4)
+        p["_relevance_rank"] = round(_compute_score(query, p), 4)
     papers.sort(key=lambda p: p["_relevance_rank"], reverse=True)
     return papers
 
 
-async def search_all(query: str, limit: int = 15) -> list:
+async def search_all(query: str, limit_per_source: int = 15, use_premium: bool = False) -> list:
     """
-    Run all 6 paper sources in parallel under a 6-second soft ceiling.
-
-    Sources
-    -------
-    - Semantic Scholar (highest relevance score)
-    - OpenAlex (citation-count sorted)
-    - Crossref (works search)
-    - PubMed (E-utilities esearch → esummary, two-call pattern)
-    - arXiv (relevance / newest)
-    - GitHub knowledge (awesome-repo links)
-
-    Post-processing
-    ----------------
-    1. Tag sources that don't self-tag
-    2. Merge all results
-    3. Deduplicate by normalised title
-    4. Rank by combined score (citations × source weight × recency)
-    5. Enrich with Unpaywall open-access links (DOI-based)
-
-    Timeout behaviour — asyncio.wait() with per-task cancellation
-    -------------------------------------------------------------
-    Tasks are created with asyncio.create_task() and submitted to
-    asyncio.wait(tasks, timeout=6.0).  After 6 seconds:
-      - `done`    → tasks that finished in time; results are harvested.
-      - `pending` → tasks still running; each is cancelled individually.
-
-    This gives **partial results**: fast sources (S2, OpenAlex, arXiv)
-    that complete within 6s are always returned, even if a slow source
-    (PubMed, CrossRef) hasn't finished.  The old asyncio.wait_for(gather())
-    pattern cancelled every task the moment *any one* source hit the ceiling,
-    which caused broad queries like "machine learning" to return an empty list
-    whenever PubMed was slow.
-
-    CrossRef slowdown lessons applied
-    ----------------------------------
-    - No asyncio.sleep() anywhere in the call chain.
-    - Each source uses its own per-call timeout (5s).
-    - PubMed aborts after esearch if that call alone takes >3s.
-    - Exceptions from individual tasks are caught per-task, not via
-      return_exceptions=True on gather.
+    Query all configured integrations in parallel using asyncio.
+    Aggregates, deduplicates, and ranks results.
     """
-    cache_key = f"{query}_{limit}"
+    cache_key = f"{query}_{limit_per_source}_{use_premium}"
     now = time.time()
     if cache_key in _cache:
         cached_data, timestamp = _cache[cache_key]
@@ -163,26 +159,34 @@ async def search_all(query: str, limit: int = 15) -> list:
             logger.info(f"Returning cached literature results for {query}")
             return cached_data
 
-    # Create named tasks so we can associate results back to their source.
     named = [
-        ("SemanticScholar", asyncio.create_task(s2_search(query, limit=limit),       name="SemanticScholar")),
-        ("OpenAlex",        asyncio.create_task(openalex_search(query, limit=limit),  name="OpenAlex")),
-        ("Crossref",        asyncio.create_task(crossref_search(query, limit=limit),  name="Crossref")),
-        ("PubMed",          asyncio.create_task(pubmed_search(query, limit=limit),    name="PubMed")),
-        ("arXiv",           asyncio.create_task(arxiv_search(query, limit=limit),     name="arXiv")),
+        ("SemanticScholar", asyncio.create_task(s2_search(query, limit=limit_per_source),       name="SemanticScholar")),
+        ("OpenAlex",        asyncio.create_task(openalex_search(query, limit=limit_per_source),  name="OpenAlex")),
+        ("Crossref",        asyncio.create_task(crossref_search(query, limit=limit_per_source),  name="Crossref")),
+        ("PubMed",          asyncio.create_task(pubmed_search(query, limit=limit_per_source),    name="PubMed")),
+        ("arXiv",           asyncio.create_task(arxiv_search(query, limit=limit_per_source),     name="arXiv")),
         ("GitHub",          asyncio.create_task(
                                 asyncio.to_thread(search_github_knowledge, query),    name="GitHub")),
     ]
+    
+    if use_premium:
+        named.extend([
+            ("Springer", asyncio.create_task(springer_search(query, limit=limit_per_source), name="Springer")),
+            ("IEEE",     asyncio.create_task(ieee_search(query, limit=limit_per_source), name="IEEE")),
+            ("CORE",     asyncio.create_task(core_search(query, limit=limit_per_source), name="CORE")),
+        ])
+
     task_to_name = {task: name for name, task in named}
     all_tasks = {task for _, task in named}
 
-    done, pending = await asyncio.wait(all_tasks, timeout=6.0)
+    # Increased timeout to 20 seconds to allow all APIs to respond
+    done, pending = await asyncio.wait(all_tasks, timeout=20.0)
 
     # Cancel only the stragglers — tasks that already finished are untouched.
     if pending:
         slow_names = [task_to_name[t] for t in pending]
         logger.warning(
-            f"search_all() 6s ceiling: cancelling {len(pending)} slow source(s): "
+            f"search_all() 20s ceiling: cancelling {len(pending)} slow source(s): "
             f"{slow_names}.  Returning partial results from {len(done)} fast source(s)."
         )
         for task in pending:
@@ -206,12 +210,15 @@ async def search_all(query: str, limit: int = 15) -> list:
         else:
             results_map[name] = task.result() or []
 
-    s2_results       = results_map["SemanticScholar"]
-    openalex_results = results_map["OpenAlex"]
-    crossref_results = results_map["Crossref"]
-    pubmed_results   = results_map["PubMed"]
-    arxiv_results    = results_map["arXiv"]
-    github_results   = results_map["GitHub"]
+    s2_results       = results_map.get("SemanticScholar", [])
+    openalex_results = results_map.get("OpenAlex", [])
+    crossref_results = results_map.get("Crossref", [])
+    pubmed_results   = results_map.get("PubMed", [])
+    arxiv_results    = results_map.get("arXiv", [])
+    github_results   = results_map.get("GitHub", [])
+    springer_results = results_map.get("Springer", [])
+    ieee_results     = results_map.get("IEEE", [])
+    core_results     = results_map.get("CORE", [])
 
     # Tag sources that don't already have one
     for p in openalex_results:
@@ -224,7 +231,13 @@ async def search_all(query: str, limit: int = 15) -> list:
         p.setdefault("source", "Crossref")
     for p in pubmed_results:
         p.setdefault("source", "PubMed")
-    # Semantic Scholar already tags its own in semanticscholar.py
+    # Semantic Scholar, IEEE, Springer, CORE already tag their own in their modules (or we enforce it here if not)
+    for p in springer_results:
+        p.setdefault("source", "Springer")
+    for p in ieee_results:
+        p.setdefault("source", "IEEE")
+    for p in core_results:
+        p.setdefault("source", "CORE")
 
     # Merge all sources into a single list
     merged = (
@@ -234,23 +247,25 @@ async def search_all(query: str, limit: int = 15) -> list:
         + pubmed_results
         + arxiv_results
         + github_results
+        + springer_results
+        + ieee_results
+        + core_results
     )
 
     # Deduplicate
     unique = _deduplicate(merged)
 
-    # Rank by combined relevance score instead of source order
-    unique = _rank_papers(unique)
+    # Rank by combined lexical relevance score instead of source order
+    unique = _rank_papers(query, unique)
 
-    # Truncate to limit BEFORE enrichment so we only enrich what we return
-    unique = unique[:limit]
+    # We removed truncation here to allow frontend to filter all available results.
 
-    # Enrich with Unpaywall open-access links (non-blocking best-effort, 4s ceiling)
+    # Enrich with Unpaywall open-access links (non-blocking best-effort, 8s ceiling for large lists)
     try:
         from integrations.unpaywall import enrich_papers_with_oa
-        unique = await asyncio.wait_for(enrich_papers_with_oa(unique), timeout=4.0)
+        unique = await asyncio.wait_for(enrich_papers_with_oa(unique), timeout=8.0)
     except asyncio.TimeoutError:
-        logger.warning("Unpaywall enrichment exceeded 4s ceiling, returning unenriched results.")
+        logger.warning("Unpaywall enrichment exceeded 8s ceiling, returning unenriched results.")
     except Exception as e:
         logger.warning(f"Unpaywall enrichment failed (non-fatal): {e}")
 

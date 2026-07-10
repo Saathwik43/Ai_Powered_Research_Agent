@@ -43,6 +43,8 @@ export default function ManuscriptBuilder() {
   const [manuscriptRefs, setManuscriptRefs] = useState(null);
   
   const [gapAnalysis, setGapAnalysis] = useState(null);
+  const [customContext, setCustomContext] = useState('');
+  const [usePremium, setUsePremium] = useState(false);
 
   const done = STEPS.filter(s => content[s.id]?.trim()).map(s => s.id);
 
@@ -53,9 +55,10 @@ export default function ManuscriptBuilder() {
     setUnverifiedWarning('');
     setUnverifiedNumbers([]);
     try {
+      const payloadContext = customContext.trim() || 'Use latest research trends and cite recent advancements.';
       const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript`, {
         method: 'POST',
-        body: JSON.stringify({ topic, section: active, context: 'Use latest research trends and cite recent advancements.', citation_style: citationStyle }),
+        body: JSON.stringify({ topic, section: active, context: payloadContext, citation_style: citationStyle, use_premium: usePremium }),
       });
       if (res.status === 429 || res.status === 503) {
         if (res.status === 503) {
@@ -281,6 +284,17 @@ export default function ManuscriptBuilder() {
               <option value="oxford">Oxford</option>
             </select>
           </div>
+          
+          {/* Premium Source Toggle */}
+          <div style={{ marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '1rem', background: usePremium ? 'rgba(0, 87, 255, 0.05)' : 'var(--bg-input)', border: `1px solid ${usePremium ? 'var(--primary)' : 'var(--border)'}`, borderRadius: 'var(--radius-md)', transition: 'var(--transition)', cursor: 'pointer' }} onClick={() => setUsePremium(!usePremium)}>
+            <div style={{ width: '40px', height: '22px', background: usePremium ? 'var(--primary)' : 'var(--border)', borderRadius: '20px', position: 'relative', transition: 'var(--transition)' }}>
+              <div style={{ width: '18px', height: '18px', background: 'white', borderRadius: '50%', position: 'absolute', top: '2px', left: usePremium ? '20px' : '2px', transition: 'var(--transition)' }} />
+            </div>
+            <div>
+              <p style={{ margin: '0 0 0.25rem 0', fontWeight: 600, fontSize: '0.9rem', color: usePremium ? 'var(--primary)' : 'var(--text)' }}>Use Premium Sources (IEEE, Springer, CORE)</p>
+              <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>Searches 9 academic libraries in parallel. May take a few seconds.</p>
+            </div>
+          </div>
 
           {/* Gap Analysis Panel */}
           {gapAnalysis && (
@@ -358,9 +372,19 @@ export default function ManuscriptBuilder() {
 
           {generating && (
             <div style={{ marginTop: '2rem' }}>
-              <h2 style={{ fontSize: '1.25rem', fontWeight: 600, margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)' }}>
-                <Sparkles size={18} style={{ color: 'var(--primary)' }} /> Generating manuscript...
-              </h2>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem', background: 'rgba(0, 87, 255, 0.04)', border: '1px solid rgba(0, 87, 255, 0.1)', padding: '1.25rem', borderRadius: 'var(--radius-lg)' }}>
+                <div style={{ animation: 'spin 3s linear infinite' }}>
+                  <Sparkles size={24} style={{ color: 'var(--primary)' }} />
+                </div>
+                <div>
+                  <h2 style={{ fontSize: '1.1rem', fontWeight: 600, margin: '0 0 0.35rem 0', color: 'var(--primary)' }}>
+                    Generating your manuscript...
+                  </h2>
+                  <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <Spinner size={12} /> {usePremium ? 'Querying 9 academic libraries simultaneously. This deep search may take a few seconds...' : 'Synthesizing evidence and structuring content...'}
+                  </p>
+                </div>
+              </div>
               <SkeletonText lines={12} />
             </div>
           )}
