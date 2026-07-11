@@ -99,11 +99,13 @@ async def _prepare_generation(topic: str, section: str, context: str, citation_s
             papers = await _filter_relevant_papers(topic, papers)
             papers = papers[:15]
             
-            async def fetch_evidence(p):
-                p["evidence"], p["evidence_source"] = await extract_evidence_for_paper(p)
-                return p
+            sem = asyncio.Semaphore(3)
+            async def fetch_evidence_throttled(p):
+                async with sem:
+                    p["evidence"], p["evidence_source"] = await extract_evidence_for_paper(p)
+                    return p
                 
-            await asyncio.gather(*(fetch_evidence(p) for p in papers), return_exceptions=True)
+            await asyncio.gather(*(fetch_evidence_throttled(p) for p in papers), return_exceptions=True)
             _research_cache[cache_key] = (papers, now)
 
     references_mapping = {}

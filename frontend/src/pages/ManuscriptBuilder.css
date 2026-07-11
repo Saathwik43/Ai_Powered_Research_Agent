@@ -1,12 +1,220 @@
-@media (max-width: 768px) { 
-  .manuscript-layout { 
-    flex-direction: column; 
-  } 
-  .manuscript-layout > * { 
-    width: 100% !important; 
-  } 
-  .manuscript-outline-panel {
-    order: 2;
-    margin-top: 1rem;
+.manuscript-editor-surface {
+  max-width: 720px;
+  margin: 0 auto;
+  font-size: 17px;
+  line-height: 1.7;
+  animation: stepFadeIn 0.15s ease-out;
+  position: relative;
+}
+
+@keyframes stepFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.manuscript-editor-surface textarea, 
+.manuscript-editor-surface .pdf-markdown-body {
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.manuscript-toolbar {
+  position: sticky;
+  top: 0;
+  background: var(--bg-card);
+  z-index: 5;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+/* AI Revise Panel */
+.manuscript-revise-panel-container {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.manuscript-revise-panel {
+  background: var(--bg-card);
+  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.08);
+  padding: 1.25rem;
+  transform: translateY(100%);
+  transition: transform 0.25s cubic-bezier(0.32,0.72,0,1);
+  pointer-events: auto;
+}
+
+.manuscript-revise-panel.open {
+  transform: translateY(0);
+}
+
+/* Diff View */
+.manuscript-diff-view {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 1.25rem;
+  margin-top: 1rem;
+}
+
+.manuscript-diff-content {
+  padding: 1rem;
+  max-height: 400px;
+  overflow-y: auto;
+  font-size: 0.9rem;
+  color: var(--text);
+  white-space: pre-wrap;
+  line-height: 1.6;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+}
+
+.manuscript-diff-view del {
+  background: rgba(229,28,35,0.12);
+  color: var(--danger);
+  text-decoration: line-through;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+.manuscript-diff-view ins {
+  background: rgba(0,163,108,0.12);
+  color: var(--success);
+  text-decoration: none;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+/* References Drawer */
+.manuscript-refs-drawer {
+  position: fixed;
+  right: 0;
+  top: 64px;
+  bottom: 0;
+  width: 320px;
+  background: var(--bg-card);
+  border-left: 1px solid var(--border);
+  box-shadow: -4px 0 24px rgba(0,0,0,0.05);
+  transform: translateX(100%);
+  transition: transform 0.28s cubic-bezier(0.32,0.72,0,1);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+}
+
+.manuscript-refs-drawer.open {
+  transform: translateX(0);
+}
+
+.manuscript-refs-drawer-header {
+  padding: 1rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.manuscript-refs-drawer-content {
+  padding: 1rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+/* Toggle for References Drawer */
+.manuscript-refs-toggle {
+  position: fixed;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-right: none;
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+  padding: 0.75rem 0.5rem;
+  box-shadow: -2px 0 8px rgba(0,0,0,0.05);
+  z-index: 39;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-subtle);
+  transition: color 0.2s, background 0.2s;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+}
+
+.manuscript-refs-toggle:hover {
+  color: var(--primary);
+  background: var(--bg-input);
+}
+
+/* Sidebar Active Step Polish */
+.manuscript-step-active {
+  border-left: 3px solid var(--primary) !important;
+  padding-left: calc(0.75rem - 3px) !important;
+  background: var(--primary-light) !important;
+}
+
+@media (max-width: 1024px) {
+  .manuscript-refs-drawer {
+    z-index: 50;
   }
+}
+
+/* Markdown Format Toolbar */
+.manuscript-format-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding-left: 1rem;
+  margin-left: 1rem;
+  border-left: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.format-group {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding-right: 0.75rem;
+  border-right: 1px solid var(--border);
+}
+
+.format-group:last-child {
+  border-right: none;
+  padding-right: 0;
+}
+
+.format-btn {
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 0.35rem;
+  color: var(--text-subtle);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.format-btn:hover {
+  background: var(--bg-input);
+  color: var(--text);
+}
+
+.format-btn:active {
+  background: var(--border);
 }

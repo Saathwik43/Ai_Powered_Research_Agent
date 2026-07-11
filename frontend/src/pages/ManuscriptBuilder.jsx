@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { CheckCircle, Circle, Save, FileText, Wand2, FolderOpen, X, Search, Sparkles, Send, BookOpen } from 'lucide-react';
+import { CheckCircle, Circle, Save, FileText, Wand2, FolderOpen, X, Search, Sparkles, Send, BookOpen, Bold, Italic, Strikethrough, Link, List, ListOrdered, CheckSquare, Table, Quote, Code, Undo, Redo } from 'lucide-react';
 import './ManuscriptBuilder.css';
 import { useAuth } from '../context/AuthContext';
 import { Spinner, SkeletonText } from '../components/Loader';
@@ -11,6 +11,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { ghcolors } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import 'katex/dist/katex.min.css';
 import { MODELS } from '../constants/models';
+import { diffWords } from 'diff';
 
 const STEPS = [
   { id: 'abstract',    label: 'Abstract' },
@@ -40,6 +41,8 @@ export default function ManuscriptBuilder() {
   const [generateError, setGenerateError] = useState('');
   const [unverifiedWarning, setUnverifiedWarning] = useState('');
   const [unverifiedNumbers, setUnverifiedNumbers] = useState([]);
+  const [revisePanelOpen, setRevisePanelOpen] = useState(false);
+  const [refsOpen, setRefsOpen] = useState(false);
   
   // Phase B additions
   const [citationStyle, setCitationStyle] = useState('ieee');
@@ -176,7 +179,48 @@ export default function ManuscriptBuilder() {
     return () => clearInterval(timer);
   }, [rateLimitWait]);
 
+  // Markdown formatting helper
+  const insertMarkdown = (prefix, suffix = '') => {
+    const textarea = document.getElementById('manuscript-textarea');
+    if (!textarea) return;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const text = textarea.value;
+    const selected = text.substring(start, end);
+    
+    // We use execCommand so the native Undo/Redo stack isn't broken
+    textarea.focus();
+    const replacement = `${prefix}${selected}${suffix}`;
+    
+    // If the browser supports execCommand for insertText
+    if (document.queryCommandSupported('insertText')) {
+      document.execCommand('insertText', false, replacement);
+    } else {
+      // Fallback for older browsers (will break undo stack)
+      const newText = text.substring(0, start) + replacement + text.substring(end);
+      setContent(prev => ({ ...prev, [active]: newText }));
+    }
+    
+    // Set selection back
+    setTimeout(() => {
+      textarea.setSelectionRange(start + prefix.length, start + prefix.length + selected.length);
+    }, 0);
+  };
 
+  const handleFormat = (e, prefix, suffix = '') => {
+    e.preventDefault(); // Prevent button click from stealing focus
+    insertMarkdown(prefix, suffix);
+  };
+
+  const handleUndo = (e) => {
+    e.preventDefault();
+    document.execCommand('undo');
+  };
+
+  const handleRedo = (e) => {
+    e.preventDefault();
+    document.execCommand('redo');
+  };
 
   const applyEdit = async () => {
     if (!editPrompt.trim() || !content[active]) return;
@@ -222,10 +266,12 @@ export default function ManuscriptBuilder() {
   const acceptEdit = () => {
     setContent(prev => ({ ...prev, [active]: pendingEdit }));
     setPendingEdit(null);
+    setRevisePanelOpen(false);
   };
 
   const rejectEdit = () => {
     setPendingEdit(null);
+    setRevisePanelOpen(false);
   };
 
   const save = async () => {
@@ -320,6 +366,7 @@ export default function ManuscriptBuilder() {
               const isActive = active === step.id;
               return (
                 <div key={step.id} onClick={() => setActive(step.id)}
+                  className={isActive ? 'manuscript-step-active' : ''}
                   style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.6rem 0.75rem', borderRadius: 'var(--radius-md)', cursor: 'pointer', fontSize: '0.88rem', fontWeight: isActive ? 700 : 500, color: isActive ? 'var(--primary)' : isDone ? 'var(--text)' : 'var(--text-muted)', background: isActive ? 'var(--primary-light)' : 'transparent', border: `1px solid ${isActive ? 'rgba(0,87,255,0.22)' : 'transparent'}`, transition: 'var(--transition)' }}
                 >
                   {isDone
@@ -498,44 +545,75 @@ export default function ManuscriptBuilder() {
           )}
 
           {pendingEdit ? (
-            <div className="manuscript-diff-view" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+            <div className="manuscript-diff-view">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', marginBottom: '1rem' }}>
                 <h3 style={{ margin: 0, fontSize: '1rem', color: 'var(--primary)' }}>Review AI Revisions</h3>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <button className="btn btn-ghost" onClick={rejectEdit} style={{ color: 'var(--danger)' }}><X size={16} /> Discard</button>
                   <button className="btn btn-primary" onClick={acceptEdit}><CheckCircle size={16} /> Accept Changes</button>
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                <div style={{ flex: 1, minWidth: '300px', background: 'var(--bg-input)', border: '1px solid rgba(229,28,35,0.3)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
-                  <div style={{ background: 'rgba(229,28,35,0.08)', padding: '0.5rem 1rem', fontSize: '0.85rem', fontWeight: 600, color: 'var(--danger)', borderBottom: '1px solid rgba(229,28,35,0.1)' }}>Current (Discarded)</div>
-                  <div style={{ padding: '1rem', maxHeight: '400px', overflowY: 'auto', fontSize: '0.9rem', color: 'var(--text-subtle)', whiteSpace: 'pre-wrap', textDecoration: 'line-through' }}>{content[active]}</div>
-                </div>
-                <div style={{ flex: 1, minWidth: '300px', background: 'var(--bg-input)', border: '1px solid rgba(39,201,63,0.3)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
-                  <div style={{ background: 'rgba(39,201,63,0.08)', padding: '0.5rem 1rem', fontSize: '0.85rem', fontWeight: 600, color: 'var(--success)', borderBottom: '1px solid rgba(39,201,63,0.1)' }}>AI Revision (New)</div>
-                  <div style={{ padding: '1rem', maxHeight: '400px', overflowY: 'auto', fontSize: '0.9rem', color: 'var(--text)', whiteSpace: 'pre-wrap' }}>{pendingEdit}</div>
-                </div>
+              <div className="manuscript-diff-content">
+                {diffWords(content[active] || '', pendingEdit).map((part, i) => (
+                  part.added ? <ins key={i}>{part.value}</ins> :
+                  part.removed ? <del key={i}>{part.value}</del> :
+                  <span key={i}>{part.value}</span>
+                ))}
               </div>
             </div>
           ) : !generating && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid var(--border)' }}>
-                <button 
-                  onClick={() => setViewMode('write')} 
-                  style={{ background: 'none', border: 'none', padding: '0.5rem 1rem', borderBottom: viewMode === 'write' ? '2px solid var(--primary)' : '2px solid transparent', color: viewMode === 'write' ? 'var(--primary)' : 'var(--text-subtle)', fontWeight: viewMode === 'write' ? 600 : 400, cursor: 'pointer', transition: 'var(--transition)' }}
-                >
-                  Write
-                </button>
-                <button 
-                  onClick={() => setViewMode('preview')} 
-                  style={{ background: 'none', border: 'none', padding: '0.5rem 1rem', borderBottom: viewMode === 'preview' ? '2px solid var(--primary)' : '2px solid transparent', color: viewMode === 'preview' ? 'var(--primary)' : 'var(--text-subtle)', fontWeight: viewMode === 'preview' ? 600 : 400, cursor: 'pointer', transition: 'var(--transition)' }}
-                >
-                  Preview
-                </button>
+            <div className="manuscript-editor-surface" key={active}>
+              <div className="manuscript-toolbar">
+                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', gap: '0.25rem' }}>
+                    <button 
+                      onClick={() => setViewMode('write')} 
+                      style={{ background: 'none', border: 'none', padding: '0.25rem 0.5rem', borderBottom: viewMode === 'write' ? '2px solid var(--primary)' : '2px solid transparent', color: viewMode === 'write' ? 'var(--primary)' : 'var(--text-subtle)', fontWeight: viewMode === 'write' ? 600 : 400, cursor: 'pointer', transition: 'var(--transition)' }}
+                    >
+                      Write
+                    </button>
+                    <button 
+                      onClick={() => setViewMode('preview')} 
+                      style={{ background: 'none', border: 'none', padding: '0.25rem 0.5rem', borderBottom: viewMode === 'preview' ? '2px solid var(--primary)' : '2px solid transparent', color: viewMode === 'preview' ? 'var(--primary)' : 'var(--text-subtle)', fontWeight: viewMode === 'preview' ? 600 : 400, cursor: 'pointer', transition: 'var(--transition)' }}
+                    >
+                      Preview
+                    </button>
+                  </div>
+                  
+                  {/* Rich Text Toolbar (Only in Write Mode) */}
+                  {viewMode === 'write' && (
+                    <div className="manuscript-format-toolbar">
+                      <div className="format-group">
+                        <button className="format-btn" onMouseDown={(e) => handleFormat(e, '**', '**')} title="Bold"><Bold size={15} /></button>
+                        <button className="format-btn" onMouseDown={(e) => handleFormat(e, '*', '*')} title="Italic"><Italic size={15} /></button>
+                        <button className="format-btn" onMouseDown={(e) => handleFormat(e, '~~', '~~')} title="Strikethrough"><Strikethrough size={15} /></button>
+                        <button className="format-btn" onMouseDown={(e) => handleFormat(e, '[', '](url)')} title="Link"><Link size={15} /></button>
+                      </div>
+                      <div className="format-group">
+                        <button className="format-btn" onMouseDown={(e) => handleFormat(e, '- ')} title="Bulleted List"><List size={15} /></button>
+                        <button className="format-btn" onMouseDown={(e) => handleFormat(e, '1. ')} title="Numbered List"><ListOrdered size={15} /></button>
+                        <button className="format-btn" onMouseDown={(e) => handleFormat(e, '- [ ] ')} title="Checklist"><CheckSquare size={15} /></button>
+                        <button className="format-btn" onMouseDown={(e) => handleFormat(e, '\n| Column 1 | Column 2 |\n| -------- | -------- |\n| Text     | Text     |\n')} title="Table"><Table size={15} /></button>
+                      </div>
+                      <div className="format-group">
+                        <button className="format-btn" onMouseDown={(e) => handleFormat(e, '> ')} title="Blockquote"><Quote size={15} /></button>
+                        <button className="format-btn" onMouseDown={(e) => handleFormat(e, '```\n', '\n```')} title="Code Block"><Code size={15} /></button>
+                      </div>
+                      <div className="format-group">
+                        <button className="format-btn" onMouseDown={handleUndo} title="Undo"><Undo size={15} /></button>
+                        <button className="format-btn" onMouseDown={handleRedo} title="Redo"><Redo size={15} /></button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-subtle)', fontWeight: 500, minWidth: '70px', textAlign: 'right' }}>
+                  {content[active] ? content[active].trim().split(/\s+/).length : 0} words
+                </div>
               </div>
               
               {viewMode === 'write' ? (
                 <textarea
+                  id="manuscript-textarea"
                   placeholder={`Write your ${currentStep?.label.toLowerCase()} here, or click Generate for AI assistance...\nUse LaTeX for math (e.g. $E = mc^2$ for inline, $$x^2$$ for block).`}
                   value={(content[active] || '') + (generating ? '▋' : '')}
                   onChange={e => setContent(prev => ({ ...prev, [active]: e.target.value }))}
@@ -570,41 +648,77 @@ export default function ManuscriptBuilder() {
                   )}
                 </div>
               )}
-            </div>
-          )}
-          
-          {content[active] && !generating && (
-            <div style={{ marginTop: '1rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '1.25rem' }}>
-              <p style={{ margin: '0 0 0.75rem 0', fontSize: '0.85rem', fontWeight: 600 }}>Revise Section with AI</p>
-              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                <input
-                  placeholder="e.g. Make this shorter, add bullet points, fix grammar..."
-                  value={editPrompt}
-                  onChange={e => setEditPrompt(e.target.value)}
-                  style={{ flex: 1, minWidth: '200px' }}
-                  disabled={editing || generating}
-                  onKeyDown={e => { if (e.key === 'Enter') applyEdit(); }}
-                />
-                <button className="btn btn-primary" onClick={applyEdit} disabled={editing || generating || !editPrompt.trim()}>
-                  {editing ? <Spinner size={14} /> : <Send size={14} />} Apply Revision
+
+              {content[active] && !generating && (
+                <button 
+                  className="btn btn-primary"
+                  onClick={() => setRevisePanelOpen(true)}
+                  style={{ position: 'absolute', bottom: '1.5rem', right: '1.5rem', borderRadius: '50px', padding: '0.75rem 1.25rem', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}
+                >
+                  <Sparkles size={16} /> AI Revise
                 </button>
+              )}
+
+              <div className="manuscript-revise-panel-container">
+                <div className={`manuscript-revise-panel ${revisePanelOpen ? 'open' : ''}`}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                    <p style={{ margin: 0, fontSize: '0.9rem', fontWeight: 600, color: 'var(--primary)' }}><Sparkles size={14} style={{ display: 'inline', verticalAlign: 'text-bottom' }}/> Revise Section</p>
+                    <button onClick={() => setRevisePanelOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)' }}><X size={16} /></button>
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <input
+                      placeholder="e.g. Make this shorter, add bullet points, fix grammar..."
+                      value={editPrompt}
+                      onChange={e => setEditPrompt(e.target.value)}
+                      style={{ flex: 1, minWidth: '200px' }}
+                      disabled={editing || generating}
+                      onKeyDown={e => { if (e.key === 'Enter') applyEdit(); }}
+                    />
+                    <button className="btn btn-primary" onClick={applyEdit} disabled={editing || generating || !editPrompt.trim()}>
+                      {editing ? <Spinner size={14} /> : <Send size={14} />} Apply Revision
+                    </button>
+                  </div>
+                  {editError && <div style={{ color: 'var(--danger)', fontSize: '0.8rem', marginTop: '0.5rem' }}>{editError}</div>}
+                </div>
               </div>
-              {editError && <div style={{ color: 'var(--danger)', fontSize: '0.8rem', marginTop: '0.5rem' }}>{editError}</div>}
             </div>
           )}
 
-          {/* References Panel */}
+          {/* References Drawer & Toggle */}
           {manuscriptRefs && Object.keys(manuscriptRefs).length > 0 && (
-            <div className="manuscript-references-panel" style={{ marginTop: '2rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border)' }}>
-              <h3 style={{ margin: '0 0 1rem 0', fontSize: '1.05rem', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <BookOpen size={16} color="var(--primary)" /> References
-              </h3>
-              <ol style={{ margin: 0, paddingLeft: '1.5rem', fontSize: '0.88rem', color: 'var(--text-subtle)', lineHeight: 1.6 }}>
-                {Object.entries(manuscriptRefs).map(([idx, refString]) => (
-                  <li key={idx} style={{ marginBottom: '0.5rem' }}>{refString}</li>
-                ))}
-              </ol>
-            </div>
+            <>
+              <button 
+                className="manuscript-refs-toggle" 
+                onClick={() => setRefsOpen(!refsOpen)}
+              >
+                <BookOpen size={16} /> References ({Object.keys(manuscriptRefs).length})
+              </button>
+              
+              <div className={`manuscript-refs-drawer ${refsOpen ? 'open' : ''}`}>
+                <div className="manuscript-refs-drawer-header">
+                  <h3 style={{ margin: 0, fontSize: '1.05rem', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <BookOpen size={16} color="var(--primary)" /> References
+                  </h3>
+                  <button onClick={() => setRefsOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)' }}><X size={16} /></button>
+                </div>
+                <div className="manuscript-refs-drawer-content">
+                  <ol style={{ margin: 0, paddingLeft: '1.5rem', fontSize: '0.88rem', color: 'var(--text-subtle)', lineHeight: 1.6 }}>
+                    {Object.entries(manuscriptRefs).map(([idx, refString]) => (
+                      <li key={idx} style={{ marginBottom: '0.5rem' }}>{refString}</li>
+                    ))}
+                  </ol>
+                </div>
+              </div>
+              
+              {/* Mobile overlay backdrop */}
+              {refsOpen && (
+                <div 
+                  style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 35 }} 
+                  onClick={() => setRefsOpen(false)}
+                  className="mobile-overlay"
+                />
+              )}
+            </>
           )}
         </div>
       </div>
