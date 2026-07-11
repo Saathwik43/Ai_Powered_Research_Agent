@@ -112,7 +112,8 @@ class ManuscriptPayload(BaseModel):
     citation_style: str = "ieee"
 
 class ManuscriptStreamPayload(ManuscriptPayload):
-    provider: str
+    mode: str = "manual"
+    provider: str = None
     model: str = None
 
 class GapAnalysisPayload(BaseModel):
@@ -327,13 +328,9 @@ from fastapi.responses import StreamingResponse
 import json
 from ai.llm_provider import current_provider, current_model
 
-async def _sse_wrap(generator, token_p, token_m):
-    try:
-        async for chunk in generator:
-            yield f"data: {json.dumps(chunk)}\n\n"
-    finally:
-        current_provider.reset(token_p)
-        current_model.reset(token_m)
+async def _sse_wrap(generator):
+    async for chunk in generator:
+        yield f"data: {json.dumps(chunk)}\n\n"
 
 @app.post("/api/manuscript/stream")
 @limiter.limit("15/minute")
@@ -341,19 +338,20 @@ async def draft_manuscript_stream(request: Request, payload: ManuscriptStreamPay
     from ai.manuscript_generation import generate_section_stream
     # No usage_tracker.check_quota here per user request, rely on provider limits
     
-    token_p = current_provider.set(payload.provider)
-    token_m = current_model.set(payload.model if hasattr(payload, 'model') else None)
+    current_provider.set(payload.provider)
+    current_model.set(payload.model if hasattr(payload, 'model') else None)
     
     gen = generate_section_stream(
         payload.topic, 
         payload.section, 
         payload.context, 
         payload.citation_style, 
+        payload.mode,
         payload.provider, 
         payload.model
     )
     
-    return StreamingResponse(_sse_wrap(gen, token_p, token_m), media_type="text/event-stream")
+    return StreamingResponse(_sse_wrap(gen), media_type="text/event-stream")
 
 @app.post("/api/manuscript/edit")
 @limiter.limit("5/minute")

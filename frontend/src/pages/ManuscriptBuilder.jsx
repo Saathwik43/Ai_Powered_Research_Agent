@@ -46,6 +46,8 @@ export default function ManuscriptBuilder() {
   const [selectedModelId, setSelectedModelId] = useState('groq-default');
   const [manuscriptRefs, setManuscriptRefs] = useState(null);
   const [rateLimitWait, setRateLimitWait] = useState(null);
+  const [autoMode, setAutoMode] = useState(true);
+  const [autoStatus, setAutoStatus] = useState('');
   
   const [gapAnalysis, setGapAnalysis] = useState(null);
   const [customContext, setCustomContext] = useState('');
@@ -64,9 +66,24 @@ export default function ManuscriptBuilder() {
     try {
       const payloadContext = customContext.trim() || 'Use latest research trends and cite recent advancements.';
       const selectedModel = MODELS.find(m => m.id === selectedModelId) || MODELS[0];
+      setAutoStatus('');
+      
+      const payload = { 
+        topic, 
+        section: active, 
+        context: payloadContext, 
+        citation_style: citationStyle, 
+        mode: autoMode ? 'auto' : 'manual'
+      };
+      
+      if (!autoMode) {
+        payload.provider = selectedModel.provider;
+        payload.model = selectedModel.model;
+      }
+
       const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/stream`, {
         method: 'POST',
-        body: JSON.stringify({ topic, section: active, context: payloadContext, citation_style: citationStyle, provider: selectedModel.provider, model: selectedModel.model }),
+        body: JSON.stringify(payload),
       });
       
       if (!res.ok) {
@@ -104,6 +121,10 @@ export default function ManuscriptBuilder() {
               const data = JSON.parse(dataStr);
               if (data.type === "chunk") {
                 setContent(prev => ({ ...prev, [active]: (prev[active] || "") + data.text }));
+              } else if (data.type === "provider_active") {
+                setAutoStatus(`Trying ${data.provider}...`);
+              } else if (data.type === "provider_switch") {
+                setContent(prev => ({ ...prev, [active]: "" }));
               } else if (data.type === "metadata") {
                 if (data.formatted_references) setManuscriptRefs(data.formatted_references);
                 if (data.unverified_citations) setUnverifiedWarning('Warning: The generated text contains citations that could not be verified against the provided context. Please verify them independently.');
@@ -111,6 +132,7 @@ export default function ManuscriptBuilder() {
                 if (data.gap_analysis) setGapAnalysis(data.gap_analysis);
                 else if (active === 'lit_review' || active === 'literature_review') setGapAnalysis(null);
               } else if (data.type === "stopped") {
+                setAutoStatus('');
                 if (data.reason === "rate_limit") {
                   const waitSecs = data.retry_after_seconds;
                   if (waitSecs) {
@@ -123,6 +145,7 @@ export default function ManuscriptBuilder() {
                   setContent(prev => ({ ...prev, [active]: (prev[active] || "") + `\n\n*[Generation stopped: ${data.message}]*` }));
                 }
               } else if (data.type === "done") {
+                setAutoStatus('');
                 setGenerating(false);
               }
             } catch (err) {
@@ -332,19 +355,32 @@ export default function ManuscriptBuilder() {
                 <option value="oxford">Oxford Style</option>
               </select>
 
-              <select 
-                value={selectedModelId} 
-                onChange={e => setSelectedModelId(e.target.value)}
-                style={{ padding: '0.6rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: '0.85rem', width: '100%' }}
-              >
-                {Array.from(new Set(MODELS.map(m => m.group))).map(group => (
-                  <optgroup key={group} label={group}>
-                    {MODELS.filter(m => m.group === group).map(m => (
-                      <option key={m.id} value={m.id}>{m.label}</option>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.5rem', padding: '0.75rem', background: 'var(--bg-input)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', cursor: 'pointer' }}>
+                  <input type="radio" checked={autoMode} onChange={() => setAutoMode(true)} />
+                  Auto (recommended) - reliable generation
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', cursor: 'pointer' }}>
+                  <input type="radio" checked={!autoMode} onChange={() => setAutoMode(false)} />
+                  Choose specific model
+                </label>
+                
+                {!autoMode && (
+                  <select 
+                    value={selectedModelId} 
+                    onChange={e => setSelectedModelId(e.target.value)}
+                    style={{ padding: '0.6rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text)', fontSize: '0.85rem', width: '100%', marginTop: '0.5rem' }}
+                  >
+                    {Array.from(new Set(MODELS.map(m => m.group))).map(group => (
+                      <optgroup key={group} label={group}>
+                        {MODELS.filter(m => m.group === group).map(m => (
+                          <option key={m.id} value={m.id}>{m.label}</option>
+                        ))}
+                      </optgroup>
                     ))}
-                  </optgroup>
-                ))}
-              </select>
+                  </select>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -353,13 +389,16 @@ export default function ManuscriptBuilder() {
         <div style={{ flex: 1, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.5rem', minWidth: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.5rem' }}>
             <h2 style={{ margin: 0, fontSize: '1.1rem' }}>{currentStep?.label}</h2>
-            <div className="responsive-actions" style={{ display: 'flex', gap: '0.5rem' }}>
-              <button className="btn btn-secondary" onClick={generate} disabled={generating || !topic.trim() || rateLimitWait > 0}>
-                {generating ? <Spinner size={14} /> : <><Sparkles size={14} /> {rateLimitWait ? `Wait ${rateLimitWait}s` : 'Generate'}</>}
-              </button>
-              <button className="btn btn-ghost" onClick={save} disabled={!topic || !Object.keys(content).length || saveStatus === 'saving'}>
-                <Save size={14} /> {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : 'Save'}
-              </button>
+            <div className="responsive-actions" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              {autoStatus && <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{autoStatus}</span>}
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button className="btn btn-secondary" onClick={generate} disabled={generating || !topic.trim() || rateLimitWait > 0}>
+                  {generating ? <Spinner size={14} /> : <><Sparkles size={14} /> {rateLimitWait ? `Wait ${rateLimitWait}s` : 'Generate'}</>}
+                </button>
+                <button className="btn btn-ghost" onClick={save} disabled={!topic || !Object.keys(content).length || saveStatus === 'saving'}>
+                  <Save size={14} /> {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : 'Save'}
+                </button>
+              </div>
             </div>
           </div>
 

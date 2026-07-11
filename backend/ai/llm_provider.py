@@ -485,3 +485,25 @@ async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: in
     else:
         yield {"type": "stopped", "reason": "error", "message": f"Unknown provider {effective_provider}"}
 
+
+async def stream_completion_auto(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float, cached_content: str = None):
+    fixed_order = ("groq", "gemini", "openrouter", "nvidia", "openai")
+    for provider in fixed_order:
+        accumulated_text = ""
+        yield {"type": "provider_active", "provider": provider}
+        try:
+            async for chunk in stream_completion(system_prompt, user_prompt, max_tokens, temperature, provider, None, cached_content if provider == "gemini" else None):
+                if chunk.get("type") == "chunk":
+                    accumulated_text += chunk.get("text", "")
+                    yield chunk
+                elif chunk.get("type") == "stopped":
+                    raise RuntimeError(chunk.get("reason", "stopped"))
+                elif chunk.get("type") == "done":
+                    yield chunk
+                    return
+        except Exception as e:
+            logger.error(f"Auto mode {provider} failed: {e}")
+            if accumulated_text:
+                yield {"type": "provider_switch", "reason": str(e)}
+            continue
+    yield {"type": "stopped", "reason": "all_providers_failed"}

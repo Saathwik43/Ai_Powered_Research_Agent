@@ -206,9 +206,9 @@ async def generate_section(topic: str, section: str, context: str, citation_styl
             detail={"verification_unavailable": True, "message": "AI generation is temporarily unavailable. Please try again in a moment."}
         )
 
-from ai.llm_provider import stream_completion
+from ai.llm_provider import stream_completion, stream_completion_auto
 
-async def generate_section_stream(topic: str, section: str, context: str, citation_style: str, provider: str, model: str = None):
+async def generate_section_stream(topic: str, section: str, context: str, citation_style: str, mode: str = "manual", provider: str = None, model: str = None):
     user_prompt, system_prompt, references_mapping, gap_analysis_data, papers, err, cached_content = await _prepare_generation(
         topic, section, context, citation_style, provider=provider, model=model
     )
@@ -219,7 +219,10 @@ async def generate_section_stream(topic: str, section: str, context: str, citati
     max_tokens_limit = 2000 if section.lower().replace(" ", "_") in ("lit_review", "literature_review") else 1200
     
     full_text = ""
-    async for chunk in stream_completion(system_prompt, user_prompt, max_tokens_limit, 0.45, provider, model, cached_content):
+    
+    stream_gen = stream_completion_auto(system_prompt, user_prompt, max_tokens_limit, 0.45, cached_content) if mode == "auto" else stream_completion(system_prompt, user_prompt, max_tokens_limit, 0.45, provider, model, cached_content)
+    
+    async for chunk in stream_gen:
         if chunk.get("type") == "chunk":
             full_text += chunk.get("text", "")
             yield chunk
