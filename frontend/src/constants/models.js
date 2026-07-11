@@ -1,6 +1,7 @@
 export const MODELS = [
   { id: 'groq-default', provider: 'groq', model: null, label: 'Groq (Llama 3.3 70B)', group: 'Other Providers' },
   { id: 'openrouter-default', provider: 'openrouter', model: null, label: 'OpenRouter (Claude)', group: 'Other Providers' },
+  { id: 'nvidia-default', provider: 'nvidia', model: null, label: 'NVIDIA (Smoke Test)', group: 'Other Providers' },
   { id: 'deepseek-v3.2', provider: 'openrouter', model: 'deepseek/deepseek-v3.2', label: 'DeepSeek V3.2 (cheap, high quality)', group: 'OpenRouter Models' },
   { id: 'kimi-k2.6', provider: 'openrouter', model: 'moonshotai/kimi-k2.6', label: 'Kimi K2.6 (256K context, auto-cache)', group: 'OpenRouter Models' },
 

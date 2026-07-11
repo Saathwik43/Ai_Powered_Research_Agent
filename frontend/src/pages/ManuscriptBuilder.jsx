@@ -535,9 +535,9 @@ export default function ManuscriptBuilder() {
                   <h2 style={{ fontSize: '1.1rem', fontWeight: 600, margin: '0 0 0.35rem 0', color: 'var(--primary)' }}>
                     Generating your manuscript...
                   </h2>
-                  <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <div style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <Spinner size={12} /> Synthesizing evidence and structuring content...
-                  </p>
+                  </div>
                 </div>
               </div>
               <SkeletonText lines={12} />

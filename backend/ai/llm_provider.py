@@ -162,7 +162,7 @@ async def _generate_nvidia(system_prompt: str, user_prompt: str, max_tokens: int
     if not key:
         raise RuntimeError("NVIDIA_API_KEY is not configured.")
     payload = {
-        "model": os.getenv("NVIDIA_MODEL", "deepseek-ai/deepseek-r1"),
+        "model": os.getenv("NVIDIA_MODEL", "meta/llama-3.1-70b-instruct"),
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -175,11 +175,15 @@ async def _generate_nvidia(system_prompt: str, user_prompt: str, max_tokens: int
         "Content-Type": "application/json",
     }
     async with httpx.AsyncClient(timeout=60) as client:
-        response = await client.post("https://integrate.api.nvidia.com/v1/chat/completions", headers=headers, json=payload)
-        response.raise_for_status()
-        data = response.json()
-        usage = data.get("usage", {}).get("total_tokens", 0)
-        return data["choices"][0]["message"]["content"].strip(), usage
+        try:
+            response = await client.post("https://integrate.api.nvidia.com/v1/chat/completions", headers=headers, json=payload)
+            response.raise_for_status()
+            data = response.json()
+            usage = data.get("usage", {}).get("total_tokens", 0)
+            return data["choices"][0]["message"]["content"].strip(), usage
+        except httpx.HTTPStatusError as e:
+            logger.error(f"NVIDIA error {e.response.status_code}: {e.response.text}")
+            raise
 
 
 async def _generate_openrouter(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float) -> str:
@@ -367,6 +371,8 @@ async def _stream_openai_compatible(url: str, headers: dict, payload: dict):
                         pass
                 yield {"type": "done"}
     except httpx.HTTPStatusError as e:
+        await e.response.aread()
+        logger.error(f"Stream API HTTP Error {e.response.status_code}: {e.response.text}")
         if e.response.status_code == 429:
             retry_after = e.response.headers.get("Retry-After")
             if not retry_after:
@@ -416,7 +422,7 @@ async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: in
             yield {"type": "stopped", "reason": "error", "message": "NVIDIA_API_KEY not configured."}
             return
         payload = {
-            "model": effective_model or os.getenv("NVIDIA_MODEL", "deepseek-ai/deepseek-r1"),
+            "model": effective_model or os.getenv("NVIDIA_MODEL", "meta/llama-3.1-70b-instruct"),
             "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
             "temperature": temperature,
             "max_tokens": max_tokens,
