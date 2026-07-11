@@ -118,7 +118,12 @@ async def _filter_relevant_papers(topic: str, papers: list) -> list:
             )
             return paper  # fail-open: include if classification fails
 
-    processed_papers = await asyncio.gather(*[_process_paper(p) for p in papers])
+    from ai.llm_provider import global_llm_sem
+    async def _throttled(p):
+        async with global_llm_sem:
+            return await _process_paper(p)
+            
+    processed_papers = await asyncio.gather(*[_throttled(p) for p in papers])
     relevant = [p for p in processed_papers if p is not None]
     return relevant
 

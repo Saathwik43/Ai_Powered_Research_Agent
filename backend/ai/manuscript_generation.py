@@ -77,22 +77,34 @@ async def _citation_flags(content: str, context: str, references_mapping: dict) 
 # _filter_relevant_papers is imported from ai.relevance (shared module).
 # The name is re-exported here so existing patch targets
 # 'ai.manuscript_generation._filter_relevant_papers' continue to work.
+import time
 
+_research_cache: dict[str, tuple[list, float]] = {}
+_RESEARCH_CACHE_TTL = 3600  # 1 hour
 
 async def _prepare_generation(topic: str, section: str, context: str, citation_style: str, provider: str = None, model: str = None):
     if not validate_input_layers_a_b(topic):
         return None, None, None, None, None, '{"error": "topic_unclear"}', None
         
-    papers = await search_all(topic, limit_per_source=15) or []
-    if papers:
-        papers = await _filter_relevant_papers(topic, papers)
-        papers = papers[:15]
-        
-        async def fetch_evidence(p):
-            p["evidence"], p["evidence_source"] = await extract_evidence_for_paper(p)
-            return p
+    cache_key = topic.strip().lower()
+    now = time.time()
+    
+    if cache_key in _research_cache and (now - _research_cache[cache_key][1]) < _RESEARCH_CACHE_TTL:
+        logger.info(f"Using cached research for topic: '{cache_key}'")
+        papers = _research_cache[cache_key][0]
+    else:
+        logger.info(f"No valid cache for '{cache_key}', running full research pipeline.")
+        papers = await search_all(topic, limit_per_source=15) or []
+        if papers:
+            papers = await _filter_relevant_papers(topic, papers)
+            papers = papers[:15]
             
-        await asyncio.gather(*(fetch_evidence(p) for p in papers), return_exceptions=True)
+            async def fetch_evidence(p):
+                p["evidence"], p["evidence_source"] = await extract_evidence_for_paper(p)
+                return p
+                
+            await asyncio.gather(*(fetch_evidence(p) for p in papers), return_exceptions=True)
+            _research_cache[cache_key] = (papers, now)
 
     references_mapping = {}
     if len(papers) >= 2:

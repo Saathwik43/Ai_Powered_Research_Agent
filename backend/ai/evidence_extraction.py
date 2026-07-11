@@ -96,13 +96,15 @@ async def _extract_evidence_via_llm(paper: dict) -> dict:
     )
 
     try:
-        raw_response = await generate_completion(
-            system_prompt=_SYSTEM_PROMPT,
-            user_prompt=user_prompt,
-            max_tokens=600,
-            temperature=0.1,
-            provider_override="groq",
-        )
+        from ai.llm_provider import global_llm_sem
+        async with global_llm_sem:
+            raw_response = await generate_completion(
+                system_prompt=_SYSTEM_PROMPT,
+                user_prompt=user_prompt,
+                max_tokens=600,
+                temperature=0.1,
+                provider_override="groq",
+            )
 
         content = raw_response.strip()
         start = content.find("{")

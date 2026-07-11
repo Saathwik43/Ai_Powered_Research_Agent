@@ -3,6 +3,9 @@ import asyncio
 import logging
 from concurrent.futures import ThreadPoolExecutor
 import httpx
+
+global_llm_sem = asyncio.Semaphore(3)
+
 from langchain_huggingface import HuggingFaceEndpoint
 from google import genai
 from google.genai import types as genai_types
@@ -312,10 +315,7 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
         providers.append(("Groq", _generate_groq))
     if LLM_PROVIDER in ("auto", "openrouter"):
         providers.append(("OpenRouter", _generate_openrouter))
-    if LLM_PROVIDER in ("auto", "nvidia") and os.getenv("NVIDIA_API_KEY"):
-        providers.append(("NVIDIA", _generate_nvidia))
-    if LLM_PROVIDER in ("auto", "huggingface"):
-        providers.append(("Hugging Face", _generate_huggingface))
+
 
     for provider_name, provider_func in providers:
         for attempt in range(2):
@@ -331,6 +331,10 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
                     await usage_tracker.log_usage(user_id, tokens, provider_name)
                 return result
             except Exception as e:
+                import httpx
+                if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 402:
+                    logger.info(f"{provider_name} skipped: account out of credits (402).")
+                    break
                 logger.error(f"{provider_name} generation failed (attempt {attempt + 1}): {e}")
                 if attempt == 0:
                     await asyncio.sleep(2)
@@ -374,6 +378,8 @@ async def _stream_openai_compatible(url: str, headers: dict, payload: dict):
             except:
                 pass
             yield {"type": "stopped", "reason": "rate_limit", "retry_after_seconds": retry_val}
+        elif e.response.status_code == 402:
+            yield {"type": "stopped", "reason": "payment_required", "message": "Payment required (out of credits)."}
         else:
             yield {"type": "stopped", "reason": "error", "message": f"HTTP Error {e.response.status_code}"}
     except Exception as e:
@@ -487,7 +493,7 @@ async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: in
 
 
 async def stream_completion_auto(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float, cached_content: str = None):
-    fixed_order = ("groq", "gemini", "openrouter", "nvidia", "openai")
+    fixed_order = ("groq", "gemini", "openrouter", "openai")
     for provider in fixed_order:
         accumulated_text = ""
         yield {"type": "provider_active", "provider": provider}
@@ -502,7 +508,10 @@ async def stream_completion_auto(system_prompt: str, user_prompt: str, max_token
                     yield chunk
                     return
         except Exception as e:
-            logger.error(f"Auto mode {provider} failed: {e}")
+            if "payment_required" in str(e):
+                logger.info(f"Auto mode {provider} skipped: account out of credits (402).")
+            else:
+                logger.error(f"Auto mode {provider} failed: {e}")
             if accumulated_text:
                 yield {"type": "provider_switch", "reason": str(e)}
             continue
