@@ -154,6 +154,31 @@ async def _generate_groq(system_prompt: str, user_prompt: str, max_tokens: int, 
         return data["choices"][0]["message"]["content"].strip(), usage
 
 
+async def _generate_nvidia(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float) -> str:
+    key = os.getenv("NVIDIA_API_KEY")
+    if not key:
+        raise RuntimeError("NVIDIA_API_KEY is not configured.")
+    payload = {
+        "model": os.getenv("NVIDIA_MODEL", "deepseek-ai/deepseek-r1"),
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+    }
+    async with httpx.AsyncClient(timeout=60) as client:
+        response = await client.post("https://integrate.api.nvidia.com/v1/chat/completions", headers=headers, json=payload)
+        response.raise_for_status()
+        data = response.json()
+        usage = data.get("usage", {}).get("total_tokens", 0)
+        return data["choices"][0]["message"]["content"].strip(), usage
+
+
 async def _generate_openrouter(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float) -> str:
     key = os.getenv("OPENROUTER_API_KEY")
     if not key:
@@ -247,6 +272,8 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
             provider_fn = _generate_groq
         elif effective_provider == "openrouter":
             provider_fn = _generate_openrouter
+        elif effective_provider == "nvidia":
+            provider_fn = _generate_nvidia
         elif effective_provider == "huggingface":
             provider_fn = _generate_huggingface
             
@@ -285,6 +312,8 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
         providers.append(("Groq", _generate_groq))
     if LLM_PROVIDER in ("auto", "openrouter"):
         providers.append(("OpenRouter", _generate_openrouter))
+    if LLM_PROVIDER in ("auto", "nvidia") and os.getenv("NVIDIA_API_KEY"):
+        providers.append(("NVIDIA", _generate_nvidia))
     if LLM_PROVIDER in ("auto", "huggingface"):
         providers.append(("Hugging Face", _generate_huggingface))
 
@@ -373,6 +402,21 @@ async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: in
         }
         headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
         async for chunk in _stream_openai_compatible("https://api.groq.com/openai/v1/chat/completions", headers, payload):
+            yield chunk
+
+    elif provider == "nvidia":
+        key = os.getenv("NVIDIA_API_KEY")
+        if not key:
+            yield {"type": "stopped", "reason": "error", "message": "NVIDIA_API_KEY not configured."}
+            return
+        payload = {
+            "model": effective_model or os.getenv("NVIDIA_MODEL", "deepseek-ai/deepseek-r1"),
+            "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+        async for chunk in _stream_openai_compatible("https://integrate.api.nvidia.com/v1/chat/completions", headers, payload):
             yield chunk
 
     elif provider == "openrouter":

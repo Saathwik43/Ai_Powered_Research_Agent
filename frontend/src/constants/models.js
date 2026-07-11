@@ -3,6 +3,7 @@ export const MODELS = [
   { id: 'openrouter-default', provider: 'openrouter', model: null, label: 'OpenRouter (Claude)', group: 'Other Providers' },
   { id: 'deepseek-v3.2', provider: 'openrouter', model: 'deepseek/deepseek-v3.2', label: 'DeepSeek V3.2 (cheap, high quality)', group: 'OpenRouter Models' },
   { id: 'kimi-k2.6', provider: 'openrouter', model: 'moonshotai/kimi-k2.6', label: 'Kimi K2.6 (256K context, auto-cache)', group: 'OpenRouter Models' },
+  { id: 'nvidia-deepseek-r1', provider: 'nvidia', model: 'deepseek-ai/deepseek-r1', label: 'DeepSeek R1 (NVIDIA NIM, free)', group: 'NVIDIA NIM' },
   { id: 'openai-default', provider: 'openai', model: null, label: 'OpenAI GPT-4o', group: 'Other Providers' },
   { id: 'gemini-2.0-flash', provider: 'gemini', model: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash', group: 'Gemini' },
   // Note: Google deprecates Gemini models frequently (multiple cutovers in 2026 alone).
