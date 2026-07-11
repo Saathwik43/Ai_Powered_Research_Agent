@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { CheckCircle, Circle, Save, FileText, Wand2, FolderOpen, X, Search, Sparkles, Send, BookOpen, Bold, Italic, Strikethrough, Link, List, ListOrdered, CheckSquare, Table, Quote, Code, Undo, Redo } from 'lucide-react';
+import { CheckCircle, Circle, Save, FileText, Wand2, FolderOpen, X, Search, Sparkles, Send, BookOpen, Bold, Italic, Strikethrough, Link, List, ListOrdered, CheckSquare, Table, Quote, Code, Undo, Redo, Heading1, Heading2, Heading3 } from 'lucide-react';
 import './ManuscriptBuilder.css';
 import { useAuth } from '../context/AuthContext';
 import { Spinner, SkeletonText } from '../components/Loader';
@@ -583,6 +583,11 @@ export default function ManuscriptBuilder() {
                   {/* Rich Text Toolbar (Only in Write Mode) */}
                   {viewMode === 'write' && (
                     <div className="manuscript-format-toolbar">
+                      <div className="format-group">
+                        <button className="format-btn" onMouseDown={(e) => handleFormat(e, '# ')} title="Heading 1"><Heading1 size={15} /></button>
+                        <button className="format-btn" onMouseDown={(e) => handleFormat(e, '## ')} title="Heading 2"><Heading2 size={15} /></button>
+                        <button className="format-btn" onMouseDown={(e) => handleFormat(e, '### ')} title="Heading 3"><Heading3 size={15} /></button>
+                      </div>
                       <div className="format-group">
                         <button className="format-btn" onMouseDown={(e) => handleFormat(e, '**', '**')} title="Bold"><Bold size={15} /></button>
                         <button className="format-btn" onMouseDown={(e) => handleFormat(e, '*', '*')} title="Italic"><Italic size={15} /></button>
