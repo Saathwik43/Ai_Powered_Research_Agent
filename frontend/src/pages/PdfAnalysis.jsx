@@ -285,7 +285,7 @@ export default function PdfAnalysis() {
         content: `✅ **"${selected.name}"** has been uploaded and processed successfully!\n\nI've extracted the text and I'm ready to answer your questions. Try one of the suggestions below, or ask me anything about this paper.`,
       }];
       setMessages(initMsgs);
-      saveChatState(initMsgs, selected, data.text, data.structure);
+      await saveChatState(initMsgs, selected, data.text, data.structure);
     } catch (err) {
       setError(err.message || 'Error extracting PDF text. Please try again.');
       setFile(null);
@@ -321,6 +321,13 @@ export default function PdfAnalysis() {
       formData.append('text', extractedText);
       if (finalPrompt) formData.append('custom_prompt', finalPrompt);
       if (structure) formData.append('structure', JSON.stringify(structure));
+      if (activeChatId) formData.append('chat_id', activeChatId);
+
+      const history = messages
+        .filter(m => m.type === 'text' && !m.isLoading)
+        .map(m => ({ role: m.role, content: m.content }));
+      
+      formData.append('history', JSON.stringify(history));
 
       const res = await authFetch(
         `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/analyze-pdf`,

@@ -79,11 +79,11 @@ async def _citation_flags(content: str, context: str, references_mapping: dict) 
 # 'ai.manuscript_generation._filter_relevant_papers' continue to work.
 
 
-async def _prepare_generation(topic: str, section: str, context: str, citation_style: str, use_premium: bool, provider: str = None, model: str = None):
+async def _prepare_generation(topic: str, section: str, context: str, citation_style: str, provider: str = None, model: str = None):
     if not validate_input_layers_a_b(topic):
         return None, None, None, None, None, '{"error": "topic_unclear"}', None
         
-    papers = await search_all(topic, limit_per_source=15, use_premium=use_premium) or []
+    papers = await search_all(topic, limit_per_source=15) or []
     if papers:
         papers = await _filter_relevant_papers(topic, papers)
         papers = papers[:15]
@@ -171,7 +171,7 @@ async def _prepare_generation(topic: str, section: str, context: str, citation_s
     return user_prompt, system_prompt, references_mapping, gap_analysis_data, papers, None, cached_content
 
 
-async def generate_section(topic: str, section: str, context: str, citation_style: str = "ieee", use_premium: bool = False):
+async def generate_section(topic: str, section: str, context: str, citation_style: str = "ieee"):
     provider_override = None
     max_tokens_limit = 1200
     if section.lower().replace(" ", "_") in ("lit_review", "literature_review"):
@@ -182,7 +182,7 @@ async def generate_section(topic: str, section: str, context: str, citation_styl
     active_provider = provider_override or (LLM_PROVIDER if LLM_PROVIDER != "auto" else "gemini")
     
     user_prompt, system_prompt, references_mapping, gap_analysis_data, papers, err, cached_content = await _prepare_generation(
-        topic, section, context, citation_style, use_premium, provider=active_provider
+        topic, section, context, citation_style, provider=active_provider
     )
     if err:
         return err, {}
@@ -208,9 +208,9 @@ async def generate_section(topic: str, section: str, context: str, citation_styl
 
 from ai.llm_provider import stream_completion
 
-async def generate_section_stream(topic: str, section: str, context: str, citation_style: str, use_premium: bool, provider: str, model: str = None):
+async def generate_section_stream(topic: str, section: str, context: str, citation_style: str, provider: str, model: str = None):
     user_prompt, system_prompt, references_mapping, gap_analysis_data, papers, err, cached_content = await _prepare_generation(
-        topic, section, context, citation_style, use_premium, provider=provider, model=model
+        topic, section, context, citation_style, provider=provider, model=model
     )
     if err:
         yield {"type": "stopped", "reason": "error", "message": "Topic unclear"}

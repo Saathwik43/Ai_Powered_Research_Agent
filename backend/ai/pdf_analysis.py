@@ -10,7 +10,7 @@ from pypdf import PdfReader
 from fastapi import HTTPException
 from ai.guardrails import validate_input_layers_a_b, validate_layer_b
 from ai.evidence_extraction import extract_evidence
-from ai.llm_provider import generate_completion
+from ai.llm_provider import generate_completion, get_or_create_gemini_cache
 from ai.gap_analysis import _GAP_SYSTEM_PROMPT
 from ai.pdf_structure import extract_structure
 from ai.grobid_client import extract_via_grobid
@@ -145,7 +145,9 @@ async def extract_pdf_structure(file_bytes: bytes) -> dict:
     return structure
 
 
-async def analyze_uploaded_paper(text: str, custom_prompt: str = None, structure: dict = None) -> dict:
+_rolling_summaries = {}
+
+async def analyze_uploaded_paper(text: str, custom_prompt: str = None, structure: dict = None, history: list = None, chat_id: str = None) -> dict:
     """
     Run analysis on extracted PDF text. 
     If custom_prompt is provided, answers the prompt.
@@ -194,6 +196,50 @@ async def analyze_uploaded_paper(text: str, custom_prompt: str = None, structure
             if title and title.lower() in lower_prompt:
                  return {"type": "custom", "content": f"The title of the paper is: {title}"}
              
+        # History & Rolling Summary logic
+        rolling_summary = ""
+        recent_turns = ""
+        
+        if history and chat_id:
+            if len(history) > 3:
+                older_turns = history[:-3]
+                recent_history = history[-3:]
+                
+                cache_entry = _rolling_summaries.get(chat_id)
+                if cache_entry:
+                    cached_sum, covered_len = cache_entry
+                    if len(older_turns) > covered_len:
+                        new_turns = older_turns[covered_len:]
+                        new_turns_text = "\n".join([f"{m['role']}: {m['content']}" for m in new_turns])
+                        update_prompt = f"Summarize this Q&A conversation about a research paper in 2-3 sentences, preserving key facts/conclusions discussed so far. Previous summary: {cached_sum}\nNew turns: {new_turns_text}"
+                        new_sum = await generate_completion(
+                            system_prompt="",
+                            user_prompt=update_prompt,
+                            max_tokens=200,
+                            temperature=0.3,
+                            provider_override="groq"
+                        )
+                        _rolling_summaries[chat_id] = (new_sum, len(older_turns))
+                        rolling_summary = new_sum
+                    else:
+                        rolling_summary = cached_sum
+                else:
+                    older_turns_text = "\n".join([f"{m['role']}: {m['content']}" for m in older_turns])
+                    sum_prompt = f"Summarize this Q&A conversation about a research paper in 2-3 sentences, preserving key facts/conclusions discussed so far:\n{older_turns_text}"
+                    new_sum = await generate_completion(
+                        system_prompt="",
+                        user_prompt=sum_prompt,
+                        max_tokens=200,
+                        temperature=0.3,
+                        provider_override="groq"
+                    )
+                    _rolling_summaries[chat_id] = (new_sum, len(older_turns))
+                    rolling_summary = new_sum
+            else:
+                recent_history = history
+                
+            recent_turns = "\n".join([f"{m['role']}: {m['content']}" for m in recent_history])
+             
         # For custom prompts, the LLM needs the full paper text (or structure) to answer arbitrary questions,
         # not just the 6-field evidence JSON. 
         context_data = {
@@ -210,18 +256,44 @@ async def analyze_uploaded_paper(text: str, custom_prompt: str = None, structure
             custom_context = custom_context[:40000]
 
         # Fall back to LLM cascade
-        prompt = _CUSTOM_PROMPT_TEMPLATE.replace("{text}", custom_context).replace("{custom_prompt}", custom_prompt)
-        try:
-            raw = await generate_completion(
-                system_prompt="""You are a helpful academic research assistant.
+        system_prompt = """You are a helpful academic research assistant.
 CRITICAL FORMATTING RULES:
 1. You MUST format your response using Markdown (use bolding, bullet points, and headers to make the text scannable).
 2. For any mathematical equations, variables, or units with exponents (e.g. 10^3, Beff), you MUST wrap them in LaTeX syntax. Use single dollar signs ($x$) for inline math and double dollar signs ($$x$$) for block equations. Do NOT output raw unformatted math.
 3. If providing code, use standard Markdown code blocks.
-""",
+"""
+        history_context = ""
+        if rolling_summary or recent_turns:
+            if rolling_summary:
+                history_context += f"\nPrevious Conversation Summary:\n{rolling_summary}\n"
+            if recent_turns:
+                history_context += f"\nRecent Conversation:\n{recent_turns}\n"
+            
+            history_context = f"\nMaintain continuity with the prior discussion. Here is the context of the conversation so far:{history_context}\n"
+
+        cached_content = None
+        if chat_id:
+            cached_content = await get_or_create_gemini_cache(
+                cache_key=f"pdf:{chat_id}",
+                system_instruction=system_prompt,
+                shared_context=custom_context
+            )
+        
+        # If cached, we don't need to send the full text in the prompt
+        if cached_content:
+            prompt = history_context + "\nUSER PROMPT:\n" + custom_prompt
+        else:
+            prompt = _CUSTOM_PROMPT_TEMPLATE.replace("{text}", custom_context).replace("{custom_prompt}", custom_prompt)
+            if history_context:
+                prompt = history_context + "\n" + prompt
+
+        try:
+            raw = await generate_completion(
+                system_prompt=system_prompt,
                 user_prompt=prompt,
                 max_tokens=1000,
-                temperature=0.3
+                temperature=0.3,
+                cached_content=cached_content
             )
             return {"type": "custom", "content": raw.strip()}
         except Exception as e:

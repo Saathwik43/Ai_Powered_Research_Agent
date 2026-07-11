@@ -49,7 +49,6 @@ export default function ManuscriptBuilder() {
   
   const [gapAnalysis, setGapAnalysis] = useState(null);
   const [customContext, setCustomContext] = useState('');
-  const [usePremium, setUsePremium] = useState(false);
 
   const done = STEPS.filter(s => content[s.id]?.trim()).map(s => s.id);
 
@@ -67,7 +66,7 @@ export default function ManuscriptBuilder() {
       const selectedModel = MODELS.find(m => m.id === selectedModelId) || MODELS[0];
       const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/stream`, {
         method: 'POST',
-        body: JSON.stringify({ topic, section: active, context: payloadContext, citation_style: citationStyle, use_premium: usePremium, provider: selectedModel.provider, model: selectedModel.model }),
+        body: JSON.stringify({ topic, section: active, context: payloadContext, citation_style: citationStyle, provider: selectedModel.provider, model: selectedModel.model }),
       });
       
       if (!res.ok) {
@@ -346,20 +345,6 @@ export default function ManuscriptBuilder() {
                   </optgroup>
                 ))}
               </select>
-
-              {/* Premium Source Toggle */}
-              <div 
-                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem', background: usePremium ? 'rgba(0, 87, 255, 0.05)' : 'var(--bg-input)', border: `1px solid ${usePremium ? 'var(--primary)' : 'var(--border)'}`, borderRadius: 'var(--radius-md)', transition: 'var(--transition)', cursor: 'pointer' }} 
-                onClick={() => setUsePremium(!usePremium)}
-              >
-                <div style={{ width: '32px', height: '18px', background: usePremium ? 'var(--primary)' : 'var(--border)', borderRadius: '20px', position: 'relative', transition: 'var(--transition)', flexShrink: 0 }}>
-                  <div style={{ width: '14px', height: '14px', background: 'white', borderRadius: '50%', position: 'absolute', top: '2px', left: usePremium ? '16px' : '2px', transition: 'var(--transition)' }} />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <p style={{ margin: 0, fontWeight: 600, fontSize: '0.75rem', color: usePremium ? 'var(--primary)' : 'var(--text)' }}>Premium Sources</p>
-                  <p style={{ margin: '0.2rem 0 0 0', fontSize: '0.65rem', color: 'var(--text-muted)' }}>Search 9 academic DBs</p>
-                </div>
-              </div>
             </div>
           </div>
         </div>
@@ -465,7 +450,7 @@ export default function ManuscriptBuilder() {
                     Generating your manuscript...
                   </h2>
                   <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <Spinner size={12} /> {usePremium ? 'Querying 9 academic libraries simultaneously. This deep search may take a few seconds...' : 'Synthesizing evidence and structuring content...'}
+                    <Spinner size={12} /> Synthesizing evidence and structuring content...
                   </p>
                 </div>
               </div>

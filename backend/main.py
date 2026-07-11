@@ -110,7 +110,6 @@ class ManuscriptPayload(BaseModel):
     section: str = "abstract"
     context: str = ""
     citation_style: str = "ieee"
-    use_premium: bool = False
 
 class ManuscriptStreamPayload(ManuscriptPayload):
     provider: str
@@ -191,13 +190,14 @@ async def get_topics(intent: str, current_user: dict = Depends(get_current_user)
 # ─── Literature — Unified Search (OpenAlex + arXiv + GitHub) ──────────────────
 
 @app.get("/api/literature")
-async def get_literature(query: str, use_premium: bool = False, current_user: dict = Depends(get_current_user)):
+@limiter.limit("5/minute")
+async def get_literature(request: Request, query: str, current_user: dict = Depends(get_current_user)):
     """
     Unified literature search across OpenAlex, arXiv, and GitHub knowledge bases.
     Returns all deduplicated results for client-side filtering.
     """
     # Ask for 20 per source, yielding up to 180 total before deduplication
-    papers = await search_all(query, limit_per_source=20, use_premium=use_premium)
+    papers = await search_all(query, limit_per_source=20)
     total = len(papers)
     return {"data": papers, "count": total, "total": total, "has_more": False}
 
@@ -315,7 +315,7 @@ async def search_github(query: str, current_user: dict = Depends(get_current_use
 @limiter.limit("5/minute")
 async def draft_manuscript(request: Request, payload: ManuscriptPayload, current_user: dict = Depends(get_current_user)):
     from ai.manuscript_generation import generate_section
-    content, flags = await generate_section(payload.topic, payload.section, payload.context, payload.citation_style, payload.use_premium)
+    content, flags = await generate_section(payload.topic, payload.section, payload.context, payload.citation_style)
     if '{"error": "topic_unclear"}' in content:
         raise HTTPException(status_code=400, detail="The provided topic is unclear or appears to be nonsense.")
     
@@ -325,10 +325,15 @@ async def draft_manuscript(request: Request, payload: ManuscriptPayload, current
 
 from fastapi.responses import StreamingResponse
 import json
+from ai.llm_provider import current_provider, current_model
 
-async def _sse_wrap(generator):
-    async for chunk in generator:
-        yield f"data: {json.dumps(chunk)}\n\n"
+async def _sse_wrap(generator, token_p, token_m):
+    try:
+        async for chunk in generator:
+            yield f"data: {json.dumps(chunk)}\n\n"
+    finally:
+        current_provider.reset(token_p)
+        current_model.reset(token_m)
 
 @app.post("/api/manuscript/stream")
 @limiter.limit("15/minute")
@@ -336,17 +341,19 @@ async def draft_manuscript_stream(request: Request, payload: ManuscriptStreamPay
     from ai.manuscript_generation import generate_section_stream
     # No usage_tracker.check_quota here per user request, rely on provider limits
     
+    token_p = current_provider.set(payload.provider)
+    token_m = current_model.set(payload.model if hasattr(payload, 'model') else None)
+    
     gen = generate_section_stream(
         payload.topic, 
         payload.section, 
         payload.context, 
         payload.citation_style, 
-        payload.use_premium, 
         payload.provider, 
         payload.model
     )
     
-    return StreamingResponse(_sse_wrap(gen), media_type="text/event-stream")
+    return StreamingResponse(_sse_wrap(gen, token_p, token_m), media_type="text/event-stream")
 
 @app.post("/api/manuscript/edit")
 @limiter.limit("5/minute")
@@ -423,11 +430,14 @@ async def analyze_pdf_endpoint(
     text: str = Form(...),
     structure: Optional[str] = Form(None),
     custom_prompt: Optional[str] = Form(None),
+    chat_id: Optional[str] = Form(None),
+    history: Optional[str] = Form(None),
     current_user: dict = Depends(get_current_user)
 ):
     import json
     struct_dict = json.loads(structure) if structure else None
-    result = await analyze_uploaded_paper(text, custom_prompt, struct_dict)
+    hist_list = json.loads(history) if history else []
+    result = await analyze_uploaded_paper(text, custom_prompt, struct_dict, hist_list, chat_id)
     return result
 
 

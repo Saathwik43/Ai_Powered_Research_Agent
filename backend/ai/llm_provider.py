@@ -6,6 +6,10 @@ import httpx
 from langchain_huggingface import HuggingFaceEndpoint
 from google import genai
 from google.genai import types as genai_types
+from contextvars import ContextVar
+
+current_provider: ContextVar[str | None] = ContextVar("current_provider", default=None)
+current_model: ContextVar[str | None] = ContextVar("current_model", default=None)
 import usage_tracker
 import time
 
@@ -34,7 +38,7 @@ async def get_or_create_gemini_cache(cache_key: str, system_instruction: str, sh
         return None
 
     try:
-        model_name = model or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        model_name = model or os.getenv("GEMINI_MODEL", "gemini-flash-latest")
         cache = await _gemini_client.aio.caches.create(
             model=model_name,
             config=genai_types.CreateCachedContentConfig(
@@ -87,7 +91,7 @@ async def _generate_gemini(system_prompt: str, user_prompt: str, max_tokens: int
 
     try:
         response = await _gemini_client.aio.models.generate_content(
-            model=model or os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+            model=model or os.getenv("GEMINI_MODEL", "gemini-flash-latest"),
             contents=user_prompt,
             config=config,
         )
@@ -206,25 +210,71 @@ async def _generate_huggingface(system_prompt: str, user_prompt: str, max_tokens
     return await loop.run_in_executor(_executor, _run_huggingface, system_prompt, user_prompt, max_tokens, temperature)
 
 
+async def get_embedding(text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> list[float] | None:
+    global _gemini_client
+    if not _gemini_client:
+        key = os.getenv("GEMINI_API_KEY")
+        if not key:
+            return None
+        _gemini_client = genai.Client(api_key=key)
+        
+    try:
+        response = await _gemini_client.aio.models.embed_content(
+            model="models/gemini-embedding-2",
+            contents=text,
+            config=genai_types.EmbedContentConfig(task_type=task_type)
+        )
+        return response.embeddings[0].values
+    except Exception as e:
+        logger.warning(f"Failed to get embedding: {e}")
+        return None
+
 async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: int = 1200, temperature: float = 0.45, provider_override: str = None, model: str = None, cached_content: str = None) -> str:
     """
     Attempts to generate a completion by cascading through configured AI providers.
     """
-    if provider_override == "gemini":
+    effective_provider = provider_override or current_provider.get()
+    effective_model = model or current_model.get()
+
+    if effective_provider:
+        effective_provider = effective_provider.lower()
+        provider_fn = None
+        if effective_provider == "openai":
+            provider_fn = _generate_openai
+        elif effective_provider == "gemini":
+            provider_fn = _generate_gemini
+        elif effective_provider == "groq":
+            provider_fn = _generate_groq
+        elif effective_provider == "openrouter":
+            provider_fn = _generate_openrouter
+        elif effective_provider == "huggingface":
+            provider_fn = _generate_huggingface
+            
+        if not provider_fn:
+            raise RuntimeError(f"Unknown provider '{effective_provider}'.")
+            
         for attempt in range(2):
             try:
                 user_id = usage_tracker.current_user_id.get()
                 if user_id:
                     await usage_tracker.check_quota(user_id)
-                result, tokens = await asyncio.wait_for(_generate_gemini(system_prompt, user_prompt, max_tokens, temperature, model, cached_content), timeout=60)
+                # Note: passing effective_model to Gemini explicitly
+                if effective_provider == "gemini":
+                    result, tokens = await asyncio.wait_for(provider_fn(system_prompt, user_prompt, max_tokens, temperature, effective_model, cached_content), timeout=60)
+                else:
+                    # Others don't currently take model arg directly in their signature except Gemini, wait, _generate_groq takes kwargs?
+                    # Let's inspect signature or just pass model if supported. 
+                    # Currently the _generate_* functions only take system_prompt, user_prompt, max_tokens, temperature except gemini
+                    # So for others we just call them normally, they fetch models from env.
+                    result, tokens = await asyncio.wait_for(provider_fn(system_prompt, user_prompt, max_tokens, temperature), timeout=60)
                 if user_id:
-                    await usage_tracker.log_usage(user_id, tokens, "Gemini")
+                    await usage_tracker.log_usage(user_id, tokens, effective_provider.title())
                 return result
             except Exception as e:
-                logger.error(f"Gemini generation failed (attempt {attempt + 1}): {e}")
+                logger.error(f"{effective_provider.title()} generation failed (attempt {attempt + 1}): {e}")
                 if attempt == 0:
                     await asyncio.sleep(2)
-        raise RuntimeError("Gemini provider failed to generate a completion.")
+        raise RuntimeError(f"{effective_provider.title()} provider failed to generate a completion.")
 
     providers = []
     if LLM_PROVIDER in ("auto", "openai") and os.getenv("OPENAI_API_KEY"):
@@ -238,13 +288,16 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
     if LLM_PROVIDER in ("auto", "huggingface"):
         providers.append(("Hugging Face", _generate_huggingface))
 
-    for provider_name, provider in providers:
+    for provider_name, provider_func in providers:
         for attempt in range(2):
             try:
                 user_id = usage_tracker.current_user_id.get()
                 if user_id:
                     await usage_tracker.check_quota(user_id)
-                result, tokens = await asyncio.wait_for(provider(system_prompt, user_prompt, max_tokens, temperature), timeout=60)
+                if provider_name == "Gemini":
+                    result, tokens = await asyncio.wait_for(provider_func(system_prompt, user_prompt, max_tokens, temperature, effective_model, cached_content), timeout=60)
+                else:
+                    result, tokens = await asyncio.wait_for(provider_func(system_prompt, user_prompt, max_tokens, temperature), timeout=60)
                 if user_id:
                     await usage_tracker.log_usage(user_id, tokens, provider_name)
                 return result
@@ -298,15 +351,22 @@ async def _stream_openai_compatible(url: str, headers: dict, payload: dict):
         yield {"type": "stopped", "reason": "error", "message": str(e)}
 
 async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float, provider: str, model: str = None, cached_content: str = None):
-    provider = provider.lower()
+    effective_provider = provider or current_provider.get()
+    effective_model = model or current_model.get()
     
-    if provider == "groq":
+    if not effective_provider:
+        yield {"type": "stopped", "reason": "error", "message": "Provider not specified."}
+        return
+        
+    effective_provider = effective_provider.lower()
+    
+    if effective_provider == "groq":
         key = os.getenv("GROQ_API_KEY")
         if not key:
             yield {"type": "stopped", "reason": "error", "message": "GROQ_API_KEY not configured."}
             return
         payload = {
-            "model": model or os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+            "model": effective_model or os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
             "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
             "temperature": temperature,
             "max_tokens": max_tokens,
@@ -321,7 +381,7 @@ async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: in
             yield {"type": "stopped", "reason": "error", "message": "OPENROUTER_API_KEY not configured."}
             return
         payload = {
-            "model": model or os.getenv("OPENROUTER_MODEL", "anthropic/claude-3-haiku"),
+            "model": effective_model or os.getenv("OPENROUTER_MODEL", "anthropic/claude-3-haiku"),
             "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
             "temperature": temperature,
             "max_tokens": max_tokens,
@@ -336,7 +396,7 @@ async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: in
             yield {"type": "stopped", "reason": "error", "message": "OPENAI_API_KEY not configured."}
             return
         payload = {
-            "model": model or os.getenv("OPENAI_MODEL", "gpt-4o"),
+            "model": effective_model or os.getenv("OPENAI_MODEL", "gpt-4o"),
             "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
             "temperature": temperature,
             "max_tokens": max_tokens,
@@ -363,7 +423,7 @@ async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: in
 
         try:
             response_stream = await _gemini_client.aio.models.generate_content_stream(
-                model=model or os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+                model=effective_model or os.getenv("GEMINI_MODEL", "gemini-flash-latest"),
                 contents=user_prompt,
                 config=config,
             )
@@ -379,5 +439,5 @@ async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: in
             else:
                 yield {"type": "stopped", "reason": "error", "message": str(e)}
     else:
-        yield {"type": "stopped", "reason": "error", "message": f"Unknown provider {provider}"}
+        yield {"type": "stopped", "reason": "error", "message": f"Unknown provider {effective_provider}"}
 

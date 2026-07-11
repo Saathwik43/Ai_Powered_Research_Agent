@@ -14,8 +14,33 @@ from integrations.core_api import search_papers as core_search
 
 logger = logging.getLogger(__name__)
 _cache = {}
+_embedding_cache = {}
 
 _CURRENT_YEAR = 2026
+
+def _cosine_sim(a: list[float], b: list[float]) -> float:
+    dot = sum(x*y for x, y in zip(a, b))
+    norm_a = sum(x*x for x in a) ** 0.5
+    norm_b = sum(x*x for x in b) ** 0.5
+    return dot / (norm_a * norm_b) if norm_a and norm_b else 0.0
+
+async def _get_paper_embedding(paper: dict) -> list[float] | None:
+    from ai.llm_provider import get_embedding
+    title = paper.get("title") or ""
+    abstract = (paper.get("abstract") or "")[:500]
+    text = f"{title}. {abstract}"
+    key = hash(text)
+    
+    now = time.time()
+    if key in _embedding_cache:
+        emb, expires_at = _embedding_cache[key]
+        if now < expires_at:
+            return emb
+            
+    emb = await get_embedding(text, task_type="RETRIEVAL_DOCUMENT")
+    expires_at = now + 60 if emb is None else now + 600
+    _embedding_cache[key] = (emb, expires_at)
+    return emb
 
 
 def _normalize_title(title: str) -> str:
@@ -169,12 +194,12 @@ def _apply_diversity_quota(papers: list) -> list:
     return diverse + deferred
 
 
-async def search_all(query: str, limit_per_source: int = 15, use_premium: bool = False, diversify: bool = False) -> list:
+async def search_all(query: str, limit_per_source: int = 15, diversify: bool = False, semantic_rerank: bool = True) -> list:
     """
     Query all configured integrations in parallel using asyncio.
     Aggregates, deduplicates, and ranks results.
     """
-    cache_key = f"{query}_{limit_per_source}_{use_premium}"
+    cache_key = f"{query}_{limit_per_source}_all"
     now = time.time()
     if cache_key in _cache:
         cached_data, timestamp = _cache[cache_key]
@@ -190,14 +215,10 @@ async def search_all(query: str, limit_per_source: int = 15, use_premium: bool =
         ("arXiv",           asyncio.create_task(arxiv_search(query, limit=limit_per_source),     name="arXiv")),
         ("GitHub",          asyncio.create_task(
                                 asyncio.to_thread(search_github_knowledge, query),    name="GitHub")),
+        ("Springer",        asyncio.create_task(springer_search(query, limit=limit_per_source), name="Springer")),
+        ("IEEE",            asyncio.create_task(ieee_search(query, limit=limit_per_source), name="IEEE")),
+        ("CORE",            asyncio.create_task(core_search(query, limit=limit_per_source), name="CORE")),
     ]
-    
-    if use_premium:
-        named.extend([
-            ("Springer", asyncio.create_task(springer_search(query, limit=limit_per_source), name="Springer")),
-            ("IEEE",     asyncio.create_task(ieee_search(query, limit=limit_per_source), name="IEEE")),
-            ("CORE",     asyncio.create_task(core_search(query, limit=limit_per_source), name="CORE")),
-        ])
 
     task_to_name = {task: name for name, task in named}
     all_tasks = {task for _, task in named}
@@ -281,6 +302,31 @@ async def search_all(query: str, limit_per_source: int = 15, use_premium: bool =
     # Rank by combined lexical relevance score instead of source order
     unique = _rank_papers(query, unique)
     
+    if semantic_rerank:
+        try:
+            from ai.llm_provider import get_embedding
+            query_emb = await get_embedding(query, task_type="RETRIEVAL_QUERY")
+            if query_emb:
+                # Top ~30 papers for semantic reranking
+                top_candidates = unique[:30]
+                tasks = [_get_paper_embedding(p) for p in top_candidates]
+                paper_embs = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                for p, p_emb in zip(top_candidates, paper_embs):
+                    if isinstance(p_emb, list) and p_emb:
+                        semantic_score = _cosine_sim(query_emb, p_emb)
+                        # Blended score: 0.6 lexical + 0.4 semantic
+                        p["_semantic_rank"] = (0.6 * p.get("_relevance_rank", 0.0)) + (0.4 * semantic_score)
+                    else:
+                        p["_semantic_rank"] = p.get("_relevance_rank", 0.0)
+                        
+                for p in unique[30:]:
+                    p["_semantic_rank"] = p.get("_relevance_rank", 0.0)
+                    
+                unique.sort(key=lambda p: p.get("_semantic_rank", 0.0), reverse=True)
+        except Exception as e:
+            logger.warning(f"Semantic reranking failed, falling back to lexical: {e}")
+
     if diversify:
         unique = _apply_diversity_quota(unique)
 

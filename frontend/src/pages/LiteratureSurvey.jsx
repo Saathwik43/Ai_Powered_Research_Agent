@@ -20,7 +20,6 @@ export default function LiteratureSurvey() {
   const [savedSurveys, setSavedSurveys] = useState([]);
   const [loadingSaved, setLoadingSaved] = useState(false);
   const [visibleCount, setVisibleCount] = useState(15);
-  const [usePremium, setUsePremium] = useState(false);
   const [filterYear, setFilterYear] = useState('All');
   const [filterSource, setFilterSource] = useState('All');
 
@@ -57,7 +56,7 @@ export default function LiteratureSurvey() {
     setFilterYear('All'); setFilterSource('All');
     
     try {
-      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature?query=${encodeURIComponent(q)}&use_premium=${usePremium}`);
+      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature?query=${encodeURIComponent(q)}`);
       if (res.status === 429 || res.status === 503) {
         setSearchError('Rate limit exceeded. Please wait a minute before trying again.');
         setPapers([]);
@@ -211,16 +210,6 @@ export default function LiteratureSurvey() {
         </button>
       </div>
       
-      {/* Premium Source Toggle */}
-      <div style={{ marginBottom: '1.75rem', display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '1rem', background: usePremium ? 'rgba(0, 87, 255, 0.05)' : 'var(--bg-input)', border: `1px solid ${usePremium ? 'var(--primary)' : 'var(--border)'}`, borderRadius: 'var(--radius-md)', transition: 'var(--transition)', cursor: 'pointer' }} onClick={() => setUsePremium(!usePremium)}>
-        <div style={{ width: '40px', height: '22px', background: usePremium ? 'var(--primary)' : 'var(--border)', borderRadius: '20px', position: 'relative', transition: 'var(--transition)' }}>
-          <div style={{ width: '18px', height: '18px', background: 'white', borderRadius: '50%', position: 'absolute', top: '2px', left: usePremium ? '20px' : '2px', transition: 'var(--transition)' }} />
-        </div>
-        <div>
-          <p style={{ margin: '0 0 0.25rem 0', fontWeight: 600, fontSize: '0.9rem', color: usePremium ? 'var(--primary)' : 'var(--text)' }}>Use Premium Sources (IEEE, Springer, CORE)</p>
-          <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>Searches 9 academic libraries in parallel. May take a few seconds.</p>
-        </div>
-      </div>
 
       {searchError && (
         <div style={{ marginBottom: '1.75rem', padding: '0.85rem 1rem', background: 'rgba(229,28,35,0.08)', border: '1px solid rgba(229,28,35,0.2)', borderRadius: 'var(--radius-md)', color: 'var(--danger)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -293,13 +282,13 @@ export default function LiteratureSurvey() {
                   Searching Literature...
                 </h2>
                 <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <Spinner size={12} /> {usePremium ? 'Querying 9 academic libraries simultaneously. This deep search may take a few seconds...' : 'Fetching relevant research papers...'}
+                  <Spinner size={12} /> Querying multiple academic libraries simultaneously. This deep search may take a few seconds...
                 </p>
               </div>
             </div>
             
             <div style={{ width: '100%', height: '4px', background: 'var(--border)', borderRadius: '2px', overflow: 'hidden', marginBottom: '1.5rem' }}>
-              <div style={{ height: '100%', background: 'var(--primary)', width: '0%', animation: usePremium ? 'progressAnim 15s cubic-bezier(0.1, 0.8, 0.3, 1) forwards' : 'progressAnim 5s cubic-bezier(0.1, 0.8, 0.3, 1) forwards' }} />
+              <div style={{ height: '100%', background: 'var(--primary)', width: '0%', animation: 'progressAnim 15s cubic-bezier(0.1, 0.8, 0.3, 1) forwards' }} />
             </div>
             <style>{`
               @keyframes progressAnim {
