@@ -240,19 +240,36 @@
 }
 
 @media print {
-  /* Hide everything except the print-only paper preview */
-  body * {
-    visibility: hidden;
+  .manuscript-outline-panel, 
+  .manuscript-toolbar, 
+  .manuscript-revise-panel, 
+  .sidebar, 
+  .mobile-header, 
+  button, 
+  .manuscript-references-panel { 
+    display: none !important; 
   }
-  .paper-preview-print,
-  .paper-preview-print * {
-    visibility: visible;
+  
+  .paper-preview-print { 
+    display: block !important; 
   }
-  .paper-preview-screen {
-    display: none !important;
+  
+  .paper-preview-screen { 
+    display: none !important; 
   }
+  
+  body, 
+  .main-content { 
+    margin: 0; 
+    padding: 0; 
+    max-width: 100%; 
+  }
+  
+  @page { 
+    margin: 2cm; 
+  }
+  
   .paper-preview-print {
-    display: block;
     position: absolute;
     left: 0;
     top: 0;
@@ -264,7 +281,7 @@
   }
 
   /* IEEE two-column in print */
-  .paper-preview.format-ieee .paper-body {
+  .paper-preview-print.format-ieee .paper-body {
     column-count: 2;
     column-gap: 0.4in;
     column-rule: none;

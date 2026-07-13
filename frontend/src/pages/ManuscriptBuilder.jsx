@@ -14,7 +14,92 @@ import 'katex/dist/katex.min.css';
 import { MODELS } from '../constants/models';
 import { diffWords } from 'diff';
 import Mermaid from '../components/Mermaid';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
+const TableOrChart = ({ node, children, ...props }) => {
+  const [showChart, setShowChart] = useState(false);
+  
+  // Attempt to parse table data from AST
+  let headers = [];
+  let rows = [];
+  let hasNumericData = false;
+
+  try {
+    const thead = node.children.find(c => c.tagName === 'thead');
+    const tbody = node.children.find(c => c.tagName === 'tbody');
+    
+    if (thead && tbody) {
+      // Parse headers
+      const trHead = thead.children.find(c => c.tagName === 'tr');
+      if (trHead) {
+        headers = trHead.children.filter(c => c.tagName === 'th').map(th => {
+          return th.children[0]?.value || '';
+        });
+      }
+      
+      // Parse rows
+      const trs = tbody.children.filter(c => c.tagName === 'tr');
+      rows = trs.map(tr => {
+        const tds = tr.children.filter(c => c.tagName === 'td');
+        const rowData = {};
+        tds.forEach((td, i) => {
+          const val = td.children[0]?.value || '';
+          if (i > 0 && !isNaN(parseFloat(val))) {
+            rowData[headers[i] || `col_${i}`] = parseFloat(val);
+            hasNumericData = true;
+          } else {
+            rowData[headers[i] || `col_${i}`] = val;
+          }
+        });
+        return rowData;
+      });
+    }
+  } catch (e) {
+    // Silently fallback to table on parse error
+  }
+
+  if (hasNumericData && headers.length >= 2 && rows.length > 0) {
+    const xKey = headers[0];
+    const yKey = headers.find((h, i) => i > 0 && !isNaN(rows[0][h])) || headers[1];
+
+    return (
+      <div className="table-chart-container" style={{ margin: '1.5rem 0' }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.5rem' }}>
+          <button 
+            onClick={() => setShowChart(!showChart)}
+            className="btn btn-ghost"
+            style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', height: 'auto' }}
+          >
+            {showChart ? 'View as Table' : 'View as Chart'}
+          </button>
+        </div>
+        
+        {showChart ? (
+          <div style={{ width: '100%', height: 300, background: 'var(--bg-card)', padding: '1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={rows} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <XAxis dataKey={xKey} tick={{fontSize: 12}} />
+                <YAxis tick={{fontSize: 12}} />
+                <Tooltip cursor={{fill: 'var(--primary-light)'}} contentStyle={{ borderRadius: 'var(--radius-md)', border: 'none', boxShadow: 'var(--shadow-md)' }} />
+                <Bar dataKey={yKey} fill="var(--primary)" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table {...props}>{children}</table>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ overflowX: 'auto', margin: '1.5rem 0' }}>
+      <table {...props}>{children}</table>
+    </div>
+  );
+};
 
 const STEPS = [
   { id: 'abstract',    label: 'Abstract' },
@@ -29,9 +114,11 @@ export default function ManuscriptBuilder() {
   const [active, setActive]         = useState('abstract');
   const [topic, setTopic]           = useState('');
   const [content, setContent]       = useState({});
+  const [editHistory, setEditHistory] = useState({});
   const [pendingEdit, setPendingEdit] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [saveStatus, setSaveStatus] = useState('');
+  const [printPending, setPrintPending] = useState(false);
   const [showLoad, setShowLoad]     = useState(false);
   const [viewMode, setViewMode]     = useState('write');
   const [drafts, setDrafts]         = useState([]);
@@ -284,9 +371,21 @@ export default function ManuscriptBuilder() {
   };
 
   const acceptEdit = () => {
+    setEditHistory(prev => ({ 
+      ...prev, 
+      [active]: [...(prev[active] || []).slice(-4), content[active]] 
+    }));
     setContent(prev => ({ ...prev, [active]: pendingEdit }));
     setPendingEdit(null);
     setRevisePanelOpen(false);
+  };
+
+  const undoLastEdit = () => {
+    const hist = editHistory[active] || [];
+    if (!hist.length) return;
+    const previous = hist[hist.length - 1];
+    setContent(prev => ({ ...prev, [active]: previous }));
+    setEditHistory(prev => ({ ...prev, [active]: hist.slice(0, -1) }));
   };
 
   const rejectEdit = () => {
@@ -350,10 +449,18 @@ export default function ManuscriptBuilder() {
 
   const exportPDF = () => {
     if (!topic || !Object.keys(content).length) return;
-    // Switch to paper preview mode first so the print stylesheet picks it up
     setViewMode('paper');
-    setTimeout(() => window.print(), 300);
+    setPrintPending(true);
   };
+
+  useEffect(() => {
+    if (printPending && viewMode === 'paper') {
+      requestAnimationFrame(() => { 
+        window.print(); 
+        setPrintPending(false); 
+      });
+    }
+  }, [printPending, viewMode]);
 
   const currentStep = STEPS.find(s => s.id === active);
   const visibleDrafts = drafts.filter(draft =>
@@ -661,6 +768,7 @@ export default function ManuscriptBuilder() {
                       remarkPlugins={[remarkGfm, remarkMath]}
                       rehypePlugins={[rehypeKatex]}
                       components={{
+                        table: TableOrChart,
                         code({ node, inline, className, children, ...props }) {
                           const match = /language-(\w+)/.exec(className || '');
                           const language = match ? match[1].toLowerCase() : '';
@@ -703,6 +811,7 @@ export default function ManuscriptBuilder() {
                           remarkPlugins={[remarkGfm, remarkMath]}
                           rehypePlugins={[rehypeKatex]}
                           components={{
+                            table: TableOrChart,
                             code({ node, inline, className, children, ...props }) {
                               const match = /language-(\w+)/.exec(className || '');
                               const language = match ? match[1].toLowerCase() : '';
@@ -751,6 +860,7 @@ export default function ManuscriptBuilder() {
                             remarkPlugins={[remarkGfm, remarkMath]}
                             rehypePlugins={[rehypeKatex]}
                             components={{
+                              table: TableOrChart,
                               code({ node, inline, className, children, ...props }) {
                                 const match = /language-(\w+)/.exec(className || '');
                                 const language = match ? match[1].toLowerCase() : '';
@@ -779,13 +889,24 @@ export default function ManuscriptBuilder() {
               )}
 
               {content[active] && !generating && (
-                <button 
-                  className="btn btn-primary"
-                  onClick={() => setRevisePanelOpen(true)}
-                  style={{ position: 'absolute', bottom: '1.5rem', right: '1.5rem', borderRadius: '50px', padding: '0.75rem 1.25rem', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}
-                >
-                  <Sparkles size={16} /> AI Revise
-                </button>
+                <div style={{ position: 'absolute', bottom: '1.5rem', right: '1.5rem', display: 'flex', gap: '0.75rem' }}>
+                  {editHistory[active] && editHistory[active].length > 0 && (
+                    <button 
+                      className="btn btn-secondary"
+                      onClick={undoLastEdit}
+                      style={{ borderRadius: '50px', padding: '0.75rem 1.25rem', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}
+                    >
+                      <Undo size={16} /> Undo AI Edit
+                    </button>
+                  )}
+                  <button 
+                    className="btn btn-primary"
+                    onClick={() => setRevisePanelOpen(true)}
+                    style={{ borderRadius: '50px', padding: '0.75rem 1.25rem', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}
+                  >
+                    <Sparkles size={16} /> AI Revise
+                  </button>
+                </div>
               )}
 
               <div className="manuscript-revise-panel-container">
