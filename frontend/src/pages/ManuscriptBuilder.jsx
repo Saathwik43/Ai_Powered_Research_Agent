@@ -687,55 +687,95 @@ export default function ManuscriptBuilder() {
                 </div>
               ) : (
                 /* ─── Paper Preview Mode ─── */
-                <div className={`paper-preview format-${citationStyle}`}>
-                  <div className="paper-header">
-                    <div className="paper-section-label">{currentStep?.label}</div>
-                    <h1 className="paper-title">{topic || 'Untitled Paper'}</h1>
-                    <p style={{ fontSize: '0.85em', color: '#666', margin: '0.5rem 0 0' }}>
-                      {citationStyle.toUpperCase()} Format
-                    </p>
-                  </div>
-                  <div className="paper-body">
-                    {content[active] ? (
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm, remarkMath]}
-                        rehypePlugins={[rehypeKatex]}
-                        components={{
-                          code({ node, inline, className, children, ...props }) {
-                            const match = /language-(\w+)/.exec(className || '');
-                            const language = match ? match[1].toLowerCase() : '';
-                            const contentStr = String(children).replace(/\n$/, '');
-                            
-                            if (!inline && (language === 'mermaid' || language === 'graph' || contentStr.trim().startsWith('graph ') || contentStr.trim().startsWith('pie ') || contentStr.trim().startsWith('sequenceDiagram'))) {
-                              return <Mermaid chart={contentStr} />;
-                            }
-                            return !inline && match ? (
-                              <SyntaxHighlighter style={ghcolors} language={match[1]} PreTag="div" {...props}>
-                                {contentStr}
-                              </SyntaxHighlighter>
-                            ) : (
-                              <code className={className} {...props}>{children}</code>
-                            );
-                          }
-                        }}
-                      >
-                        {content[active]}
-                      </ReactMarkdown>
-                    ) : (
-                      <p style={{ color: '#999', fontStyle: 'italic' }}>No content to preview. Generate or write content first.</p>
-                    )}
-                  </div>
-                  {manuscriptRefs && Object.keys(manuscriptRefs).length > 0 && (
-                    <div className="paper-refs">
-                      <h3>References</h3>
-                      <ol>
-                        {Object.entries(manuscriptRefs).map(([idx, refString]) => (
-                          <li key={idx}>{refString}</li>
-                        ))}
-                      </ol>
+                <>
+                  {/* Screen Version: Only Active Section */}
+                  <div className={`paper-preview format-${citationStyle} paper-preview-screen`}>
+                    <div className="paper-header">
+                      <div className="paper-section-label">{currentStep?.label}</div>
+                      <h1 className="paper-title">{topic || 'Untitled Paper'}</h1>
+                      <p style={{ fontSize: '0.85em', color: '#666', margin: '0.5rem 0 0' }}>
+                        {citationStyle.toUpperCase()} Format
+                      </p>
                     </div>
-                  )}
-                </div>
+                    <div className="paper-body">
+                      {content[active] ? (
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm, remarkMath]}
+                          rehypePlugins={[rehypeKatex]}
+                          components={{
+                            code({ node, inline, className, children, ...props }) {
+                              const match = /language-(\w+)/.exec(className || '');
+                              const language = match ? match[1].toLowerCase() : '';
+                              const contentStr = String(children).replace(/\n$/, '');
+                              
+                              if (!inline && (language === 'mermaid' || language === 'graph' || language === 'xychart-beta' || contentStr.trim().startsWith('graph ') || contentStr.trim().startsWith('pie ') || contentStr.trim().startsWith('sequenceDiagram') || contentStr.trim().startsWith('xychart-beta'))) {
+                                return <Mermaid chart={contentStr} />;
+                              }
+                              return !inline && match ? (
+                                <SyntaxHighlighter style={ghcolors} language={match[1]} PreTag="div" {...props}>
+                                  {contentStr}
+                                </SyntaxHighlighter>
+                              ) : (
+                                <code className={className} {...props}>{children}</code>
+                              );
+                            }
+                          }}
+                        >
+                          {content[active]}
+                        </ReactMarkdown>
+                      ) : (
+                        <p style={{ color: '#999', fontStyle: 'italic', textAlign: 'center', marginTop: '3rem' }}>
+                          No content to preview for this section.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Print Version: Full Paper (Hidden on screen, visible when printing) */}
+                  <div className={`paper-preview format-${citationStyle} paper-preview-print`}>
+                    <div className="paper-header">
+                      <h1 className="paper-title">{topic || 'Untitled Paper'}</h1>
+                      <p style={{ fontSize: '0.85em', color: '#666', margin: '0.5rem 0 0' }}>
+                        {citationStyle.toUpperCase()} Format
+                      </p>
+                    </div>
+                    <div className="paper-body">
+                      {STEPS.map(step => content[step.id] ? (
+                        <div key={step.id} className="paper-section" style={{ marginBottom: '2.5rem' }}>
+                          {step.id !== 'abstract' && (
+                            <h2 style={{ textTransform: 'uppercase', fontSize: '1.2rem', marginBottom: '1rem', borderBottom: '1px solid #eee', paddingBottom: '0.5rem' }}>
+                              {step.label}
+                            </h2>
+                          )}
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm, remarkMath]}
+                            rehypePlugins={[rehypeKatex]}
+                            components={{
+                              code({ node, inline, className, children, ...props }) {
+                                const match = /language-(\w+)/.exec(className || '');
+                                const language = match ? match[1].toLowerCase() : '';
+                                const contentStr = String(children).replace(/\n$/, '');
+                                
+                                if (!inline && (language === 'mermaid' || language === 'graph' || language === 'xychart-beta' || contentStr.trim().startsWith('graph ') || contentStr.trim().startsWith('pie ') || contentStr.trim().startsWith('sequenceDiagram') || contentStr.trim().startsWith('xychart-beta'))) {
+                                  return <Mermaid chart={contentStr} />;
+                                }
+                                return !inline && match ? (
+                                  <SyntaxHighlighter style={ghcolors} language={match[1]} PreTag="div" {...props}>
+                                    {contentStr}
+                                  </SyntaxHighlighter>
+                                ) : (
+                                  <code className={className} {...props}>{children}</code>
+                                );
+                              }
+                            }}
+                          >
+                            {content[step.id]}
+                          </ReactMarkdown>
+                        </div>
+                      ) : null)}
+                    </div>
+                  </div>
+                </>
               )}
 
               {content[active] && !generating && (

@@ -235,16 +235,24 @@
 
 
 /* ─── Print Styles (for PDF export via browser print) ──────────────── */
+.paper-preview-print {
+  display: none;
+}
+
 @media print {
-  /* Hide everything except the paper preview */
+  /* Hide everything except the print-only paper preview */
   body * {
     visibility: hidden;
   }
-  .paper-preview,
-  .paper-preview * {
+  .paper-preview-print,
+  .paper-preview-print * {
     visibility: visible;
   }
-  .paper-preview {
+  .paper-preview-screen {
+    display: none !important;
+  }
+  .paper-preview-print {
+    display: block;
     position: absolute;
     left: 0;
     top: 0;

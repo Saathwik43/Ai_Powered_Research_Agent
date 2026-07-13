@@ -55,7 +55,19 @@ Instructions:
 8. CRITICAL: {cite_instruction} If no numbered reference list is provided, you may generate without citations but ensure academic rigor.
 9. IMPORTANT: If a provided reference doesn't directly support a claim, state the claim as general background without a citation marker rather than force-citing an irrelevant source.
 10. CRITICAL: DO NOT include a "References", "Bibliography", or "Works Cited" list at the end of the section. The references are compiled and managed externally.
-11. IMPORTANT: If you need to present data, plots, graphs, or flowcharts, you MUST use Mermaid code blocks (e.g., ```mermaid\ngraph LR\n...``` or pie charts/sequenceDiagrams). NEVER use Markdown tables to simulate graphs."""
+11. IMPORTANT: If you need to present quantitative data trends (like Accuracy vs Clients), you MUST use Mermaid `xychart-beta` code blocks. 
+CRITICAL RULES for xychart-beta:
+- ONLY use simple numerical arrays (e.g., [0.85, 0.88, 0.90]).
+- If your data includes error margins (like $\pm 0.02$), simplify them to just the mean values (e.g., 0.80) in the `line` or `bar` arrays so Mermaid can parse them. Describe the standard deviations in the text below the chart instead!
+Example:
+```mermaid
+xychart-beta
+    title "Accuracy vs Number of Clients"
+    x-axis [10, 20, 30, 40]
+    y-axis "Accuracy" 0.0 --> 1.0
+    line [0.85, 0.88, 0.90, 0.92]
+```
+NEVER use Markdown tables to simulate graphs."""
     return base
 
 

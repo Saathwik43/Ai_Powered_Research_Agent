@@ -20926,3 +20926,199 @@ google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429,
 2026-07-13 16:02:49,255 [ERROR] ai.llm_provider: Gemini generation failed (attempt 2): Gemini generation failed: ClientError - 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-3.5-flash\nPlease retry in 9.382176219s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-3.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '9s'}]}}
 2026-07-13 16:02:50,755 [INFO] httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
 2026-07-13 16:04:25,328 [INFO] watchfiles.main: 1 change detected
+2026-07-13 16:05:02,114 [INFO] watchfiles.main: 1 change detected
+2026-07-13 16:05:17,318 [INFO] watchfiles.main: 1 change detected
+2026-07-13 16:05:30,830 [INFO] watchfiles.main: 1 change detected
+2026-07-13 16:05:31,237 [INFO] watchfiles.main: 1 change detected
+2026-07-13 16:05:31,594 [INFO] watchfiles.main: 1 change detected
+2026-07-13 16:05:31,959 [INFO] watchfiles.main: 1 change detected
+2026-07-13 16:06:08,690 [INFO] watchfiles.main: 1 change detected
+2026-07-13 16:06:09,044 [INFO] watchfiles.main: 1 change detected
+2026-07-13 16:06:20,180 [INFO] watchfiles.main: 1 change detected
+2026-07-13 16:06:20,545 [INFO] watchfiles.main: 1 change detected
+2026-07-13 16:06:50,283 [INFO] watchfiles.main: 1 change detected
+2026-07-13 16:06:50,639 [INFO] watchfiles.main: 1 change detected
+2026-07-13 16:07:20,519 [INFO] watchfiles.main: 1 change detected
+2026-07-13 16:07:27,243 [INFO] watchfiles.main: 1 change detected
+2026-07-13 16:08:45,376 [INFO] watchfiles.main: 1 change detected
+2026-07-13 16:08:49,948 [INFO] watchfiles.main: 1 change detected
+2026-07-13 16:08:51,871 [INFO] watchfiles.main: 5 changes detected
+2026-07-13 16:09:07,516 [INFO] database: Pinged your deployment. You successfully connected to MongoDB!
+2026-07-13 16:09:07,728 [INFO] database: Database indexes ensured.
+2026-07-13 16:09:07,747 [INFO] auth: Admin user already exists: admin@researchagent.com
+2026-07-13 16:11:29,326 [INFO] google_genai.models: AFC is enabled with max remote calls: 10.
+2026-07-13 16:11:30,044 [ERROR] ai.llm_provider: Gemini API Error (ClientError): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-3.5-flash\nPlease retry in 28.685901419s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'model': 'gemini-3.5-flash', 'location': 'global'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '28s'}]}}
+Traceback (most recent call last):
+  File "D:\OTHERS\Saathwik\Nxtwave\projects\AI-Assisted-Research-Paper-Guide\backend\ai\llm_provider.py", line 106, in _generate_gemini
+    response = await _gemini_client.aio.models.generate_content(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\google\genai\models.py", line 8323, in generate_content
+    response = await self._generate_content(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\google\genai\models.py", line 7080, in _generate_content
+    response = await self._api_client.async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\google\genai\_api_client.py", line 1300, in async_request
+    result = await self._async_request(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\google\genai\_api_client.py", line 1245, in _async_request
+    return await self._async_retry(  # type: ignore[no-any-return]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\tenacity\asyncio\__init__.py", line 112, in __call__
+    do = await self.iter(retry_state=retry_state)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\tenacity\asyncio\__init__.py", line 157, in iter
+    result = await action(retry_state)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\tenacity\_utils.py", line 111, in inner
+    return call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\tenacity\__init__.py", line 413, in exc_check
+    raise retry_exc.reraise()
+          ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\tenacity\__init__.py", line 184, in reraise
+    raise self.last_attempt.result()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\Python312\Lib\concurrent\futures\_base.py", line 449, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\Python312\Lib\concurrent\futures\_base.py", line 401, in __get_result
+    raise self._exception
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\tenacity\asyncio\__init__.py", line 116, in __call__
+    result = await fn(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\google\genai\_api_client.py", line 1186, in _async_request_once
+    await errors.APIError.raise_for_async_response(response)
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\google\genai\errors.py", line 156, in raise_for_async_response
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-3.5-flash\nPlease retry in 28.685901419s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'model': 'gemini-3.5-flash', 'location': 'global'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '28s'}]}}
+2026-07-13 16:11:30,061 [ERROR] ai.llm_provider: Gemini generation failed (attempt 1): Gemini generation failed: ClientError - 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-3.5-flash\nPlease retry in 28.685901419s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'model': 'gemini-3.5-flash', 'location': 'global'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '28s'}]}}
+2026-07-13 16:11:32,375 [INFO] google_genai.models: AFC is enabled with max remote calls: 10.
+2026-07-13 16:11:32,958 [ERROR] ai.llm_provider: Gemini API Error (ClientError): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-3.5-flash\nPlease retry in 25.687173127s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-3.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '25s'}]}}
+Traceback (most recent call last):
+  File "D:\OTHERS\Saathwik\Nxtwave\projects\AI-Assisted-Research-Paper-Guide\backend\ai\llm_provider.py", line 106, in _generate_gemini
+    response = await _gemini_client.aio.models.generate_content(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\google\genai\models.py", line 8323, in generate_content
+    response = await self._generate_content(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\google\genai\models.py", line 7080, in _generate_content
+    response = await self._api_client.async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\google\genai\_api_client.py", line 1300, in async_request
+    result = await self._async_request(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\google\genai\_api_client.py", line 1245, in _async_request
+    return await self._async_retry(  # type: ignore[no-any-return]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\tenacity\asyncio\__init__.py", line 112, in __call__
+    do = await self.iter(retry_state=retry_state)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\tenacity\asyncio\__init__.py", line 157, in iter
+    result = await action(retry_state)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\tenacity\_utils.py", line 111, in inner
+    return call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\tenacity\__init__.py", line 413, in exc_check
+    raise retry_exc.reraise()
+          ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\tenacity\__init__.py", line 184, in reraise
+    raise self.last_attempt.result()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\Python312\Lib\concurrent\futures\_base.py", line 449, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\Python312\Lib\concurrent\futures\_base.py", line 401, in __get_result
+    raise self._exception
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\tenacity\asyncio\__init__.py", line 116, in __call__
+    result = await fn(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\google\genai\_api_client.py", line 1186, in _async_request_once
+    await errors.APIError.raise_for_async_response(response)
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\google\genai\errors.py", line 156, in raise_for_async_response
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-3.5-flash\nPlease retry in 25.687173127s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-3.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '25s'}]}}
+2026-07-13 16:11:32,961 [ERROR] ai.llm_provider: Gemini generation failed (attempt 2): Gemini generation failed: ClientError - 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-3.5-flash\nPlease retry in 25.687173127s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-3.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '25s'}]}}
+2026-07-13 16:11:36,488 [INFO] httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-13 16:15:13,699 [INFO] watchfiles.main: 1 change detected
+2026-07-13 17:56:49,782 [INFO] watchfiles.main: 5 changes detected
+2026-07-13 17:57:03,372 [INFO] database: Pinged your deployment. You successfully connected to MongoDB!
+2026-07-13 17:57:03,531 [INFO] database: Database indexes ensured.
+2026-07-13 17:57:03,547 [INFO] auth: Admin user already exists: admin@researchagent.com
+2026-07-13 18:03:39,499 [INFO] google_genai.models: AFC is enabled with max remote calls: 10.
+2026-07-13 18:04:39,527 [ERROR] ai.llm_provider: Gemini generation failed (attempt 1): 
+2026-07-13 18:04:41,548 [INFO] google_genai.models: AFC is enabled with max remote calls: 10.
+2026-07-13 18:04:42,155 [ERROR] ai.llm_provider: Gemini API Error (ClientError): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-3.5-flash\nPlease retry in 16.315816041s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-3.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '16s'}]}}
+Traceback (most recent call last):
+  File "D:\OTHERS\Saathwik\Nxtwave\projects\AI-Assisted-Research-Paper-Guide\backend\ai\llm_provider.py", line 106, in _generate_gemini
+    response = await _gemini_client.aio.models.generate_content(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\google\genai\models.py", line 8323, in generate_content
+    response = await self._generate_content(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\google\genai\models.py", line 7080, in _generate_content
+    response = await self._api_client.async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\google\genai\_api_client.py", line 1300, in async_request
+    result = await self._async_request(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\google\genai\_api_client.py", line 1245, in _async_request
+    return await self._async_retry(  # type: ignore[no-any-return]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\tenacity\asyncio\__init__.py", line 112, in __call__
+    do = await self.iter(retry_state=retry_state)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\tenacity\asyncio\__init__.py", line 157, in iter
+    result = await action(retry_state)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\tenacity\_utils.py", line 111, in inner
+    return call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\tenacity\__init__.py", line 413, in exc_check
+    raise retry_exc.reraise()
+          ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\tenacity\__init__.py", line 184, in reraise
+    raise self.last_attempt.result()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\Python312\Lib\concurrent\futures\_base.py", line 449, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\Python312\Lib\concurrent\futures\_base.py", line 401, in __get_result
+    raise self._exception
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\tenacity\asyncio\__init__.py", line 116, in __call__
+    result = await fn(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\google\genai\_api_client.py", line 1186, in _async_request_once
+    await errors.APIError.raise_for_async_response(response)
+  File "C:\Users\saath\AppData\Roaming\Python\Python312\site-packages\google\genai\errors.py", line 156, in raise_for_async_response
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-3.5-flash\nPlease retry in 16.315816041s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-3.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '16s'}]}}
+2026-07-13 18:04:42,186 [ERROR] ai.llm_provider: Gemini generation failed (attempt 2): Gemini generation failed: ClientError - 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-3.5-flash\nPlease retry in 16.315816041s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-3.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '16s'}]}}
+2026-07-13 18:04:42,229 [INFO] watchfiles.main: 1 change detected
+2026-07-13 18:04:42,861 [INFO] watchfiles.main: 1 change detected
+2026-07-13 18:04:43,230 [INFO] watchfiles.main: 1 change detected
+2026-07-13 18:04:43,948 [INFO] watchfiles.main: 1 change detected
+2026-07-13 18:04:44,311 [INFO] watchfiles.main: 1 change detected
+2026-07-13 18:04:44,672 [INFO] watchfiles.main: 1 change detected
+2026-07-13 18:04:45,080 [INFO] watchfiles.main: 1 change detected
+2026-07-13 18:04:45,321 [INFO] httpx: HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-13 18:04:45,497 [INFO] watchfiles.main: 1 change detected
+2026-07-13 18:04:45,860 [INFO] watchfiles.main: 1 change detected
+2026-07-13 18:04:46,214 [INFO] watchfiles.main: 1 change detected
+2026-07-13 18:04:46,578 [INFO] watchfiles.main: 1 change detected
+2026-07-13 18:05:39,194 [INFO] watchfiles.main: 1 change detected
+2026-07-13 18:05:39,598 [INFO] watchfiles.main: 1 change detected
+2026-07-13 18:05:40,008 [INFO] watchfiles.main: 1 change detected
+2026-07-13 18:05:40,360 [INFO] watchfiles.main: 1 change detected
+2026-07-13 18:05:40,713 [INFO] watchfiles.main: 1 change detected
+2026-07-13 18:06:06,958 [INFO] watchfiles.main: 1 change detected
+2026-07-13 18:06:07,313 [INFO] watchfiles.main: 1 change detected
+2026-07-13 18:06:07,677 [INFO] watchfiles.main: 1 change detected
+2026-07-13 18:06:08,041 [INFO] watchfiles.main: 1 change detected
+2026-07-13 18:06:08,393 [INFO] watchfiles.main: 1 change detected
+2026-07-13 18:06:08,846 [INFO] watchfiles.main: 1 change detected
+2026-07-13 18:06:09,200 [INFO] watchfiles.main: 1 change detected
+2026-07-13 18:06:09,555 [INFO] watchfiles.main: 1 change detected
+2026-07-13 18:06:23,636 [INFO] watchfiles.main: 1 change detected
+2026-07-13 18:06:23,993 [INFO] watchfiles.main: 1 change detected
