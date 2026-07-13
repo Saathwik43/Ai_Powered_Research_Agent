@@ -1,0 +1,15 @@
+2026-07-13 11:21:37,849 [INFO] database: Pinged your deployment. You successfully connected to MongoDB!
+2026-07-13 11:21:38,050 [INFO] database: Database indexes ensured.
+2026-07-13 11:21:38,081 [INFO] auth: Admin user already exists: admin@researchagent.com
+2026-07-13 11:23:06,494 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
+2026-07-13 11:23:06,504 [ERROR] ai.llm_provider: OpenAI generation failed (attempt 1): Client error '429 Too Many Requests' for url 'https://api.openai.com/v1/chat/completions'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429
+2026-07-13 11:23:09,300 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
+2026-07-13 11:23:09,305 [ERROR] ai.llm_provider: OpenAI generation failed (attempt 2): Client error '429 Too Many Requests' for url 'https://api.openai.com/v1/chat/completions'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429
+2026-07-13 11:23:09,448 [INFO] google_genai.models: AFC is enabled with max remote calls: 10.
+2026-07-13 11:23:29,708 [INFO] ai.llm_provider: Gemini usage: cache_tokens_details=None cached_content_token_count=None candidates_token_count=97 candidates_tokens_details=None prompt_token_count=227 prompt_tokens_details=[ModalityTokenCount(
+  modality=<MediaModality.TEXT: 'TEXT'>,
+  token_count=227
+)] thoughts_token_count=1099 tool_use_prompt_token_count=None tool_use_prompt_tokens_details=None total_token_count=1423 traffic_type=None
+2026-07-13 11:23:29,708 [WARNING] google_genai.types: Warning: there are non-text parts in the response: ['thought_signature'], returning concatenated text result from text parts. Check the full candidates.content.parts accessor to get the full model response.

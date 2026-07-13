@@ -37,7 +37,7 @@ from integrations.github_knowledge import (
 from database import db, ping_db, ensure_indexes
 from auth import signup_user, login_user, get_current_user, seed_admin
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", filename="backend.log")
 logger = logging.getLogger(__name__)
 
 def get_user_id_for_rate_limit(request: Request) -> str:
