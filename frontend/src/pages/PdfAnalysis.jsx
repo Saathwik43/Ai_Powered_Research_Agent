@@ -13,6 +13,7 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { ghcolors } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import Mermaid from '../components/Mermaid';
 import 'katex/dist/katex.min.css';
 import './PdfAnalysis.css';
 import { Document, Page, pdfjs } from 'react-pdf';
@@ -93,6 +94,12 @@ function MessageBubble({ msg }) {
           components={{
             code({ node, inline, className, children, ...props }) {
               const match = /language-(\w+)/.exec(className || '');
+              const language = match ? match[1].toLowerCase() : '';
+              const contentStr = String(children).replace(/\n$/, '');
+              
+              if (!inline && (language === 'mermaid' || language === 'graph' || contentStr.trim().startsWith('graph ') || contentStr.trim().startsWith('pie ') || contentStr.trim().startsWith('sequenceDiagram'))) {
+                return <Mermaid chart={contentStr} />;
+              }
               return !inline && match ? (
                 <SyntaxHighlighter
                   style={ghcolors}
@@ -100,7 +107,7 @@ function MessageBubble({ msg }) {
                   PreTag="div"
                   {...props}
                 >
-                  {String(children).replace(/\n$/, '')}
+                  {contentStr}
                 </SyntaxHighlighter>
               ) : (
                 <code className={className} {...props}>

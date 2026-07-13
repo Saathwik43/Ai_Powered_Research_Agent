@@ -13,6 +13,7 @@ import { ghcolors } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import 'katex/dist/katex.min.css';
 import { MODELS } from '../constants/models';
 import { diffWords } from 'diff';
+import Mermaid from '../components/Mermaid';
 
 
 const STEPS = [
@@ -67,6 +68,22 @@ export default function ManuscriptBuilder() {
     setUnverifiedNumbers([]);
     setRateLimitWait(null);
     setContent(prev => ({ ...prev, [active]: '' })); // Clear old content
+    
+    // If the active section is 'references', we don't need the LLM to generate it!
+    // We already have the compiled references in `manuscriptRefs`.
+    if (active === 'references') {
+      if (manuscriptRefs && Object.keys(manuscriptRefs).length > 0) {
+        let refsText = '';
+        Object.keys(manuscriptRefs).sort((a, b) => parseInt(a) - parseInt(b)).forEach(key => {
+          refsText += `${key}. ${manuscriptRefs[key]}\n\n`;
+        });
+        setContent(prev => ({ ...prev, [active]: refsText.trim() }));
+      } else {
+        setContent(prev => ({ ...prev, [active]: '*No references have been cited in the generated manuscript yet.*' }));
+      }
+      setGenerating(false);
+      return;
+    }
     
     try {
       const payloadContext = customContext.trim() || 'Use latest research trends and cite recent advancements.';
@@ -646,9 +663,15 @@ export default function ManuscriptBuilder() {
                       components={{
                         code({ node, inline, className, children, ...props }) {
                           const match = /language-(\w+)/.exec(className || '');
+                          const language = match ? match[1].toLowerCase() : '';
+                          const contentStr = String(children).replace(/\n$/, '');
+                          
+                          if (!inline && (language === 'mermaid' || language === 'graph' || contentStr.trim().startsWith('graph ') || contentStr.trim().startsWith('pie ') || contentStr.trim().startsWith('sequenceDiagram'))) {
+                            return <Mermaid chart={contentStr} />;
+                          }
                           return !inline && match ? (
                             <SyntaxHighlighter style={ghcolors} language={match[1]} PreTag="div" {...props}>
-                              {String(children).replace(/\n$/, '')}
+                              {contentStr}
                             </SyntaxHighlighter>
                           ) : (
                             <code className={className} {...props}>{children}</code>
@@ -680,9 +703,15 @@ export default function ManuscriptBuilder() {
                         components={{
                           code({ node, inline, className, children, ...props }) {
                             const match = /language-(\w+)/.exec(className || '');
+                            const language = match ? match[1].toLowerCase() : '';
+                            const contentStr = String(children).replace(/\n$/, '');
+                            
+                            if (!inline && (language === 'mermaid' || language === 'graph' || contentStr.trim().startsWith('graph ') || contentStr.trim().startsWith('pie ') || contentStr.trim().startsWith('sequenceDiagram'))) {
+                              return <Mermaid chart={contentStr} />;
+                            }
                             return !inline && match ? (
                               <SyntaxHighlighter style={ghcolors} language={match[1]} PreTag="div" {...props}>
-                                {String(children).replace(/\n$/, '')}
+                                {contentStr}
                               </SyntaxHighlighter>
                             ) : (
                               <code className={className} {...props}>{children}</code>

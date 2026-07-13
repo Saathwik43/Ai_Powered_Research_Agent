@@ -37,7 +37,7 @@ async def get_or_create_gemini_cache(cache_key: str, system_instruction: str, sh
             del _gemini_caches[cache_key]
 
     token_est = len(shared_context.split()) * 1.3
-    if token_est < 2048:
+    if token_est < 32768:
         return None
 
     try:
@@ -87,16 +87,24 @@ async def _generate_gemini(system_prompt: str, user_prompt: str, max_tokens: int
             raise RuntimeError("GEMINI_API_KEY is not configured.")
         _gemini_client = genai.Client(api_key=key)
 
-    config = genai_types.GenerateContentConfig(
-        system_instruction=None if cached_content else (system_prompt or None),
-        temperature=temperature,
-        max_output_tokens=max_tokens,
-        cached_content=cached_content
-    )
+    model_name = model or os.getenv("GEMINI_MODEL", "gemini-flash-latest")
+    is_pro = "pro" in model_name.lower()
+    
+    config_kwargs = {
+        "system_instruction": None if cached_content else (system_prompt or None),
+        "temperature": temperature,
+        "max_output_tokens": max_tokens,
+        "cached_content": cached_content
+    }
+    
+    if not is_pro:
+        config_kwargs["thinking_config"] = genai_types.ThinkingConfig(thinking_budget=300)
+        
+    config = genai_types.GenerateContentConfig(**config_kwargs)
 
     try:
         response = await _gemini_client.aio.models.generate_content(
-            model=model or os.getenv("GEMINI_MODEL", "gemini-flash-latest"),
+            model=model_name,
             contents=user_prompt,
             config=config,
         )
@@ -339,16 +347,16 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
         raise RuntimeError(f"{effective_provider.title()} provider failed to generate a completion.")
 
     providers = []
-    if LLM_PROVIDER in ("auto", "openai") and os.getenv("OPENAI_API_KEY"):
-        providers.append(("OpenAI", _generate_openai))
     if LLM_PROVIDER in ("auto", "gemini") and os.getenv("GEMINI_API_KEY"):
         providers.append(("Gemini", _generate_gemini))
     if LLM_PROVIDER in ("auto", "groq"):
         providers.append(("Groq", _generate_groq))
-    if LLM_PROVIDER in ("auto", "openrouter"):
-        providers.append(("OpenRouter", _generate_openrouter))
     if LLM_PROVIDER in ("auto", "mistral") and os.getenv("MISTRAL_API_KEY"):
         providers.append(("Mistral", _generate_mistral))
+    if LLM_PROVIDER in ("auto", "openrouter"):
+        providers.append(("OpenRouter", _generate_openrouter))
+    if LLM_PROVIDER in ("auto", "openai") and os.getenv("OPENAI_API_KEY"):
+        providers.append(("OpenAI", _generate_openai))
 
 
     for provider_name, provider_func in providers:
@@ -520,16 +528,24 @@ async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: in
                 return
             _gemini_client = genai.Client(api_key=key)
             
-        config = genai_types.GenerateContentConfig(
-            system_instruction=None if cached_content else (system_prompt or None),
-            temperature=temperature,
-            max_output_tokens=max_tokens,
-            cached_content=cached_content
-        )
+        model_name = effective_model or os.getenv("GEMINI_MODEL", "gemini-flash-latest")
+        is_pro = "pro" in model_name.lower()
+        
+        config_kwargs = {
+            "system_instruction": None if cached_content else (system_prompt or None),
+            "temperature": temperature,
+            "max_output_tokens": max_tokens,
+            "cached_content": cached_content
+        }
+        
+        if not is_pro:
+            config_kwargs["thinking_config"] = genai_types.ThinkingConfig(thinking_budget=300)
+            
+        config = genai_types.GenerateContentConfig(**config_kwargs)
 
         try:
             response_stream = await _gemini_client.aio.models.generate_content_stream(
-                model=effective_model or os.getenv("GEMINI_MODEL", "gemini-flash-latest"),
+                model=model_name,
                 contents=user_prompt,
                 config=config,
             )

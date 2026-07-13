@@ -8,3 +8,5 @@ scratch_*.py
 *.xml
 *.pdf
 *.txt  
+
+backend.log

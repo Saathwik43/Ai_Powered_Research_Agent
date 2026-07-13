@@ -53,7 +53,9 @@ Instructions:
 6. Make it comprehensive, detailed, and at least 3-4 paragraphs long.
 7. CRITICAL: Use LaTeX formatting for any mathematical or chemical formulas, subscripts, and superscripts (e.g., $O_2$, $x^2$, $$ E = mc^2 $$) so they render correctly.
 8. CRITICAL: {cite_instruction} If no numbered reference list is provided, you may generate without citations but ensure academic rigor.
-9. IMPORTANT: If a provided reference doesn't directly support a claim, state the claim as general background without a citation marker rather than force-citing an irrelevant source."""
+9. IMPORTANT: If a provided reference doesn't directly support a claim, state the claim as general background without a citation marker rather than force-citing an irrelevant source.
+10. CRITICAL: DO NOT include a "References", "Bibliography", or "Works Cited" list at the end of the section. The references are compiled and managed externally.
+11. IMPORTANT: If you need to present data, plots, graphs, or flowcharts, you MUST use Mermaid code blocks (e.g., ```mermaid\ngraph LR\n...``` or pie charts/sequenceDiagrams). NEVER use Markdown tables to simulate graphs."""
     return base
 
 
@@ -204,6 +206,8 @@ async def generate_section(topic: str, section: str, context: str, citation_styl
     from ai.llm_provider import LLM_PROVIDER
     active_provider = provider_override or (LLM_PROVIDER if LLM_PROVIDER != "auto" else "gemini")
     
+    effective_max_tokens = max(max_tokens_limit, 1800) if active_provider and active_provider.lower() == "gemini" else max_tokens_limit
+    
     user_prompt, system_prompt, references_mapping, gap_analysis_data, papers, err, cached_content = await _prepare_generation(
         topic, section, context, citation_style, provider=active_provider
     )
@@ -211,7 +215,7 @@ async def generate_section(topic: str, section: str, context: str, citation_styl
         return err, {}
     
     try:
-        result = await generate_completion(system_prompt, user_prompt, max_tokens=max_tokens_limit, temperature=0.45, provider_override=provider_override, cached_content=cached_content)
+        result = await generate_completion(system_prompt, user_prompt, max_tokens=effective_max_tokens, temperature=0.45, provider_override=provider_override, cached_content=cached_content)
         flags = await _citation_flags(result, context, references_mapping)
         flags.update(validate_numerical_claims(result, papers))
         if references_mapping:
@@ -241,9 +245,13 @@ async def generate_section_stream(topic: str, section: str, context: str, citati
         
     max_tokens_limit = 2000 if section.lower().replace(" ", "_") in ("lit_review", "literature_review") else 1200
     
+    from ai.llm_provider import LLM_PROVIDER
+    active_provider = provider or (LLM_PROVIDER if LLM_PROVIDER != "auto" else "gemini")
+    effective_max_tokens = max(max_tokens_limit, 1800) if active_provider and active_provider.lower() == "gemini" else max_tokens_limit
+    
     full_text = ""
     
-    stream_gen = stream_completion_auto(system_prompt, user_prompt, max_tokens_limit, 0.45, cached_content) if mode == "auto" else stream_completion(system_prompt, user_prompt, max_tokens_limit, 0.45, provider, model, cached_content)
+    stream_gen = stream_completion_auto(system_prompt, user_prompt, effective_max_tokens, 0.45, cached_content) if mode == "auto" else stream_completion(system_prompt, user_prompt, effective_max_tokens, 0.45, provider, model, cached_content)
     
     async for chunk in stream_gen:
         if chunk.get("type") == "chunk":
