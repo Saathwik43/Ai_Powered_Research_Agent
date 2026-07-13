@@ -383,7 +383,9 @@ import json
 async def _stream_openai_compatible(url: str, headers: dict, payload: dict):
     payload["stream"] = True
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
+        total_chars = 0
+        timeout = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
             async with client.stream("POST", url, headers=headers, json=payload) as response:
                 response.raise_for_status()
                 async for line in response.aiter_lines():
@@ -396,9 +398,12 @@ async def _stream_openai_compatible(url: str, headers: dict, payload: dict):
                         data = json.loads(data_str)
                         delta = data.get("choices", [{}])[0].get("delta", {}).get("content")
                         if delta:
+                            total_chars += len(delta)
                             yield {"type": "chunk", "text": delta}
-                    except json.JSONDecodeError:
-                        pass
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"Stream chunk parse failure, raw line: {data_str[:200]!r} — error: {e}")
+                        continue
+                logger.info(f"Stream completed: {total_chars} chars from {url}")
                 yield {"type": "done"}
     except httpx.HTTPStatusError as e:
         await e.response.aread()
