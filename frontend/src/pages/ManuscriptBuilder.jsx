@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { CheckCircle, Circle, Save, FileText, Wand2, FolderOpen, X, Search, Sparkles, Send, BookOpen, Bold, Italic, Strikethrough, Link, List, ListOrdered, CheckSquare, Table, Quote, Code, Undo, Redo, Heading1, Heading2, Heading3 } from 'lucide-react';
+import { CheckCircle, Circle, Save, FileText, Wand2, FolderOpen, X, Search, Sparkles, Send, BookOpen, Bold, Italic, Strikethrough, Link, List, ListOrdered, CheckSquare, Table, Quote, Code, Undo, Redo, Heading1, Heading2, Heading3, Printer } from 'lucide-react';
 import './ManuscriptBuilder.css';
+import './PaperPreview.css';
 import { useAuth } from '../context/AuthContext';
 import { Spinner, SkeletonText } from '../components/Loader';
 import ReactMarkdown from 'react-markdown';
@@ -12,6 +13,7 @@ import { ghcolors } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import 'katex/dist/katex.min.css';
 import { MODELS } from '../constants/models';
 import { diffWords } from 'diff';
+
 
 const STEPS = [
   { id: 'abstract',    label: 'Abstract' },
@@ -125,9 +127,10 @@ export default function ManuscriptBuilder() {
               if (data.type === "chunk") {
                 setContent(prev => ({ ...prev, [active]: (prev[active] || "") + data.text }));
               } else if (data.type === "provider_active") {
-                setAutoStatus(`Trying ${data.provider}...`);
-              } else if (data.type === "provider_switch") {
-                setContent(prev => ({ ...prev, [active]: "" }));
+                setAutoStatus(data.continuing ? `Resuming with ${data.provider}...` : `Generating with ${data.provider}...`);
+              } else if (data.type === "provider_status") {
+                setAutoStatus(data.message);
+                setTimeout(() => setAutoStatus(''), 2500);
               } else if (data.type === "metadata") {
                 if (data.formatted_references) setManuscriptRefs(data.formatted_references);
                 if (data.unverified_citations) setUnverifiedWarning('Warning: The generated text contains citations that could not be verified against the provided context. Please verify them independently.');
@@ -318,7 +321,7 @@ export default function ManuscriptBuilder() {
     } catch { setLoadError('Could not connect.'); }
   };
 
-  const exportDoc = () => {
+  const exportMarkdown = () => {
     if (!topic || !Object.keys(content).length) return;
     const md = [`# ${topic}\n`, ...STEPS.filter(s => content[s.id]).flatMap(s => [`\n## ${s.label}\n`, content[s.id]])].join('\n');
     const blob = new Blob([md], { type: 'text/markdown' });
@@ -326,6 +329,13 @@ export default function ManuscriptBuilder() {
     const a = document.createElement('a');
     a.href = url; a.download = `${topic.replace(/\s+/g, '-')}.md`; a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const exportPDF = () => {
+    if (!topic || !Object.keys(content).length) return;
+    // Switch to paper preview mode first so the print stylesheet picks it up
+    setViewMode('paper');
+    setTimeout(() => window.print(), 300);
   };
 
   const currentStep = STEPS.find(s => s.id === active);
@@ -349,8 +359,11 @@ export default function ManuscriptBuilder() {
           <button className="btn btn-secondary" onClick={() => { setShowLoad(true); setLoadError(''); setDraftFilter(''); }}>
             <FolderOpen size={14} /> Load Draft
           </button>
-          <button className="btn btn-primary" onClick={exportDoc} disabled={!Object.keys(content).length}>
-            <FileText size={14} /> Export
+          <button className="btn btn-secondary" onClick={exportMarkdown} disabled={!Object.keys(content).length}>
+            <FileText size={14} /> .md
+          </button>
+          <button className="btn btn-primary" onClick={exportPDF} disabled={!Object.keys(content).length}>
+            <Printer size={14} /> PDF
           </button>
         </div>
       </div>
@@ -566,18 +579,15 @@ export default function ManuscriptBuilder() {
               <div className="manuscript-toolbar">
                 <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
                   <div style={{ display: 'flex', gap: '0.25rem' }}>
-                    <button 
-                      onClick={() => setViewMode('write')} 
-                      style={{ background: 'none', border: 'none', padding: '0.25rem 0.5rem', borderBottom: viewMode === 'write' ? '2px solid var(--primary)' : '2px solid transparent', color: viewMode === 'write' ? 'var(--primary)' : 'var(--text-subtle)', fontWeight: viewMode === 'write' ? 600 : 400, cursor: 'pointer', transition: 'var(--transition)' }}
-                    >
-                      Write
-                    </button>
-                    <button 
-                      onClick={() => setViewMode('preview')} 
-                      style={{ background: 'none', border: 'none', padding: '0.25rem 0.5rem', borderBottom: viewMode === 'preview' ? '2px solid var(--primary)' : '2px solid transparent', color: viewMode === 'preview' ? 'var(--primary)' : 'var(--text-subtle)', fontWeight: viewMode === 'preview' ? 600 : 400, cursor: 'pointer', transition: 'var(--transition)' }}
-                    >
-                      Preview
-                    </button>
+                    {['write', 'preview', 'paper'].map(mode => (
+                      <button
+                        key={mode}
+                        onClick={() => setViewMode(mode)}
+                        style={{ background: 'none', border: 'none', padding: '0.25rem 0.5rem', borderBottom: viewMode === mode ? '2px solid var(--primary)' : '2px solid transparent', color: viewMode === mode ? 'var(--primary)' : 'var(--text-subtle)', fontWeight: viewMode === mode ? 600 : 400, cursor: 'pointer', transition: 'var(--transition)', fontSize: '0.88rem' }}
+                      >
+                        {mode === 'write' ? 'Write' : mode === 'preview' ? 'Preview' : 'Paper Preview'}
+                      </button>
+                    ))}
                   </div>
                   
                   {/* Rich Text Toolbar (Only in Write Mode) */}
@@ -627,7 +637,7 @@ export default function ManuscriptBuilder() {
                   onFocus={e => { e.target.style.borderColor = 'var(--border-focus)'; e.target.style.boxShadow = '0 0 0 3px var(--primary-light)'; }}
                   onBlur={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.boxShadow = 'none'; }}
                 />
-              ) : (
+              ) : viewMode === 'preview' ? (
                 <div className="pdf-markdown-body" style={{ width: '100%', minHeight: '420px', padding: '1rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', color: 'var(--text)', overflowY: 'auto', boxSizing: 'border-box' }}>
                   {content[active] ? (
                     <ReactMarkdown
@@ -650,6 +660,51 @@ export default function ManuscriptBuilder() {
                     </ReactMarkdown>
                   ) : (
                     <p style={{ color: 'var(--text-subtle)', fontStyle: 'italic', margin: 0 }}>Nothing to preview.</p>
+                  )}
+                </div>
+              ) : (
+                /* ─── Paper Preview Mode ─── */
+                <div className={`paper-preview format-${citationStyle}`}>
+                  <div className="paper-header">
+                    <div className="paper-section-label">{currentStep?.label}</div>
+                    <h1 className="paper-title">{topic || 'Untitled Paper'}</h1>
+                    <p style={{ fontSize: '0.85em', color: '#666', margin: '0.5rem 0 0' }}>
+                      {citationStyle.toUpperCase()} Format
+                    </p>
+                  </div>
+                  <div className="paper-body">
+                    {content[active] ? (
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm, remarkMath]}
+                        rehypePlugins={[rehypeKatex]}
+                        components={{
+                          code({ node, inline, className, children, ...props }) {
+                            const match = /language-(\w+)/.exec(className || '');
+                            return !inline && match ? (
+                              <SyntaxHighlighter style={ghcolors} language={match[1]} PreTag="div" {...props}>
+                                {String(children).replace(/\n$/, '')}
+                              </SyntaxHighlighter>
+                            ) : (
+                              <code className={className} {...props}>{children}</code>
+                            );
+                          }
+                        }}
+                      >
+                        {content[active]}
+                      </ReactMarkdown>
+                    ) : (
+                      <p style={{ color: '#999', fontStyle: 'italic' }}>No content to preview. Generate or write content first.</p>
+                    )}
+                  </div>
+                  {manuscriptRefs && Object.keys(manuscriptRefs).length > 0 && (
+                    <div className="paper-refs">
+                      <h3>References</h3>
+                      <ol>
+                        {Object.entries(manuscriptRefs).map(([idx, refString]) => (
+                          <li key={idx}>{refString}</li>
+                        ))}
+                      </ol>
+                    </div>
                   )}
                 </div>
               )}

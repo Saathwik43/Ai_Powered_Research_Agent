@@ -19,7 +19,16 @@ logger = logging.getLogger(__name__)
 
 import time
 import re
-def _prompt(topic: str, section: str, context: str) -> str:
+def _prompt(topic: str, section: str, context: str, citation_style: str = "ieee") -> str:
+    # Citation-style-specific inline instructions (minimal token cost)
+    _CITE_INSTRUCTIONS = {
+        "ieee": "Cite using numbered markers [1], [2], etc.",
+        "apa": "Cite using APA inline style (Author, Year) drawn from the reference list.",
+        "chicago": "Cite using Chicago superscript footnote numbers.",
+        "oxford": "Cite using Oxford footnote-style numbered references.",
+    }
+    cite_instruction = _CITE_INSTRUCTIONS.get(citation_style, _CITE_INSTRUCTIONS["ieee"])
+
     base = f"""You are an expert, highly-cited academic researcher and writer.
 You are writing a formal, peer-reviewed research paper on the topic: "{topic}".
 Your current task is exclusively to write the "{section}" section of the paper.
@@ -43,7 +52,7 @@ Instructions:
 5. Format the output in clean Markdown, using paragraphs, lists, or bold text only where academically appropriate.
 6. Make it comprehensive, detailed, and at least 3-4 paragraphs long.
 7. CRITICAL: Use LaTeX formatting for any mathematical or chemical formulas, subscripts, and superscripts (e.g., $O_2$, $x^2$, $$ E = mc^2 $$) so they render correctly.
-8. CRITICAL: Cite ONLY from the numbered reference list provided in the context, using [1], [2], etc. inline markers. If no numbered reference list is provided, you may generate without citations but ensure academic rigor.
+8. CRITICAL: {cite_instruction} If no numbered reference list is provided, you may generate without citations but ensure academic rigor.
 9. IMPORTANT: If a provided reference doesn't directly support a claim, state the claim as general background without a citation marker rather than force-citing an irrelevant source."""
     return base
 
@@ -176,11 +185,11 @@ async def _prepare_generation(topic: str, section: str, context: str, citation_s
         
         if cached_content:
             # We omit the evidence block from the per-call user_prompt since it's cached.
-            user_prompt = _prompt(topic, section, "")
+            user_prompt = _prompt(topic, section, "", citation_style)
         else:
-            user_prompt = _prompt(topic, section, context)
+            user_prompt = _prompt(topic, section, context, citation_style)
     else:
-        user_prompt = _prompt(topic, section, context)
+        user_prompt = _prompt(topic, section, context, citation_style)
 
     return user_prompt, system_prompt, references_mapping, gap_analysis_data, papers, None, cached_content
 
@@ -241,6 +250,18 @@ async def generate_section_stream(topic: str, section: str, context: str, citati
             full_text += chunk.get("text", "")
             yield chunk
         elif chunk.get("type") == "done" or chunk.get("type") == "stopped":
+            if chunk.get("type") == "done":
+                try:
+                    import usage_tracker
+                    user_id = usage_tracker.current_user_id.get()
+                    if user_id:
+                        word_count = len((system_prompt + " " + user_prompt + " " + full_text).split())
+                        tokens = int(word_count * 1.3)
+                        used_provider = provider if mode == "manual" else "Auto (Cascade)"
+                        await usage_tracker.log_usage(user_id, tokens, used_provider, "manuscript_stream")
+                except Exception as e:
+                    logger.error(f"Failed to log stream usage: {e}")
+
             # Run post-processing before sending the final signal
             flags = await _citation_flags(full_text, context, references_mapping)
             flags.update(validate_numerical_claims(full_text, papers))

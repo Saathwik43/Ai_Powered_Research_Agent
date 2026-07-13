@@ -32,7 +32,7 @@
 .pdf-viewer-scroll {
   flex: 1;
   overflow: auto;
-  background: #f5f5f5;
+  background: var(--bg-elevated);
   display: flex;
   justify-content: center;
   padding: 1rem;
@@ -137,7 +137,7 @@
   background: linear-gradient(135deg, var(--primary-light), rgba(0, 87, 255, 0.05));
   color: var(--primary);
   border-color: rgba(0,87,255,0.15);
-  box-shadow: 0 2px 8px rgba(0,87,255,0.06);
+  box-shadow: 0 2px 8px rgba(47, 90, 255, 0.04);
 }
 
 .pdf-history-item-content {

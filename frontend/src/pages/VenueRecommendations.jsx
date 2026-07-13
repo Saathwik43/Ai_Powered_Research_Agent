@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Search, Star, ExternalLink, X, CheckCircle, BookMarked, Sparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Spinner, SkeletonList } from '../components/Loader';
+import './VenueRecommendations.css';
 
 const matchColor = m => m >= 90 ? 'var(--success)' : m >= 75 ? 'var(--primary)' : m >= 60 ? 'var(--warning)' : 'var(--text-muted)';
 
@@ -194,10 +195,7 @@ export default function VenueRecommendations() {
             </div>
           )}
           {venues.map((v, i) => (
-            <div key={v.id || i} className="animate-slide-up" style={{ animationDelay: `${i * 0.07}s`, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.5rem', transition: 'transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease' }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(0,87,255,0.32)'; e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = 'var(--shadow-glow)'; }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = 'none'; }}
-            >
+            <div key={v.id || i} className="venue-card animate-card-in" style={{ animationDelay: `${i * 0.07}s` }}>
               {/* Name + match */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.875rem' }}>
                 <div style={{ flex: 1, minWidth: 0, paddingRight: '0.75rem' }}>

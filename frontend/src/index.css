@@ -1,36 +1,39 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 
 :root {
-  --primary: #0057ff;
-  --primary-hover: #0046cc;
-  --primary-light: rgba(0, 87, 255, 0.1);
-  --primary-glow: rgba(0, 87, 255, 0.22);
+  --primary: #2F5AFF;
+  --primary-hover: #1A3FE0;
+  --primary-light: rgba(47, 90, 255, 0.1);
+  --primary-glow: rgba(47, 90, 255, 0.22);
 
-  --accent: #ff4d00;
-  --accent-light: rgba(255, 77, 0, 0.1);
-  --accent-strong: #f5333f;
+  --accent: #E91E8C;
+  --accent-light: rgba(233, 30, 140, 0.1);
+  --accent-strong: #C4157A;
 
-  --success: #00a36c;
-  --warning: #ffb000;
-  --danger: #e51c23;
+  --gold: #F5B700;
+  --gold-light: rgba(245, 183, 0, 0.12);
 
-  --bg: #f7f8fb;
-  --bg-card: #ffffff;
-  --bg-elevated: #eef2f7;
-  --bg-input: #ffffff;
+  --success: #00D68F;
+  --warning: #FFB300;
+  --danger: #FF3B3B;
 
-  --border: #d9e0ea;
-  --border-strong: #b7c3d4;
-  --border-focus: #0057ff;
+  --bg: #F8F9FC;
+  --bg-card: #FFFFFF;
+  --bg-elevated: #EEF1FA;
+  --bg-input: #FFFFFF;
+
+  --border: #DCE3F0;
+  --border-strong: #B8C4DC;
+  --border-focus: #2F5AFF;
 
   --text: #111827;
   --text-muted: #526071;
-  --text-subtle: #7b8798;
+  --text-subtle: #7B8798;
 
   --shadow-sm: 0 1px 2px rgba(17, 24, 39, 0.08);
   --shadow-md: 0 8px 24px rgba(17, 24, 39, 0.1);
   --shadow-lg: 0 18px 48px rgba(17, 24, 39, 0.16);
-  --shadow-glow: 0 14px 36px rgba(0, 87, 255, 0.16);
+  --shadow-glow: 0 10px 24px rgba(47, 90, 255, 0.11);
 
   --radius-sm: 4px;
   --radius-md: 8px;

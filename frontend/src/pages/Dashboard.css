@@ -1,0 +1,35 @@
+@keyframes cardIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-card-in {
+  opacity: 0;
+  animation: cardIn 0.35s ease-out forwards;
+}
+
+.dashboard-welcome .glass-panel,
+.dashboard-welcome .solid-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1), box-shadow 0.28s cubic-bezier(0.32, 0.72, 0, 1), border-color 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+  box-shadow: 0 4px 12px rgba(17, 24, 39, 0.03);
+}
+
+.dashboard-welcome .glass-panel:hover,
+.dashboard-welcome .solid-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 32px rgba(47, 90, 255, 0.08);
+  border-color: var(--primary-light);
+}
+
+.dashboard-welcome .btn-icon:hover {
+  background: rgba(229, 28, 35, 0.1);
+}

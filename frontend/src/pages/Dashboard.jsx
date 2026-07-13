@@ -4,6 +4,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 import { useAuth } from '../context/AuthContext';
 import { Spinner, SkeletonList } from '../components/Loader';
 import { useNavigate } from 'react-router-dom';
+import './Dashboard.css';
 
 const SUGGESTIONS = [
   'machine learning in healthcare', 'deep learning for NLP', 'computer vision',
@@ -250,7 +251,7 @@ export default function Dashboard() {
                   { title: "LLM Alignment and Safety", tag: "AI/Ethics", trend: "+24%" },
                   { title: "CRISPR Gene Editing", tag: "Bio/Genetics", trend: "+18%" }
                 ].map((item, i) => (
-                  <div key={item.title} onClick={() => discover(item.title)} className="glass-panel animate-slide-up" style={{ padding: '1.25rem', cursor: 'pointer', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', animationDelay: `${i * 0.05}s` }}>
+                  <div key={item.title} onClick={() => discover(item.title)} className="solid-card animate-card-in" style={{ padding: '1.25rem', cursor: 'pointer', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', animationDelay: `${i * 0.05}s` }}>
                     <div>
                       <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text)' }}>{item.title}</div>
                       <div style={{ fontSize: '0.8rem', color: 'var(--text-subtle)', marginTop: '0.35rem' }}>{item.tag}</div>
@@ -268,14 +269,14 @@ export default function Dashboard() {
               </h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
                 {loadingRecent ? (
-                  <div style={{ padding: '1rem', display: 'flex', justifyContent: 'center' }}><Spinner size={16}/></div>
+                  <SkeletonList count={3} />
                 ) : recentSurveys.length === 0 ? (
-                  <div className="glass-panel" style={{ padding: '1.25rem', borderRadius: '12px', textAlign: 'center', color: 'var(--text-subtle)' }}>
+                  <div className="solid-card" style={{ padding: '1.25rem', borderRadius: '12px', textAlign: 'center', color: 'var(--text-subtle)' }}>
                     No recent surveys found.
                   </div>
                 ) : (
                   recentSurveys.map((survey, i) => (
-                    <div key={i} className="glass-panel animate-slide-up" style={{ padding: '1.25rem', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '0.5rem', animationDelay: `${i * 0.1}s` }}>
+                    <div key={i} className="solid-card animate-card-in" style={{ padding: '1.25rem', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '0.5rem', animationDelay: `${i * 0.1}s` }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Literature Survey</span>
                         <button 

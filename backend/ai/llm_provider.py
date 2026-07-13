@@ -67,6 +67,8 @@ GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
+MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "mistral-large-2407")
 
 # google-genai Client — created once at module level if key is available.
 # The old google-generativeai SDK used genai.configure() globally; the new SDK
@@ -130,6 +132,30 @@ async def _generate_openai(system_prompt: str, user_prompt: str, max_tokens: int
         usage = data.get("usage", {}).get("total_tokens", 0)
         return data["choices"][0]["message"]["content"].strip(), usage
 
+
+async def _generate_mistral(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float) -> str:
+    key = os.getenv("MISTRAL_API_KEY")
+    if not key:
+        raise RuntimeError("MISTRAL_API_KEY is not configured.")
+    payload = {
+        "model": os.getenv("MISTRAL_MODEL", "mistral-large-2407"),
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+    }
+    async with httpx.AsyncClient(timeout=60) as client:
+        response = await client.post("https://api.mistral.ai/v1/chat/completions", headers=headers, json=payload)
+        response.raise_for_status()
+        data = response.json()
+        usage = data.get("usage", {}).get("total_tokens", 0)
+        return data["choices"][0]["message"]["content"].strip(), usage
 
 
 async def _generate_groq(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float) -> str:
@@ -283,6 +309,8 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
             provider_fn = _generate_nvidia
         elif effective_provider == "huggingface":
             provider_fn = _generate_huggingface
+        elif effective_provider == "mistral":
+            provider_fn = _generate_mistral
             
         if not provider_fn:
             raise RuntimeError(f"Unknown provider '{effective_provider}'.")
@@ -319,6 +347,8 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
         providers.append(("Groq", _generate_groq))
     if LLM_PROVIDER in ("auto", "openrouter"):
         providers.append(("OpenRouter", _generate_openrouter))
+    if LLM_PROVIDER in ("auto", "mistral") and os.getenv("MISTRAL_API_KEY"):
+        providers.append(("Mistral", _generate_mistral))
 
 
     for provider_name, provider_func in providers:
@@ -461,6 +491,21 @@ async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: in
         async for chunk in _stream_openai_compatible("https://api.openai.com/v1/chat/completions", headers, payload):
             yield chunk
 
+    elif provider == "mistral":
+        key = os.getenv("MISTRAL_API_KEY")
+        if not key:
+            yield {"type": "stopped", "reason": "error", "message": "MISTRAL_API_KEY not configured."}
+            return
+        payload = {
+            "model": effective_model or os.getenv("MISTRAL_MODEL", "mistral-large-2407"),
+            "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+        async for chunk in _stream_openai_compatible("https://api.mistral.ai/v1/chat/completions", headers, payload):
+            yield chunk
+
     elif provider == "gemini":
         global _gemini_client
         if not _gemini_client:
@@ -499,14 +544,28 @@ async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: in
 
 
 async def stream_completion_auto(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float, cached_content: str = None):
-    fixed_order = ("groq", "gemini", "openrouter", "openai")
+    fixed_order = ("gemini", "groq", "mistral", "openrouter", "openai")
+    full_accumulated_text = ""
+    
     for provider in fixed_order:
-        accumulated_text = ""
-        yield {"type": "provider_active", "provider": provider}
+        if full_accumulated_text:
+            word_count = len(full_accumulated_text.split())
+            estimated_tokens = word_count * 1.3
+            if estimated_tokens > (max_tokens * 0.8):
+                yield {"type": "stopped", "reason": "max_length_reached", "message": "Maximum text length reached during provider fallback."}
+                return
+
+            continuation_note = f"\n\n---\nA partial draft has already been written below. Continue seamlessly from exactly where it stops — do not repeat, rephrase, or restart any part of it, and match its existing tone/style:\n\n{full_accumulated_text}\n---\n"
+            effective_user_prompt = user_prompt + continuation_note
+        else:
+            effective_user_prompt = user_prompt
+
+        yield {"type": "provider_active", "provider": provider, "continuing": bool(full_accumulated_text)}
+        
         try:
-            async for chunk in stream_completion(system_prompt, user_prompt, max_tokens, temperature, provider, None, cached_content if provider == "gemini" else None):
+            async for chunk in stream_completion(system_prompt, effective_user_prompt, max_tokens, temperature, provider, None, cached_content if provider == "gemini" else None):
                 if chunk.get("type") == "chunk":
-                    accumulated_text += chunk.get("text", "")
+                    full_accumulated_text += chunk.get("text", "")
                     yield chunk
                 elif chunk.get("type") == "stopped":
                     raise RuntimeError(chunk.get("reason", "stopped"))
@@ -518,7 +577,8 @@ async def stream_completion_auto(system_prompt: str, user_prompt: str, max_token
                 logger.info(f"Auto mode {provider} skipped: account out of credits (402).")
             else:
                 logger.error(f"Auto mode {provider} failed: {e}")
-            if accumulated_text:
-                yield {"type": "provider_switch", "reason": str(e)}
+            if full_accumulated_text:
+                yield {"type": "provider_status", "message": "Switching provider, resuming draft..."}
             continue
-    yield {"type": "stopped", "reason": "all_providers_failed"}
+
+    yield {"type": "stopped", "reason": "all_providers_failed", "message": "All AI providers failed to complete the generation."}

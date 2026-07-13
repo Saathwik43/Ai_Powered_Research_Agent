@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Shield, Users, Activity, Battery } from 'lucide-react';
 import { Spinner } from '../components/Loader';
+import './AdminDashboard.css';
 
 const AdminDashboard = () => {
   const { authFetch, user } = useAuth();
@@ -23,6 +24,10 @@ const AdminDashboard = () => {
       }
     };
     fetchAdminUsage();
+    
+    // Poll every 5 seconds for real-time updates
+    const intervalId = setInterval(fetchAdminUsage, 5000);
+    return () => clearInterval(intervalId);
   }, [authFetch]);
 
   if (loading) {
@@ -75,14 +80,14 @@ const AdminDashboard = () => {
           User Quotas
         </h3>
         
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+        <div className="admin-table-container">
+          <table className="admin-table">
             <thead>
-              <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                <th style={{ padding: '1rem', color: 'var(--text-muted)', fontWeight: 500 }}>User Email</th>
-                <th style={{ padding: '1rem', color: 'var(--text-muted)', fontWeight: 500 }}>Tokens Burned</th>
-                <th style={{ padding: '1rem', color: 'var(--text-muted)', fontWeight: 500 }}>Messages Left</th>
-                <th style={{ padding: '1rem', color: 'var(--text-muted)', fontWeight: 500 }}>Usage Bar</th>
+              <tr>
+                <th>User Email</th>
+                <th>Tokens Burned</th>
+                <th>Messages Left</th>
+                <th>Usage Bar</th>
               </tr>
             </thead>
             <tbody>
@@ -91,10 +96,10 @@ const AdminDashboard = () => {
                 const isWarning = pct > 80;
                 
                 return (
-                  <tr key={u.user_id} style={{ borderBottom: '1px solid var(--border)' }}>
-                    <td style={{ padding: '1rem', fontWeight: 500 }}>{u.email}</td>
-                    <td style={{ padding: '1rem' }}>{u.used.toLocaleString()}</td>
-                    <td style={{ padding: '1rem' }}>
+                  <tr key={u.user_id}>
+                    <td style={{ fontWeight: 500 }}>{u.email}</td>
+                    <td>{u.used.toLocaleString()}</td>
+                    <td>
                       <span style={{ 
                         background: isWarning ? 'rgba(239, 68, 68, 0.1)' : 'rgba(var(--primary-rgb), 0.1)', 
                         color: isWarning ? '#ef4444' : 'var(--primary)',
@@ -106,7 +111,7 @@ const AdminDashboard = () => {
                         {u.messages_left}
                       </span>
                     </td>
-                    <td style={{ padding: '1rem', minWidth: '200px' }}>
+                    <td style={{ minWidth: '200px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                         <span>{pct.toFixed(1)}% used</span>
                         <span>{u.quota.toLocaleString()} max</span>

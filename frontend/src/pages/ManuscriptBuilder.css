@@ -162,9 +162,9 @@
 
 /* Sidebar Active Step Polish */
 .manuscript-step-active {
-  border-left: 3px solid var(--primary) !important;
+  border-left: 3px solid var(--gold) !important;
   padding-left: calc(0.75rem - 3px) !important;
-  background: var(--primary-light) !important;
+  background: var(--gold-light) !important;
 }
 
 @media (max-width: 1024px) {
