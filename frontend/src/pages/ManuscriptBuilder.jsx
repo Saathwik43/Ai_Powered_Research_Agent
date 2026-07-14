@@ -492,7 +492,7 @@ export default function ManuscriptBuilder() {
             className="btn btn-primary" 
             onClick={exportPDF} 
             disabled={!Object.keys(content).length}
-            title="Export to PDF (In the print dialog, uncheck 'Headers and footers' for a clean PDF)"
+            title="Export as PDF (uncheck 'Headers and footers' in the print dialog for a clean file)"
           >
             <Printer size={14} /> PDF
           </button>
