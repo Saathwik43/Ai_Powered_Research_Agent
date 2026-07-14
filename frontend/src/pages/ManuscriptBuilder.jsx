@@ -481,7 +481,10 @@ export default function ManuscriptBuilder() {
             <span><strong>Note:</strong> AI can make mistakes, review before proceeding.</span>
           </div>
         </div>
-        <div className="responsive-actions" style={{ display: 'flex', gap: '0.5rem' }}>
+        <div className="responsive-actions" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <div style={{ padding: '0.4rem 0.8rem', background: 'var(--bg-card-alt)', borderRadius: '6px', fontSize: '0.85rem', fontWeight: '500', color: 'var(--text-muted)', border: '1px solid var(--border-color)' }}>
+            {citationStyle.toUpperCase()} Format
+          </div>
           <button className="btn btn-secondary" onClick={() => { setShowLoad(true); setLoadError(''); setDraftFilter(''); }}>
             <FolderOpen size={14} /> Load Draft
           </button>
@@ -808,9 +811,6 @@ export default function ManuscriptBuilder() {
                     <div className="paper-header">
                       <div className="paper-section-label">{currentStep?.label}</div>
                       <h1 className="paper-title">{topic || 'Untitled Paper'}</h1>
-                      <p style={{ fontSize: '0.85em', color: '#666', margin: '0.5rem 0 0' }}>
-                        {citationStyle.toUpperCase()} Format
-                      </p>
                     </div>
                     <div className="paper-body">
                       {content[active] ? (
@@ -851,9 +851,6 @@ export default function ManuscriptBuilder() {
                   <div className={`paper-preview format-${citationStyle} paper-preview-print`}>
                     <div className="paper-header">
                       <h1 className="paper-title">{topic || 'Untitled Paper'}</h1>
-                      <p style={{ fontSize: '0.85em', color: '#666', margin: '0.5rem 0 0' }}>
-                        {citationStyle.toUpperCase()} Format
-                      </p>
                     </div>
                     <div className="paper-body">
                       {STEPS.map(step => content[step.id] ? (

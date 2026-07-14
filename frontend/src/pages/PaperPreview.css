@@ -254,11 +254,23 @@
   p, li { orphans: 3; widows: 3; }
   h1, h2, h3 { page-break-after: avoid; }
 
-  /* IEEE 2-column intentionally DISABLED for print — column-count breaks KaTeX
-     inline math layout (scatters/detaches equation symbols). Single-column
-     print is correct over cosmetic 2-column. Revisit only if a non-CSS-columns
-     approach (e.g. server-rendered PDF) replaces this later. */
-  .paper-preview-print.format-ieee .paper-body { column-count: 1 !important; }
+  /* IEEE 2-column for print with KaTeX math protection */
+  .paper-preview-print.format-ieee .paper-body {
+    column-count: 2;
+    column-gap: 0.4in;
+    column-rule: none;
+  }
+  
+  .paper-preview-print .katex-display {
+    break-inside: avoid;
+    -webkit-column-break-inside: avoid;
+    column-span: all;
+  }
+  
+  .paper-preview-print .katex {
+    break-inside: avoid;
+    -webkit-column-break-inside: avoid;
+  }
 }
 
 @page { margin: 2cm 1.5cm; size: A4; }
