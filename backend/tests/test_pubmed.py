@@ -327,7 +327,7 @@ class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
             patch("integrations.paper_search.search_github_knowledge", side_effect=instant_github),
         ):
             t0 = time.monotonic()
-            results = await ps_module.search_all("ceiling test query xyz", limit=5)
+            results = await ps_module.search_all("ceiling test query xyz", limit_per_source=5)
             elapsed = time.monotonic() - t0
 
         print(f"\n[ceiling test] search_all() returned in {elapsed:.3f}s")
@@ -382,7 +382,7 @@ class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
             patch("integrations.paper_search.search_github_knowledge", side_effect=always_slow_sync),
         ):
             t0 = time.monotonic()
-            results = await ps_module.search_all("cached_query", limit=5)
+            results = await ps_module.search_all("cached_query", limit_per_source=5)
             elapsed = time.monotonic() - t0
 
         print(f"\n[cache fallback test] search_all() returned in {elapsed:.3f}s")
@@ -428,7 +428,7 @@ class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
             patch("integrations.paper_search.search_github_knowledge", side_effect=gh_fast),
         ):
             t0 = time.monotonic()
-            results = await ps_module.search_all("fast all sources", limit=6)
+            results = await ps_module.search_all("fast all sources", limit_per_source=6)
             elapsed = time.monotonic() - t0
 
         print(f"\n[all-fast test] search_all() returned in {elapsed:.3f}s with {len(results)} papers")
@@ -479,7 +479,7 @@ class TestSearchAllPartialResults(unittest.IsolatedAsyncioTestCase):
             patch("integrations.paper_search.search_github_knowledge", side_effect=instant_github),
         ):
             t0 = time.monotonic()
-            results = await ps_module.search_all(query, limit=5)
+            results = await ps_module.search_all(query, limit_per_source=5)
             elapsed = time.monotonic() - t0
 
         return results, elapsed
@@ -573,7 +573,7 @@ class TestSearchAllPartialResults(unittest.IsolatedAsyncioTestCase):
             patch("integrations.paper_search.search_github_knowledge", side_effect=gh_fast),
         ):
             t0 = time.monotonic()
-            results = await ps_module.search_all("partial result test", limit=5)
+            results = await ps_module.search_all("partial result test", limit_per_source=5)
             elapsed = time.monotonic() - t0
 
         sources_present = {p["source"] for p in results}
@@ -626,7 +626,7 @@ class TestSearchAllLatency(unittest.IsolatedAsyncioTestCase):
         query = "CRISPR gene editing"
 
         t0 = time.monotonic()
-        results = await ps_module.search_all(query, limit=5)
+        results = await ps_module.search_all(query, limit_per_source=5)
         elapsed = time.monotonic() - t0
 
         print(f"\n[INTEGRATION] search_all() with PubMed: {elapsed:.3f}s → {len(results)} papers")

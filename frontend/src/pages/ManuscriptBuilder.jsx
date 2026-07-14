@@ -455,9 +455,11 @@ export default function ManuscriptBuilder() {
 
   useEffect(() => {
     if (printPending && viewMode === 'paper') {
-      requestAnimationFrame(() => { 
-        window.print(); 
-        setPrintPending(false); 
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => { 
+          window.print(); 
+          setPrintPending(false); 
+        });
       });
     }
   }, [printPending, viewMode]);
@@ -486,7 +488,12 @@ export default function ManuscriptBuilder() {
           <button className="btn btn-secondary" onClick={exportMarkdown} disabled={!Object.keys(content).length}>
             <FileText size={14} /> .md
           </button>
-          <button className="btn btn-primary" onClick={exportPDF} disabled={!Object.keys(content).length}>
+          <button 
+            className="btn btn-primary" 
+            onClick={exportPDF} 
+            disabled={!Object.keys(content).length}
+            title="Export to PDF (In the print dialog, uncheck 'Headers and footers' for a clean PDF)"
+          >
             <Printer size={14} /> PDF
           </button>
         </div>

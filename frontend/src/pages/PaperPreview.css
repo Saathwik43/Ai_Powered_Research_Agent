@@ -245,6 +245,7 @@
   .manuscript-revise-panel, 
   .sidebar, 
   .mobile-header, 
+  .mobile-overlay, 
   button, 
   .manuscript-references-panel { 
     display: none !important; 
@@ -260,14 +261,35 @@
   
   body, 
   .main-content { 
-    margin: 0; 
-    padding: 0; 
-    max-width: 100%; 
+    margin: 0 !important; 
+    padding: 0 !important; 
+    max-width: 100% !important; 
   }
   
-  @page { 
-    margin: 2cm; 
+  .katex { 
+    page-break-inside: avoid; 
+    font-size: 1em !important; 
   }
+  
+  .katex-display { 
+    page-break-inside: avoid; 
+    margin: 0.5em 0; 
+  }
+  
+  p, li { 
+    orphans: 3; 
+    widows: 3; 
+  }
+  
+  h1, h2, h3 { 
+    page-break-after: avoid; 
+  }
+}
+
+@page { 
+  margin: 2cm 1.5cm;
+  size: A4;
+}
   
   .paper-preview-print {
     position: absolute;
