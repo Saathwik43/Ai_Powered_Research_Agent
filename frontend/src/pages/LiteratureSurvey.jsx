@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Download, ExternalLink, Save, BookOpen, FileText, X, Bookmark, Unlock, ChevronDown, Sparkles, Trash2 } from 'lucide-react';
+import { BookOpen, CheckCircle2, ChevronRight, Copy, Download, ExternalLink, FileText, Filter, List, RefreshCw, Save, Search, Sparkles, User, X, Loader2, Bookmark, Unlock, ChevronDown, Trash2 } from 'lucide-react';
+import { InteractiveHoverButton } from '@/components/ui/interactive-hover-button';
 import './LiteratureSurvey.css';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -205,9 +206,11 @@ export default function LiteratureSurvey() {
             style={{ paddingLeft: '2.6rem' }}
           />
         </div>
-        <button className="btn btn-primary" onClick={() => search()} disabled={loading}>
-          {loading ? <Spinner size={16} /> : <><Search size={14} /> Search</>}
-        </button>
+        <InteractiveHoverButton 
+          text={loading ? "Searching..." : "Search"} 
+          onClick={() => search()} 
+          disabled={loading} 
+        />
       </div>
       
 

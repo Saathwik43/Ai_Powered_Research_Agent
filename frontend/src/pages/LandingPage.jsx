@@ -14,6 +14,7 @@ import {
   Target,
   Zap,
 } from 'lucide-react';
+import { InteractiveHoverButton } from '@/components/ui/interactive-hover-button';
 import './LandingPage.css';
 
 const features = [
@@ -45,9 +46,7 @@ const LandingPage = () => {
         </button>
         <div className="landing-nav-actions">
           <button className="btn btn-ghost" onClick={() => navigate('/login')}>Sign in</button>
-          <button className="btn btn-primary" onClick={() => navigate('/signup')}>
-            Start now <ArrowRight size={16} />
-          </button>
+          <InteractiveHoverButton text="Start now" onClick={() => navigate('/signup')} />
         </div>
       </nav>
 
@@ -64,9 +63,7 @@ const LandingPage = () => {
               drafting manuscripts, and choosing publication venues without switching tools.
             </p>
             <div className="hero-actions">
-              <button className="btn hero-primary" onClick={() => navigate('/signup')}>
-                Create workspace <ArrowRight size={17} />
-              </button>
+              <InteractiveHoverButton text="Create workspace" onClick={() => navigate('/signup')} />
               <button className="btn hero-secondary" onClick={() => navigate('/login')}>
                 Open existing account
               </button>
@@ -98,7 +95,7 @@ const LandingPage = () => {
                 <div className="preview-search">
                   <Search size={17} />
                   <span>machine learning in healthcare</span>
-                  <button>Discover</button>
+                  <InteractiveHoverButton text="Discover" />
                 </div>
                 <div className="preview-grid">
                   <div className="metric-card blue">

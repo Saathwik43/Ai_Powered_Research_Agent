@@ -1,5 +1,32 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 
+@import "tailwindcss";
+@source "../src";
+
+@theme {
+  --color-border: var(--border);
+  --color-input: var(--bg-input);
+  --color-ring: var(--border-focus);
+  --color-background: var(--bg);
+  --color-foreground: var(--text);
+  --color-primary: var(--primary);
+  --color-primary-foreground: #ffffff;
+  --color-secondary: var(--bg-elevated);
+  --color-secondary-foreground: var(--text);
+  --color-destructive: var(--danger);
+  --color-destructive-foreground: #ffffff;
+  --color-muted: var(--bg-elevated);
+  --color-muted-foreground: var(--text-muted);
+  --color-accent: var(--accent);
+  --color-accent-foreground: #ffffff;
+  --color-popover: var(--bg-card);
+  --color-popover-foreground: var(--text);
+  --color-card: var(--bg-card);
+  --color-card-foreground: var(--text);
+}
+
+
+
 :root {
   --primary: #2F5AFF;
   --primary-hover: #1A3FE0;

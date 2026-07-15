@@ -242,7 +242,7 @@
 @media print {
   .manuscript-outline-panel, .manuscript-toolbar, .manuscript-revise-panel,
   .sidebar, .mobile-header, .mobile-overlay, button,
-  .manuscript-references-panel { display: none !important; }
+  .manuscript-references-panel, .page-header { display: none !important; }
 
   .paper-preview-print { display: block !important; position: static !important; width: 100% !important; box-shadow: none !important; border-radius: 0 !important; padding: 0 !important; margin: 0 !important; }
   .paper-preview-screen { display: none !important; }

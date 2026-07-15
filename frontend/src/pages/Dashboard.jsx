@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, TrendingUp, ArrowUpRight, ExternalLink, FileText, X, Sparkles, Trash2, ArrowRight } from 'lucide-react';
+import { InteractiveHoverButton } from '@/components/ui/interactive-hover-button';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { useAuth } from '../context/AuthContext';
 import { Spinner, SkeletonList } from '../components/Loader';
@@ -214,9 +215,11 @@ export default function Dashboard() {
               </div>
             )}
           </div>
-          <button className="btn btn-primary" onClick={() => discover()} disabled={loading}>
-            {loading ? <><Spinner size={14} /> Discovering...</> : <><Search size={14} /> Discover</>}
-          </button>
+          <InteractiveHoverButton 
+            text={loading ? "Discovering..." : "Discover"} 
+            onClick={() => discover()} 
+            disabled={loading} 
+          />
         </div>
         {error && (
           <div style={{ marginTop: '1rem', padding: '0.85rem 1rem', background: 'rgba(229,28,35,0.08)', border: '1px solid rgba(229,28,35,0.2)', borderRadius: 'var(--radius-md)', color: 'var(--danger)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>

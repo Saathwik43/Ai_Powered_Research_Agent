@@ -16,13 +16,19 @@ import { diffWords } from 'diff';
 import Mermaid from '../components/Mermaid';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
+function extractText(node) {
+  if (!node) return '';
+  if (node.type === 'text') return node.value || '';
+  if (node.children) return node.children.map(extractText).join('');
+  return '';
+}
+
 const TableOrChart = ({ node, children, ...props }) => {
-  const [showChart, setShowChart] = useState(false);
-  
   // Attempt to parse table data from AST
   let headers = [];
   let rows = [];
   let hasNumericData = false;
+  let graphTitle = '';
 
   try {
     const thead = node.children.find(c => c.tagName === 'thead');
@@ -32,9 +38,7 @@ const TableOrChart = ({ node, children, ...props }) => {
       // Parse headers
       const trHead = thead.children.find(c => c.tagName === 'tr');
       if (trHead) {
-        headers = trHead.children.filter(c => c.tagName === 'th').map(th => {
-          return th.children[0]?.value || '';
-        });
+        headers = trHead.children.filter(c => c.tagName === 'th').map(th => extractText(th).trim());
       }
       
       // Parse rows
@@ -43,7 +47,7 @@ const TableOrChart = ({ node, children, ...props }) => {
         const tds = tr.children.filter(c => c.tagName === 'td');
         const rowData = {};
         tds.forEach((td, i) => {
-          const val = td.children[0]?.value || '';
+          const val = extractText(td).trim();
           if (i > 0 && !isNaN(parseFloat(val))) {
             rowData[headers[i] || `col_${i}`] = parseFloat(val);
             hasNumericData = true;
@@ -54,46 +58,49 @@ const TableOrChart = ({ node, children, ...props }) => {
         return rowData;
       });
     }
+
+    // Detect if this table is meant to be a graph:
+    // 1. Check preceding sibling text for "Graph N:" pattern
+    if (node.position) {
+      const parent = node;  // node is the <table> element in the AST
+      // Check if any header cell text starts with "Graph"
+      const firstHeader = (headers[0] || '').toLowerCase();
+      if (/^graph\s*\d/i.test(firstHeader) || /^chart\s*\d/i.test(firstHeader) || /^figure\s*\d/i.test(firstHeader)) {
+        graphTitle = headers[0];
+      }
+    }
   } catch (e) {
-    // Silently fallback to table on parse error
+    console.debug('TableOrChart parse failed, falling back to table:', e);
   }
 
-  if (hasNumericData && headers.length >= 2 && rows.length > 0) {
+  // If this is a graph (detected by caption/header) AND has chart-able data → render as chart
+  const isGraph = graphTitle !== '';
+  if (isGraph && hasNumericData && headers.length >= 2 && rows.length > 0) {
     const xKey = headers[0];
     const yKey = headers.find((h, i) => i > 0 && !isNaN(rows[0][h])) || headers[1];
 
     return (
       <div className="table-chart-container" style={{ margin: '1.5rem 0' }}>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.5rem' }}>
-          <button 
-            onClick={() => setShowChart(!showChart)}
-            className="btn btn-ghost"
-            style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', height: 'auto' }}
-          >
-            {showChart ? 'View as Table' : 'View as Chart'}
-          </button>
-        </div>
-        
-        {showChart ? (
-          <div style={{ width: '100%', height: 300, background: 'var(--bg-card)', padding: '1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={rows} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <XAxis dataKey={xKey} tick={{fontSize: 12}} />
-                <YAxis tick={{fontSize: 12}} />
-                <Tooltip cursor={{fill: 'var(--primary-light)'}} contentStyle={{ borderRadius: 'var(--radius-md)', border: 'none', boxShadow: 'var(--shadow-md)' }} />
-                <Bar dataKey={yKey} fill="var(--primary)" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table {...props}>{children}</table>
+        {graphTitle && (
+          <div style={{ textAlign: 'center', fontWeight: '600', fontSize: '0.95rem', marginBottom: '0.5rem', color: 'var(--text-primary)' }}>
+            {graphTitle}
           </div>
         )}
+        <div style={{ width: '100%', height: 300, background: 'var(--bg-card)', padding: '1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={rows} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <XAxis dataKey={xKey} tick={{fontSize: 12}} />
+              <YAxis tick={{fontSize: 12}} />
+              <Tooltip cursor={{fill: 'var(--primary-light)'}} contentStyle={{ borderRadius: 'var(--radius-md)', border: 'none', boxShadow: 'var(--shadow-md)' }} />
+              <Bar dataKey={yKey} fill="var(--primary)" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
       </div>
     );
   }
 
+  // Otherwise: always render as a plain table
   return (
     <div style={{ overflowX: 'auto', margin: '1.5rem 0' }}>
       <table {...props}>{children}</table>
@@ -472,7 +479,7 @@ export default function ManuscriptBuilder() {
   return (
     <div className="animate-fade-in">
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
           <h1>Manuscript Builder</h1>
           <p className="text-muted">Write your research paper section by section with AI assistance.</p>
