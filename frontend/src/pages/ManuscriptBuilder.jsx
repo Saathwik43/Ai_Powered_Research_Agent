@@ -4,6 +4,7 @@ import './ManuscriptBuilder.css';
 import './PaperPreview.css';
 import { useAuth } from '../context/AuthContext';
 import { Spinner, SkeletonText } from '../components/Loader';
+import SectionsList from '../components/SectionsList';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -511,66 +512,65 @@ export default function ManuscriptBuilder() {
 
       <div className="manuscript-layout" style={{ display: 'flex', gap: '1.25rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
 
-        {/* Sidebar stepper */}
-        <div className="manuscript-outline-panel" style={{ flex: '0 0 210px', minWidth: '180px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.25rem', position: 'sticky', top: '1.5rem' }}>
-          <p style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text-subtle)', marginBottom: '0.875rem' }}>Sections</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-            {STEPS.map(step => {
-              const isDone   = done.includes(step.id);
-              const isActive = active === step.id;
-              return (
-                <div key={step.id} onClick={() => setActive(step.id)}
-                  className={isActive ? 'manuscript-step-active' : ''}
-                  style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.6rem 0.75rem', borderRadius: 'var(--radius-md)', cursor: 'pointer', fontSize: '0.88rem', fontWeight: isActive ? 700 : 500, color: isActive ? 'var(--primary)' : isDone ? 'var(--text)' : 'var(--text-muted)', background: isActive ? 'var(--primary-light)' : 'transparent', border: `1px solid ${isActive ? 'rgba(0,87,255,0.22)' : 'transparent'}`, transition: 'var(--transition)' }}
-                >
-                  {isDone
-                    ? <CheckCircle size={15} color={isActive ? 'var(--primary)' : 'var(--success)'} />
-                    : <Circle size={15} />}
-                  {step.label}
-                </div>
-              );
-            })}
-          </div>
-          <div style={{ marginTop: '1rem', paddingTop: '0.875rem', borderTop: '1px solid var(--border)', fontSize: '0.75rem', color: 'var(--text-subtle)', textAlign: 'center' }}>
-            {done.length} of {STEPS.length} written
-          </div>
+        {/* Sidebar Container */}
+        <div style={{ flex: '0 0 220px', minWidth: '220px', display: 'flex', flexDirection: 'column', gap: '1rem', position: 'sticky', top: '1.5rem' }}>
+          
+          <SectionsList 
+            sections={STEPS} 
+            activeSectionId={active} 
+            onSelectSection={setActive} 
+            doneIds={done} 
+            generating={generating} 
+          />
 
-          <div style={{ marginTop: '1.5rem', paddingTop: '1.25rem', borderTop: '1px solid var(--border)' }}>
-            <p style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text-subtle)', marginBottom: '0.875rem' }}>Configuration</p>
+          {/* Configuration Block */}
+          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.25rem' }}>
+            <p style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text-subtle)', marginBottom: '1rem' }}>Configuration</p>
             
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              <input
-                placeholder="Enter research topic..."
-                value={topic}
-                onChange={e => setTopic(e.target.value)}
-                style={{ padding: '0.6rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: '0.85rem', width: '100%' }}
-              />
-              <select 
-                value={citationStyle} 
-                onChange={e => setCitationStyle(e.target.value)}
-                style={{ padding: '0.6rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: '0.85rem', width: '100%' }}
-              >
-                <option value="ieee">IEEE Citation Format</option>
-                <option value="apa">APA Citation Format</option>
-                <option value="chicago">Chicago Style</option>
-                <option value="oxford">Oxford Style</option>
-              </select>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Research Topic</span>
+                <input
+                  placeholder="Enter research topic..."
+                  value={topic}
+                  onChange={e => setTopic(e.target.value)}
+                  style={{ padding: '0.6rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: '0.85rem', width: '100%' }}
+                />
+              </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.5rem', padding: '0.75rem', background: 'var(--bg-input)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', cursor: 'pointer' }}>
-                  <input type="radio" checked={autoMode} onChange={() => setAutoMode(true)} />
-                  Auto (recommended) - reliable generation
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Citation Format</span>
+                <select 
+                  value={citationStyle} 
+                  onChange={e => setCitationStyle(e.target.value)}
+                  style={{ padding: '0.6rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: '0.85rem', width: '100%' }}
+                >
+                  <option value="ieee">IEEE Citation Format</option>
+                  <option value="apa">APA Citation Format</option>
+                  <option value="chicago">Chicago Style</option>
+                  <option value="oxford">Oxford Style</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Generation Model</span>
+                
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem', borderRadius: 'var(--radius-md)', border: `1px solid ${autoMode ? 'var(--primary)' : 'var(--border)'}`, background: autoMode ? 'var(--primary-light)' : 'transparent', cursor: 'pointer', transition: 'var(--transition)' }}>
+                  <input type="radio" checked={autoMode} onChange={() => setAutoMode(true)} style={{ margin: 0 }} />
+                  <span style={{ fontSize: '0.85rem', color: autoMode ? 'var(--primary)' : 'var(--text)' }}>Auto (Recommended)</span>
                 </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', cursor: 'pointer' }}>
-                  <input type="radio" checked={!autoMode} onChange={() => setAutoMode(false)} />
-                  Choose specific model
+                
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem', borderRadius: 'var(--radius-md)', border: `1px solid ${!autoMode ? 'var(--primary)' : 'var(--border)'}`, background: !autoMode ? 'var(--primary-light)' : 'transparent', cursor: 'pointer', transition: 'var(--transition)' }}>
+                  <input type="radio" checked={!autoMode} onChange={() => setAutoMode(false)} style={{ margin: 0 }} />
+                  <span style={{ fontSize: '0.85rem', color: !autoMode ? 'var(--primary)' : 'var(--text)' }}>Choose Specific</span>
                 </label>
                 
                 {!autoMode && (
                   <select 
                     value={selectedModelId} 
                     onChange={e => setSelectedModelId(e.target.value)}
-                    style={{ padding: '0.6rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text)', fontSize: '0.85rem', width: '100%', marginTop: '0.5rem' }}
+                    style={{ padding: '0.6rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text)', fontSize: '0.85rem', width: '100%', marginTop: '0.2rem' }}
                   >
                     {Array.from(new Set(MODELS.map(m => m.group))).map(group => (
                       <optgroup key={group} label={group}>

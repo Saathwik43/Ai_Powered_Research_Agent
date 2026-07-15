@@ -92,6 +92,16 @@ function MessageBubble({ msg }) {
           remarkPlugins={[remarkGfm, remarkMath]}
           rehypePlugins={[rehypeKatex]}
           components={{
+            a: ({ node, href, children, ...props }) => {
+              if (href?.startsWith('#page-')) {
+                return (
+                  <a href={href} className="citation-pill" {...props}>
+                    {children}
+                  </a>
+                );
+              }
+              return <a href={href} {...props}>{children}</a>;
+            },
             code({ node, inline, className, children, ...props }) {
               const match = /language-(\w+)/.exec(className || '');
               const language = match ? match[1].toLowerCase() : '';
@@ -117,7 +127,7 @@ function MessageBubble({ msg }) {
             }
           }}
         >
-          {msg.content}
+          {msg.content.replace(/\[?(?:Page|Pg\.?)\s*(\d+)\]?/gi, '[Page $1](#page-$1)')}
         </ReactMarkdown>
       </div>
     );
@@ -400,7 +410,7 @@ export default function PdfAnalysis() {
     return (
       <div className="pdf-split-view">
         {/* PDF Viewer Pane */}
-        {(file && extractedText) && (
+        {(file || extractedText) && (
           <div className="pdf-viewer-pane">
             {file.size ? (
                <div className="pdf-viewer-scroll">
@@ -474,7 +484,7 @@ export default function PdfAnalysis() {
               <p>This may take a few seconds.</p>
             </div>
           ) : (!file && !extractedText) ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', width: '100%' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', paddingTop: '10vh', height: 'auto', width: '100%' }}>
               <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
                 <div style={{ display: 'inline-flex', padding: '1rem', background: 'var(--primary-light)', borderRadius: '50%', color: 'var(--primary)', marginBottom: '1rem' }}>
                   <FileText size={48} />

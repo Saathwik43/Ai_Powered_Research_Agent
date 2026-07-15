@@ -10,16 +10,15 @@
 }
 
 .pdf-split-view {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
   flex: 1;
-  gap: 1rem;
   height: 100%;
   min-width: 0;
 }
 
 .pdf-viewer-pane {
-  flex: 0 0 40%;
-  min-width: 320px;
   background: var(--bg-card);
   border-radius: var(--radius-lg);
   border: 1px solid var(--border);
@@ -291,6 +290,21 @@
   border: 1px solid var(--border);
   color: var(--text);
   border-bottom-left-radius: 0.25rem;
+}
+
+/* ── Citation Pill ──────────────────────────────────────── */
+.citation-pill {
+  display: inline-block;
+  background: var(--bg-warning, #fff3cd);
+  color: var(--text, #333);
+  padding: 0.1rem 0.4rem;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 600;
+  margin: 0 0.2rem;
+  vertical-align: middle;
+  border: 1px solid var(--border, #ffeeba);
+  text-decoration: none;
 }
 
 /* ── Gap Analysis Result within Bubble ───────────────── */
@@ -670,7 +684,7 @@
   }
 
   .pdf-split-view {
-    flex-direction: column;
+    grid-template-columns: 1fr;
     overflow: auto;
   }
 
