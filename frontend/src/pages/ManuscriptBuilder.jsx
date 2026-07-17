@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { CheckCircle, Circle, Save, FileText, Wand2, FolderOpen, X, Search, Sparkles, Send, BookOpen, Bold, Italic, Strikethrough, Link, List, ListOrdered, CheckSquare, Table, Quote, Code, Undo, Redo, Heading1, Heading2, Heading3, Printer } from 'lucide-react';
+import { CheckCircle, Circle, Save, FileText, Wand2, FolderOpen, X, Search, Sparkles, Send, BookOpen, Bold, Italic, Strikethrough, Link, List, ListOrdered, CheckSquare, Table, Quote, Code, Undo, Redo, Heading1, Heading2, Heading3, Printer, ChevronDown, ExternalLink, Plus } from 'lucide-react';
 import './ManuscriptBuilder.css';
 import './PaperPreview.css';
 import { useAuth } from '../context/AuthContext';
@@ -135,6 +135,7 @@ export default function ManuscriptBuilder() {
   const [saveStatus, setSaveStatus] = useState('');
   const [printPending, setPrintPending] = useState(false);
   const [showLoad,     setShowLoad]     = useState(false);
+  const [showNewPaperConfirm, setShowNewPaperConfirm] = useState(false);
   const [viewMode,     setViewMode]     = useState('write');
   const [drafts,       setDrafts]       = useState([]);
   const [draftFilter,  setDraftFilter]  = useState('');
@@ -159,7 +160,9 @@ export default function ManuscriptBuilder() {
   const [gapAnalysis, setGapAnalysis] = useState(null);
   const [gapPanelOpen, setGapPanelOpen] = useState(false);
   const [gapTab, setGapTab] = useState('consensus');
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [customContext, setCustomContext] = useState('');
+  const [streamSources, setStreamSources] = useState([]);
   
   const abortControllerRef = useRef(null);
 
@@ -184,6 +187,7 @@ export default function ManuscriptBuilder() {
     setUnverifiedWarning('');
     setUnverifiedNumbers([]);
     setRateLimitWait(null);
+    setStreamSources([]);
     setContent(prev => ({ ...prev, [active]: '' })); // Clear old content
     
     abortControllerRef.current = new AbortController();
@@ -263,6 +267,8 @@ export default function ManuscriptBuilder() {
               const data = JSON.parse(dataStr);
               if (data.type === "chunk") {
                 setContent(prev => ({ ...prev, [active]: (prev[active] || "") + data.text }));
+              } else if (data.type === "sources_list") {
+                setStreamSources(data.sources || []);
               } else if (data.type === "provider_active") {
                 setAutoStatus(data.continuing ? `Resuming with ${data.provider}...` : `Generating with ${data.provider}...`);
               } else if (data.type === "provider_status") {
@@ -444,7 +450,8 @@ export default function ManuscriptBuilder() {
         topic, 
         content,
         gap_analysis: gapAnalysis,
-        manuscript_refs: manuscriptRefs
+        manuscript_refs: manuscriptRefs,
+        citation_style: citationStyle
       };
       const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/save`, { 
         method: 'POST', 
@@ -490,6 +497,27 @@ export default function ManuscriptBuilder() {
     fetchDrafts();
   }, [authFetch, showLoad]);
 
+  const handleNewPaper = () => {
+    if (Object.keys(content).length > 0) {
+      setShowNewPaperConfirm(true);
+      return;
+    }
+    confirmNewPaper();
+  };
+
+  const confirmNewPaper = () => {
+    setContent({});
+    setTopic('');
+    setGapAnalysis(null);
+    setManuscriptRefs(null);
+    setStreamSources([]);
+    setActive('abstract');
+    setUnverifiedWarning('');
+    setUnverifiedNumbers([]);
+    lastSavedContentRef.current = {};
+    setShowNewPaperConfirm(false);
+  };
+
   const load = async (draftTopic) => {
     const t = draftTopic.trim();
     if (!t) return;
@@ -506,6 +534,9 @@ export default function ManuscriptBuilder() {
         }
         if (data.data.manuscript_refs) {
           setManuscriptRefs(data.data.manuscript_refs);
+        }
+        if (data.data.citation_style) {
+          setCitationStyle(data.data.citation_style);
         }
         setShowLoad(false);
         setDraftFilter('');
@@ -561,6 +592,9 @@ export default function ManuscriptBuilder() {
           <div style={{ padding: 'var(--space-2) var(--space-3)', background: 'var(--bg-card-alt)', borderRadius: '6px', fontSize: 'var(--fs-sm)', fontWeight: '500', color: 'var(--text-muted)', border: '1px solid var(--border-color)' }}>
             {citationStyle.toUpperCase()} Format
           </div>
+          <button className="btn btn-secondary" onClick={handleNewPaper}>
+            <Plus size={14} /> New Paper
+          </button>
           <button className="btn btn-secondary" onClick={() => { setShowLoad(true); setLoadError(''); setDraftFilter(''); }}>
             <FolderOpen size={14} /> Load Draft
           </button>
@@ -581,7 +615,7 @@ export default function ManuscriptBuilder() {
       <div className="manuscript-layout" style={{ display: 'flex', gap: 'var(--space-4)', alignItems: 'flex-start', flexWrap: 'wrap' }}>
 
         {/* Sidebar Container */}
-        <div style={{ flex: '0 0 220px', minWidth: '220px', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', position: 'sticky', top: '1.5rem' }}>
+        <div className="sidebar" style={{ flex: '0 0 220px', minWidth: '220px', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', position: 'sticky', top: '1.5rem' }}>
           
           <SectionsList 
             sections={STEPS} 
@@ -593,63 +627,91 @@ export default function ManuscriptBuilder() {
 
           {/* Configuration Block */}
           <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 'var(--space-4)' }}>
-            <p style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text-subtle)', marginBottom: 'var(--space-4)' }}>Configuration</p>
             
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-              
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Research Topic</span>
-                <input
-                  placeholder="Enter research topic..."
-                  value={topic}
-                  onChange={e => setTopic(e.target.value)}
-                  style={{ padding: 'var(--space-2)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: 'var(--fs-sm)', width: '100%' }}
-                />
-              </div>
+            {/* Topic Input - Always Visible */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Research Topic</span>
+              <input
+                placeholder="Enter research topic..."
+                value={topic}
+                onChange={e => setTopic(e.target.value)}
+                style={{ padding: 'var(--space-2)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: 'var(--fs-sm)', width: '100%', outline: 'none' }}
+              />
+            </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Citation Format</span>
-                <select 
-                  value={citationStyle} 
-                  onChange={e => setCitationStyle(e.target.value)}
-                  style={{ padding: 'var(--space-2)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: 'var(--fs-sm)', width: '100%' }}
-                >
-                  <option value="ieee">IEEE Citation Format</option>
-                  <option value="apa">APA Citation Format</option>
-                  <option value="chicago">Chicago Style</option>
-                  <option value="oxford">Oxford Style</option>
-                </select>
-              </div>
+            {/* Settings Accordion */}
+            <div style={{ borderTop: '1px solid var(--border)', paddingTop: 'var(--space-3)', marginTop: 'var(--space-4)' }}>
+              <button
+                onClick={() => setSettingsOpen(!settingsOpen)}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+              >
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Settings</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                  {!settingsOpen && (
+                    <span style={{ fontSize: '11px', color: 'var(--primary)', fontWeight: 500 }}>
+                      {citationStyle.toUpperCase()} · {autoMode ? 'Auto' : 'Specific'}
+                    </span>
+                  )}
+                  <ChevronDown size={14} style={{ color: 'var(--text-muted)', transform: settingsOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s ease' }} />
+                </div>
+              </button>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Generation Model</span>
-                
-                <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', padding: 'var(--space-2)', borderRadius: 'var(--radius-md)', border: `1px solid ${autoMode ? 'var(--primary)' : 'var(--border)'}`, background: autoMode ? 'var(--primary-light)' : 'transparent', cursor: 'pointer', transition: 'var(--transition)' }}>
-                  <input type="radio" checked={autoMode} onChange={() => setAutoMode(true)} style={{ margin: 0 }} />
-                  <span style={{ fontSize: 'var(--fs-sm)', color: autoMode ? 'var(--primary)' : 'var(--text)' }}>Auto (Recommended)</span>
-                </label>
-                
-                <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', padding: 'var(--space-2)', borderRadius: 'var(--radius-md)', border: `1px solid ${!autoMode ? 'var(--primary)' : 'var(--border)'}`, background: !autoMode ? 'var(--primary-light)' : 'transparent', cursor: 'pointer', transition: 'var(--transition)' }}>
-                  <input type="radio" checked={!autoMode} onChange={() => setAutoMode(false)} style={{ margin: 0 }} />
-                  <span style={{ fontSize: 'var(--fs-sm)', color: !autoMode ? 'var(--primary)' : 'var(--text)' }}>Choose Specific</span>
-                </label>
-                
-                {!autoMode && (
-                  <select 
-                    value={selectedModelId} 
-                    onChange={e => setSelectedModelId(e.target.value)}
-                    style={{ padding: 'var(--space-2)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text)', fontSize: 'var(--fs-sm)', width: '100%', marginTop: 'var(--space-1)' }}
-                  >
-                    {Array.from(new Set(MODELS.map(m => m.group))).map(group => (
-                      <optgroup key={group} label={group}>
-                        {MODELS.filter(m => m.group === group).map(m => (
-                          <option key={m.id} value={m.id}>{m.label}</option>
+              {settingsOpen && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', marginTop: 'var(--space-4)' }}>
+                  
+                  {/* Citation Format */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--text-subtle)' }}>Citation Format</span>
+                    <select 
+                      value={citationStyle} 
+                      onChange={e => setCitationStyle(e.target.value)}
+                      style={{ padding: 'var(--space-2)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: 'var(--fs-sm)', width: '100%' }}
+                    >
+                      <option value="ieee">IEEE Citation Format</option>
+                      <option value="apa">APA Citation Format</option>
+                      <option value="chicago">Chicago Style</option>
+                      <option value="oxford">Oxford Style</option>
+                    </select>
+                  </div>
+
+                  {/* Model Selection */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--text-subtle)' }}>Generation Model</span>
+                    
+                    <div style={{ display: 'flex', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+                      <button
+                        onClick={() => setAutoMode(true)}
+                        style={{ flex: 1, padding: 'var(--space-2)', background: autoMode ? 'var(--primary)' : 'transparent', color: autoMode ? 'white' : 'var(--text)', border: 'none', cursor: 'pointer', fontSize: 'var(--fs-xs)', fontWeight: autoMode ? 600 : 400, transition: 'background-color var(--transition), color var(--transition)' }}
+                      >
+                        Auto
+                      </button>
+                      <button
+                        onClick={() => setAutoMode(false)}
+                        style={{ flex: 1, padding: 'var(--space-2)', background: !autoMode ? 'var(--primary)' : 'transparent', color: !autoMode ? 'white' : 'var(--text)', border: 'none', cursor: 'pointer', fontSize: 'var(--fs-xs)', fontWeight: !autoMode ? 600 : 400, transition: 'background-color var(--transition), color var(--transition)' }}
+                      >
+                        Specific
+                      </button>
+                    </div>
+
+                    {!autoMode && (
+                      <select 
+                        value={selectedModelId} 
+                        onChange={e => setSelectedModelId(e.target.value)}
+                        style={{ padding: 'var(--space-2)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: 'var(--fs-sm)', width: '100%', marginTop: 'var(--space-1)' }}
+                      >
+                        {Array.from(new Set(MODELS.map(m => m.group))).map(group => (
+                          <optgroup key={group} label={group}>
+                            {MODELS.filter(m => m.group === group).map(m => (
+                              <option key={m.id} value={m.id}>{m.label}</option>
+                            ))}
+                          </optgroup>
                         ))}
-                      </optgroup>
-                    ))}
-                  </select>
-                )}
-              </div>
+                      </select>
+                    )}
+                  </div>
+
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -677,6 +739,45 @@ export default function ManuscriptBuilder() {
             </div>
           </div>
 
+          {/* Source Cards Strip */}
+          {streamSources.length > 0 && (
+            <div style={{ marginBottom: 'var(--space-4)' }}>
+              <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-subtle)', marginBottom: 'var(--space-2)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                <BookOpen size={12} /> {streamSources.length} Sources Used
+              </div>
+              <div style={{ display: 'flex', gap: 'var(--space-2)', overflowX: 'auto', paddingBottom: 'var(--space-2)' }}>
+                {streamSources.map(src => (
+                  <div
+                    key={src.index}
+                    style={{
+                      minWidth: '200px', maxWidth: '260px', padding: 'var(--space-3)',
+                      background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                      borderRadius: 'var(--radius-md)', fontSize: 'var(--fs-xs)',
+                      display: 'flex', flexDirection: 'column', gap: 'var(--space-1)',
+                      transition: 'border-color var(--transition), box-shadow var(--transition)',
+                      cursor: 'default', flexShrink: 0,
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--primary)'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(43,94,168,0.1)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.boxShadow = 'none'; }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
+                      <span style={{ background: 'var(--primary)', color: 'white', borderRadius: '50%', width: '18px', height: '18px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 700, flexShrink: 0 }}>{src.index}</span>
+                      <span style={{ fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{src.title}</span>
+                    </div>
+                    <div style={{ color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {src.authors} {src.year && `(${src.year})`}
+                    </div>
+                    {src.url && (
+                      <a href={src.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)', display: 'inline-flex', alignItems: 'center', gap: '2px', fontSize: '0.65rem', textDecoration: 'none', marginTop: 'auto' }}>
+                        <ExternalLink size={10} /> View source
+                      </a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Gap Analysis Panel */}
           {gapAnalysis && (
             <div style={{ marginBottom: 'var(--space-5)', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 'var(--space-5)' }}>
@@ -688,24 +789,31 @@ export default function ManuscriptBuilder() {
                 <ChevronDown size={16} style={{marginLeft:'auto', transform: gapPanelOpen ? 'rotate(180deg)' : 'none', transition:'transform 150ms ease'}} />
               </button>
               
-              {gapPanelOpen && (
-                <div style={{ marginTop: 'var(--space-4)' }}>
+              <div style={{ display: 'grid', gridTemplateRows: gapPanelOpen ? '1fr' : '0fr', transition: 'grid-template-rows var(--transition)' }}>
+                <div style={{ overflow: 'hidden' }}>
+                  <div style={{ paddingTop: gapPanelOpen ? 'var(--space-4)' : '0', transition: 'padding-top var(--transition)' }}>
                   {gapAnalysis.status === 'insufficient_literature' ? (
                     <div style={{ textAlign: 'center', padding: 'var(--space-4)', color: 'var(--text-muted)' }}>
                       <p style={{ margin: 0 }}>{gapAnalysis.message}</p>
                     </div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-                      <div style={{ display: 'flex', gap: 'var(--space-1)', borderBottom: '1px solid var(--border)', paddingBottom: 'var(--space-2)' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', borderBottom: '1px solid var(--border)', paddingBottom: 'var(--space-2)', position: 'relative' }}>
                         {['consensus', 'conflicts', 'gaps'].map(tab => (
                           <button
                             key={tab}
                             onClick={() => setGapTab(tab)}
-                            style={{ background: 'none', border: 'none', padding: 'var(--space-1) var(--space-3)', borderBottom: gapTab === tab ? '2px solid var(--primary)' : '2px solid transparent', color: gapTab === tab ? 'var(--primary)' : 'var(--text-subtle)', fontWeight: gapTab === tab ? 600 : 400, cursor: 'pointer', transition: 'var(--transition)', fontSize: 'var(--fs-sm)', textTransform: 'capitalize' }}
+                            style={{ background: 'none', border: 'none', padding: 'var(--space-1) var(--space-3)', color: gapTab === tab ? 'var(--primary)' : 'var(--text-subtle)', fontWeight: gapTab === tab ? 600 : 400, cursor: 'pointer', transition: 'color var(--transition)', fontSize: 'var(--fs-sm)', textTransform: 'capitalize', textAlign: 'center' }}
                           >
                             {tab}
                           </button>
                         ))}
+                        <div style={{
+                          position: 'absolute', bottom: 0, height: '2px', background: 'var(--primary)',
+                          transition: 'transform var(--transition)',
+                          width: 'calc(100% / 3)',
+                          transform: `translateX(${['consensus', 'conflicts', 'gaps'].indexOf(gapTab) * 100}%)`
+                        }} />
                       </div>
 
                       {gapTab === 'consensus' && gapAnalysis.consensus && gapAnalysis.consensus.length > 0 && (
@@ -760,8 +868,9 @@ export default function ManuscriptBuilder() {
                       </div>
                     </div>
                   )}
+                  </div>
                 </div>
-              )}
+              </div>
             </div>
           )}
 
@@ -770,14 +879,48 @@ export default function ManuscriptBuilder() {
               <X size={15} /> {generateError}
             </div>
           )}
-          {unverifiedWarning && <p style={{ color: 'var(--warning)', fontSize: 'var(--fs-sm)', marginBottom: 'var(--space-4)', background: 'rgba(255,176,0,0.1)', padding: 'var(--space-3)', borderRadius: 'var(--radius-md)' }}>{unverifiedWarning}</p>}
-          {unverifiedNumbers.length > 0 && (
-            <div style={{ color: 'var(--danger)', fontSize: 'var(--fs-sm)', marginBottom: 'var(--space-4)', background: 'rgba(229,28,35,0.08)', border: '1px solid rgba(229,28,35,0.2)', padding: 'var(--space-3)', borderRadius: 'var(--radius-md)' }}>
-              <p style={{ margin: '0 0 var(--space-2) 0', fontWeight: 600 }}>⚠️ Unverified Statistics Detected</p>
-              <p style={{ margin: '0 0 var(--space-2) 0' }}>The following numbers were not found in the source papers and may be hallucinated:</p>
-              <ul style={{ margin: 0, paddingLeft: 'var(--space-5)' }}>
-                {unverifiedNumbers.map((num, i) => <li key={i}><strong>{num}</strong></li>)}
-              </ul>
+          {/* Unverified Stats Toast */}
+          {(unverifiedWarning || unverifiedNumbers.length > 0) && (
+            <div style={{
+              position: 'fixed', bottom: 'var(--space-5)', right: 'var(--space-5)',
+              zIndex: 100, maxWidth: '360px', width: '100%',
+              background: 'var(--bg-card)', border: '1px solid rgba(229,28,35,0.25)',
+              borderRadius: 'var(--radius-lg)',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(229,28,35,0.08)',
+              padding: 'var(--space-4)',
+              animation: 'slideUp 0.3s ease-out both',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 'var(--space-3)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', minWidth: 0 }}>
+                  <span style={{ fontSize: 'var(--fs-md)', flexShrink: 0 }}>⚠️</span>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 'var(--fs-sm)', color: 'var(--text)' }}>
+                      {unverifiedNumbers.length} stat{unverifiedNumbers.length !== 1 ? 's' : ''} may need verification
+                    </div>
+                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: '2px' }}>
+                      Not found in source papers
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => { setUnverifiedWarning(''); setUnverifiedNumbers([]); }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: 'var(--text-subtle)', flexShrink: 0 }}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+              {unverifiedNumbers.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-1)', marginTop: 'var(--space-3)' }}>
+                  {unverifiedNumbers.map((num, i) => (
+                    <span key={i} style={{
+                      padding: '2px 8px', borderRadius: '999px',
+                      background: 'rgba(229,28,35,0.08)', color: 'var(--danger)',
+                      fontSize: 'var(--fs-xs)', fontWeight: 600, fontFamily: "'IBM Plex Mono', monospace",
+                      border: '1px solid rgba(229,28,35,0.15)',
+                    }}>{num}</span>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -821,16 +964,22 @@ export default function ManuscriptBuilder() {
             <div className="manuscript-editor-surface" key={active}>
               <div className="manuscript-toolbar">
                 <div style={{ display: 'flex', gap: 'var(--space-4)', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', gap: 'var(--space-1)' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', position: 'relative' }}>
                     {['write', 'preview', 'paper'].map(mode => (
                       <button
                         key={mode}
                         onClick={() => setViewMode(mode)}
-                        style={{ background: 'none', border: 'none', padding: 'var(--space-1) var(--space-2)', borderBottom: viewMode === mode ? '2px solid var(--primary)' : '2px solid transparent', color: viewMode === mode ? 'var(--primary)' : 'var(--text-subtle)', fontWeight: viewMode === mode ? 600 : 400, cursor: 'pointer', transition: 'var(--transition)', fontSize: 'var(--fs-sm)' }}
+                        style={{ background: 'none', border: 'none', padding: 'var(--space-1) var(--space-2)', color: viewMode === mode ? 'var(--primary)' : 'var(--text-subtle)', fontWeight: viewMode === mode ? 600 : 400, cursor: 'pointer', transition: 'color var(--transition)', fontSize: 'var(--fs-sm)', textAlign: 'center' }}
                       >
                         {mode === 'write' ? 'Write' : mode === 'preview' ? 'Preview' : 'Paper Preview'}
                       </button>
                     ))}
+                    <div style={{
+                      position: 'absolute', bottom: 0, height: '2px', background: 'var(--primary)',
+                      transition: 'transform var(--transition)',
+                      width: 'calc(100% / 3)',
+                      transform: `translateX(${['write', 'preview', 'paper'].indexOf(viewMode) * 100}%)`
+                    }} />
                   </div>
                   
                   {/* Rich Text Toolbar (Only in Write Mode) */}
@@ -912,7 +1061,7 @@ export default function ManuscriptBuilder() {
                         }
                       }}
                     >
-                      {processForUnverified((content[active] || '') + (generating ? ' ▋' : ''))}
+                      {processForUnverified((content[active] || '') + (generating ? ' <span class="write-cursor">▋</span>' : ''))}
                     </ReactMarkdown>
                   ) : (
                     <p style={{ color: 'var(--text-subtle)', fontStyle: 'italic', margin: 0 }}>Nothing to preview.</p>
@@ -1103,6 +1252,23 @@ export default function ManuscriptBuilder() {
           )}
         </div>
       </div>
+
+      {/* New Paper Confirm Modal */}
+      {showNewPaperConfirm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' }} onClick={() => setShowNewPaperConfirm(false)}>
+          <div className="animate-scale-in" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 'var(--space-6)', width: '100%', maxWidth: '400px' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
+              <h3 style={{ margin: 0, color: 'var(--danger)' }}>Start New Paper?</h3>
+              <button onClick={() => setShowNewPaperConfirm(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', display: 'flex' }}><X size={17} /></button>
+            </div>
+            <p style={{ fontSize: 'var(--fs-sm)', marginBottom: 'var(--space-6)' }}>Are you sure you want to start a new paper? Any unsaved changes in your current manuscript will be lost.</p>
+            <div style={{ display: 'flex', gap: 'var(--space-3)', justifyContent: 'flex-end' }}>
+              <button className="btn btn-ghost" onClick={() => setShowNewPaperConfirm(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={confirmNewPaper} style={{ background: 'var(--danger)' }}>Yes, Start Fresh</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Load modal */}
       {showLoad && (

@@ -133,6 +133,7 @@ class ManuscriptSavePayload(BaseModel):
     content: Dict[str, Any]
     gap_analysis: Optional[Dict[str, Any]] = None
     manuscript_refs: Optional[Dict[str, Any]] = None
+    citation_style: Optional[str] = "ieee"
 
 class PdfAnalyzePayload(BaseModel):
     text: str
@@ -387,6 +388,7 @@ async def save_manuscript_draft(payload: ManuscriptSavePayload, current_user: di
                 "content": payload.content,
                 "gap_analysis": payload.gap_analysis,
                 "manuscript_refs": payload.manuscript_refs,
+                "citation_style": payload.citation_style,
                 "updated_at": now
             }}
         )
@@ -398,6 +400,7 @@ async def save_manuscript_draft(payload: ManuscriptSavePayload, current_user: di
             "content": payload.content,
             "gap_analysis": payload.gap_analysis,
             "manuscript_refs": payload.manuscript_refs,
+            "citation_style": payload.citation_style,
             "created_at": now,
             "updated_at": now,
         })

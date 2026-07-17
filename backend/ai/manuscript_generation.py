@@ -254,7 +254,20 @@ async def generate_section_stream(topic: str, section: str, context: str, citati
     if err:
         yield {"type": "stopped", "reason": "error", "message": "Topic unclear"}
         return
-        
+
+    # Emit all resolved sources upfront before LLM streaming starts
+    if references_mapping:
+        sources_list = []
+        for idx_str, paper in sorted(references_mapping.items(), key=lambda x: int(x[0])):
+            sources_list.append({
+                "index": int(idx_str),
+                "title": paper.get("title", "Unknown"),
+                "authors": paper.get("authors", "Unknown"),
+                "year": paper.get("year", ""),
+                "url": paper.get("url") or paper.get("doi", ""),
+            })
+        yield {"type": "sources_list", "sources": sources_list}
+
     max_tokens_limit = 2000 if section.lower().replace(" ", "_") in ("lit_review", "literature_review") else 1200
     
     from ai.llm_provider import LLM_PROVIDER

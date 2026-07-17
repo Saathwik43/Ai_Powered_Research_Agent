@@ -311,7 +311,14 @@
   font-size: 0.85rem;
   margin-left: 4px;
   display: inline-block;
-  transform: rotate(-2deg);
+  opacity: 0;
+  transform: translateX(-2px) rotate(-2deg);
+  transition: opacity var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
+}
+
+.citation-pill:hover::after {
+  opacity: 1;
+  transform: translateX(0) rotate(-2deg);
 }
 
 /* ── Gap Analysis Result within Bubble ───────────────── */

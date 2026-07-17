@@ -88,6 +88,8 @@
 
   --sidebar-width: 272px;
   --transition: 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --duration-fast: 100ms;
+  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 * {
@@ -482,6 +484,12 @@ textarea::placeholder {
   z-index: 190;
   backdrop-filter: blur(3px);
 }
+
+@keyframes blink-cursor {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+.write-cursor { animation: blink-cursor 1s steps(1) infinite; }
 
 @keyframes fadeIn {
   from { opacity: 0; }
