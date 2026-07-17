@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Menu, Sparkles } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { AppProvider } from './context/AppContext';
 import Sidebar from './components/Sidebar';
 import Dashboard from './pages/Dashboard';
 import LiteratureSurvey from './pages/LiteratureSurvey';
@@ -98,7 +99,9 @@ function AppRoutes() {
 function App() {
   return (
     <AuthProvider>
-      <AppRoutes />
+      <AppProvider>
+        <AppRoutes />
+      </AppProvider>
     </AuthProvider>
   );
 }

@@ -94,8 +94,9 @@ function MessageBubble({ msg }) {
           components={{
             a: ({ node, href, children, ...props }) => {
               if (href?.startsWith('#page-')) {
+                const pageNum = href.replace('#page-', '');
                 return (
-                  <a href={href} className="citation-pill" {...props}>
+                  <a href={href} className="citation-pill" data-ref={`p.${pageNum}`} {...props}>
                     {children}
                   </a>
                 );
@@ -484,13 +485,13 @@ export default function PdfAnalysis() {
               <p>This may take a few seconds.</p>
             </div>
           ) : (!file && !extractedText) ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', paddingTop: '10vh', height: 'auto', width: '100%' }}>
-              <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-                <div style={{ display: 'inline-flex', padding: '1rem', background: 'var(--primary-light)', borderRadius: '50%', color: 'var(--primary)', marginBottom: '1rem' }}>
-                  <FileText size={48} />
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, width: '100%' }}>
+              <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
+                <div style={{ display: 'inline-flex', padding: '0.75rem', background: 'var(--primary-light)', borderRadius: '50%', color: 'var(--primary)', marginBottom: '0.75rem' }}>
+                  <FileText size={32} />
                 </div>
-                <h1 style={{ fontSize: '2rem', fontWeight: 800, margin: '0 0 0.5rem' }}>Chat with your PDF</h1>
-                <p style={{ color: 'var(--text-subtle)' }}>Upload a research paper to extract insights, find gaps, and summarize methodology.</p>
+                <h1 style={{ fontSize: '1.5rem', fontWeight: 800, margin: '0 0 0.5rem' }}>Chat with your PDF</h1>
+                <p style={{ color: 'var(--text-subtle)', fontSize: '0.9rem', maxWidth: '350px', margin: '0 auto' }}>Upload a research paper to extract insights, find gaps, and summarize methodology.</p>
               </div>
 
               {error && (
@@ -510,11 +511,11 @@ export default function PdfAnalysis() {
                   if (files.length) handleFileChange(files[0]);
                 }}
                 onClick={() => fileInputRef.current?.click()}
-                style={{ maxWidth: '500px', padding: '3rem 2rem' }}
+                style={{ maxWidth: '400px', padding: '2rem 1.5rem' }}
               >
-                <UploadCloud size={48} className="pdf-dropzone-icon" />
-                <h3 style={{ fontSize: '1.2rem', fontWeight: 600, margin: '0 0 0.5rem' }}>Drop your PDF here</h3>
-                <p style={{ color: 'var(--text-subtle)', fontSize: '0.9rem', margin: 0 }}>or click to browse from your computer</p>
+                <UploadCloud size={32} className="pdf-dropzone-icon" style={{ marginBottom: '0.75rem' }} />
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 600, margin: '0 0 0.25rem' }}>Drop your PDF here</h3>
+                <p style={{ color: 'var(--text-subtle)', fontSize: '0.85rem', margin: 0 }}>or click to browse from your computer</p>
               </div>
             </div>
           ) : (

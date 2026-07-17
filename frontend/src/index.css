@@ -1,7 +1,11 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Caveat:wght@500;600&display=swap');
 
 @import "tailwindcss";
 @source "../src";
+
+.serif, .manuscript-title, .paper-title { font-family: 'Source Serif 4', Georgia, serif; }
+.mono, .citation-id, .page-ref, .score-value { font-family: 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; }
+.margin-note { font-family: 'Caveat', cursive; font-size: 1.1rem; color: var(--accent-strong); }
 
 @theme {
   --color-border: var(--border);
@@ -28,34 +32,34 @@
 
 
 :root {
-  --primary: #2F5AFF;
-  --primary-hover: #1A3FE0;
-  --primary-light: rgba(47, 90, 255, 0.1);
-  --primary-glow: rgba(47, 90, 255, 0.22);
+  --primary: #2B5EA8;
+  --primary-hover: #1F4A87;
+  --primary-light: rgba(43, 94, 168, 0.1);
+  --primary-glow: rgba(43, 94, 168, 0.18);
 
-  --accent: #E91E8C;
-  --accent-light: rgba(233, 30, 140, 0.1);
-  --accent-strong: #C4157A;
+  --accent: #C9622A;
+  --accent-light: rgba(201, 98, 42, 0.12);
+  --accent-strong: #A44E20;
 
-  --gold: #F5B700;
-  --gold-light: rgba(245, 183, 0, 0.12);
+  --gold: #C9622A;
+  --gold-light: rgba(201, 98, 42, 0.12);
 
-  --success: #00D68F;
-  --warning: #FFB300;
-  --danger: #FF3B3B;
+  --success: #4F8F6B;
+  --warning: #C9622A;
+  --danger: #B23A2E;
 
-  --bg: #F8F9FC;
+  --bg: #FAFAF8;
   --bg-card: #FFFFFF;
-  --bg-elevated: #EEF1FA;
+  --bg-elevated: #F2F1EC;
   --bg-input: #FFFFFF;
 
-  --border: #DCE3F0;
-  --border-strong: #B8C4DC;
-  --border-focus: #2F5AFF;
+  --border: #E4E1D8;
+  --border-strong: #C9C5B8;
+  --border-focus: #2B5EA8;
 
-  --text: #111827;
-  --text-muted: #526071;
-  --text-subtle: #7B8798;
+  --text: #0F1115;
+  --text-muted: #5C594F;
+  --text-subtle: #9A9690;
 
   --shadow-sm: 0 1px 2px rgba(17, 24, 39, 0.08);
   --shadow-md: 0 8px 24px rgba(17, 24, 39, 0.1);
@@ -79,10 +83,7 @@
 
 body {
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background: 
-    radial-gradient(circle at 15% 50%, rgba(0, 87, 255, 0.08), transparent 25%),
-    radial-gradient(circle at 85% 30%, rgba(255, 77, 0, 0.08), transparent 25%),
-    linear-gradient(135deg, #f0f4f8 0%, #ffffff 100%);
+  background: var(--bg);
   background-attachment: fixed;
   color: var(--text);
   line-height: 1.6;
@@ -96,6 +97,11 @@ body,
   width: 100%;
   overflow-x: hidden;
   scroll-behavior: smooth;
+}
+
+.card, [class*="-card"] {
+  box-shadow: none !important;
+  border: 1px solid var(--border);
 }
 
 img,

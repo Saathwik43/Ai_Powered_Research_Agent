@@ -294,17 +294,24 @@
 
 /* ── Citation Pill ──────────────────────────────────────── */
 .citation-pill {
-  display: inline-block;
-  background: var(--bg-warning, #fff3cd);
-  color: var(--text, #333);
-  padding: 0.1rem 0.4rem;
-  border-radius: 99px;
-  font-size: 11px;
-  font-weight: 600;
-  margin: 0 0.2rem;
-  vertical-align: middle;
-  border: 1px solid var(--border, #ffeeba);
+  background: none;
+  border: none;
+  border-bottom: 2px solid var(--accent);
+  border-radius: 0;
+  padding: 0 2px;
+  position: relative;
   text-decoration: none;
+  color: var(--text);
+}
+
+.citation-pill::after {
+  content: attr(data-ref);
+  font-family: 'Caveat', cursive;
+  color: var(--accent-strong);
+  font-size: 0.85rem;
+  margin-left: 4px;
+  display: inline-block;
+  transform: rotate(-2deg);
 }
 
 /* ── Gap Analysis Result within Bubble ───────────────── */

@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { CheckCircle, Circle, Save, FileText, Wand2, FolderOpen, X, Search, Sparkles, Send, BookOpen, Bold, Italic, Strikethrough, Link, List, ListOrdered, CheckSquare, Table, Quote, Code, Undo, Redo, Heading1, Heading2, Heading3, Printer } from 'lucide-react';
 import './ManuscriptBuilder.css';
 import './PaperPreview.css';
 import { useAuth } from '../context/AuthContext';
+import { useAppContext } from '../context/AppContext';
 import { Spinner, SkeletonText } from '../components/Loader';
 import SectionsList from '../components/SectionsList';
 import ReactMarkdown from 'react-markdown';
@@ -119,23 +120,29 @@ const STEPS = [
 
 export default function ManuscriptBuilder() {
   const { authFetch } = useAuth();
-  const [active, setActive]         = useState('abstract');
-  const [topic, setTopic]           = useState('');
-  const [content, setContent]       = useState({});
-  const [editHistory, setEditHistory] = useState({});
+  const { manuscriptState } = useAppContext();
+  const {
+    active, setActive,
+    topic, setTopic,
+    content, setContent,
+    generating, setGenerating,
+    editHistory, setEditHistory,
+    manuscriptRefs, setManuscriptRefs,
+    lastSavedContentRef
+  } = manuscriptState;
+
   const [pendingEdit, setPendingEdit] = useState(null);
-  const [generating, setGenerating] = useState(false);
   const [saveStatus, setSaveStatus] = useState('');
   const [printPending, setPrintPending] = useState(false);
-  const [showLoad, setShowLoad]     = useState(false);
-  const [viewMode, setViewMode]     = useState('write');
-  const [drafts, setDrafts]         = useState([]);
-  const [draftFilter, setDraftFilter] = useState('');
+  const [showLoad,     setShowLoad]     = useState(false);
+  const [viewMode,     setViewMode]     = useState('write');
+  const [drafts,       setDrafts]       = useState([]);
+  const [draftFilter,  setDraftFilter]  = useState('');
   const [draftLoading, setDraftLoading] = useState(false);
-  const [loadError, setLoadError]   = useState('');
-  const [editPrompt, setEditPrompt] = useState('');
-  const [editing, setEditing]       = useState(false);
-  const [editError, setEditError]   = useState('');
+  const [loadError,    setLoadError]    = useState('');
+  const [editPrompt,   setEditPrompt]   = useState('');
+  const [editing,      setEditing]      = useState(false);
+  const [editError,    setEditError]    = useState('');
   const [generateError, setGenerateError] = useState('');
   const [unverifiedWarning, setUnverifiedWarning] = useState('');
   const [unverifiedNumbers, setUnverifiedNumbers] = useState([]);
@@ -145,7 +152,6 @@ export default function ManuscriptBuilder() {
   // Phase B additions
   const [citationStyle, setCitationStyle] = useState('ieee');
   const [selectedModelId, setSelectedModelId] = useState('groq-default');
-  const [manuscriptRefs, setManuscriptRefs] = useState(null);
   const [rateLimitWait, setRateLimitWait] = useState(null);
   const [autoMode, setAutoMode] = useState(true);
   const [autoStatus, setAutoStatus] = useState('');
@@ -410,6 +416,23 @@ export default function ManuscriptBuilder() {
       if (res.ok) setTimeout(() => setSaveStatus(''), 3000);
     } catch { setSaveStatus('error'); }
   };
+
+  // Autosave Effect
+  useEffect(() => {
+    if (!topic || !Object.keys(content).length) return;
+    
+    // Only autosave if the content actually changed since last save
+    const currentContentStr = JSON.stringify(content);
+    const lastSavedStr = JSON.stringify(lastSavedContentRef.current);
+    if (currentContentStr === lastSavedStr) return;
+    
+    const timeoutId = setTimeout(() => {
+      save();
+      lastSavedContentRef.current = content;
+    }, 5000);
+    
+    return () => clearTimeout(timeoutId);
+  }, [content, topic]);
 
   useEffect(() => {
     if (!showLoad) return;

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { GoogleLogin } from '@react-oauth/google';
 import { AlertCircle, ArrowRight, Eye, EyeOff, Lock, Mail, Sparkles, User } from 'lucide-react';
 import './AuthPages.css';
 
@@ -26,6 +27,26 @@ const Login = () => {
       });
       const data = await res.json();
       if (!res.ok) { setError(data.detail || 'Login failed.'); return; }
+      login(data.token, data.user);
+      navigate('/dashboard');
+    } catch {
+      setError('Could not connect to server.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleSuccess = async (credentialResponse) => {
+    setError('');
+    setLoading(true);
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/auth/google`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: credentialResponse.credential }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.detail || 'Google sign-in failed.'); return; }
       login(data.token, data.user);
       navigate('/dashboard');
     } catch {
@@ -62,6 +83,18 @@ const Login = () => {
         <button type="submit" className="btn btn-primary w-full auth-submit" disabled={loading}>
           {loading ? <><Spin /> Signing in</> : <>Sign in <ArrowRight size={16} /></>}
         </button>
+
+        <div className="auth-divider">
+          <span>or</span>
+        </div>
+        
+        <div className="google-login-container">
+          <GoogleLogin
+            onSuccess={handleGoogleSuccess}
+            onError={() => setError('Google sign-in failed.')}
+            useOneTap
+          />
+        </div>
       </form>
     </AuthLayout>
   );
@@ -99,6 +132,26 @@ const Signup = () => {
     }
   };
 
+  const handleGoogleSuccess = async (credentialResponse) => {
+    setError('');
+    setLoading(true);
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/auth/google`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: credentialResponse.credential }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.detail || 'Google sign-up failed.'); return; }
+      login(data.token, data.user);
+      navigate('/dashboard');
+    } catch {
+      setError('Could not connect to server.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <AuthLayout
       eyebrow="Start free"
@@ -127,6 +180,18 @@ const Signup = () => {
         <button type="submit" className="btn btn-primary w-full auth-submit" disabled={loading}>
           {loading ? <><Spin /> Creating account</> : <>Create account <ArrowRight size={16} /></>}
         </button>
+
+        <div className="auth-divider">
+          <span>or</span>
+        </div>
+        
+        <div className="google-login-container">
+          <GoogleLogin
+            onSuccess={handleGoogleSuccess}
+            onError={() => setError('Google sign-up failed.')}
+            useOneTap
+          />
+        </div>
       </form>
     </AuthLayout>
   );

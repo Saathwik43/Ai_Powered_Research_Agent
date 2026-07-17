@@ -10,3 +10,4 @@ scratch_*.py
 *.txt  
 
 backend.log
+client_secret_*.json

@@ -5,24 +5,29 @@ import './LiteratureSurvey.css';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { useAuth } from '../context/AuthContext';
+import { useAppContext } from '../context/AppContext';
 import { Spinner, SkeletonList } from '../components/Loader';
 
 export default function LiteratureSurvey() {
   const { authFetch } = useAuth();
-  const [query, setQuery]         = useState('');
-  const [papers, setPapers]       = useState([]);
-  const [loading, setLoading]     = useState(false);
+  const { literatureState } = useAppContext();
+  const {
+    query, setQuery,
+    papers, setPapers,
+    loading, setLoading,
+    activeTab, setActiveTab,
+    searchError, setSearchError,
+    hasSearched, setHasSearched,
+    lastQuery, setLastQuery,
+    filterYear, setFilterYear,
+    filterSource, setFilterSource,
+    visibleCount, setVisibleCount
+  } = literatureState;
+
   const [loadingMore, setLoadingMore] = useState(false);
   const [saveStatus, setSaveStatus] = useState('');
-  const [searchError, setSearchError] = useState('');
-  const [hasSearched, setHasSearched] = useState(false);
-  const [lastQuery, setLastQuery] = useState('');
-  const [activeTab, setActiveTab] = useState('search');
   const [savedSurveys, setSavedSurveys] = useState([]);
   const [loadingSaved, setLoadingSaved] = useState(false);
-  const [visibleCount, setVisibleCount] = useState(15);
-  const [filterYear, setFilterYear] = useState('All');
-  const [filterSource, setFilterSource] = useState('All');
 
   const PAGE_SIZE = 15;
 

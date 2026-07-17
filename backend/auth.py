@@ -7,6 +7,8 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from database import db
 from dotenv import load_dotenv
+from google.oauth2 import id_token
+from google.auth.transport import requests
 import usage_tracker
 
 load_dotenv()
@@ -16,6 +18,9 @@ logger = logging.getLogger(__name__)
 SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 if not SECRET_KEY:
     raise RuntimeError("JWT_SECRET_KEY is not configured in the environment.")
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+if not GOOGLE_CLIENT_ID:
+    logger.warning("GOOGLE_CLIENT_ID is not configured. Google Sign-In will not work.")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 24
 
@@ -105,6 +110,45 @@ async def login_user(email: str, password: str) -> dict:
     user_id = str(user["_id"])
     token = create_access_token(user_id, email)
     return {"token": token, "user": {"id": user_id, "email": email, "name": user.get("name", ""), "role": user.get("role", "user")}}
+
+# ─── Google Auth ───────────────────────────────────────────────────────────────
+
+def verify_google_token(token: str) -> dict:
+    if not GOOGLE_CLIENT_ID:
+        raise HTTPException(status_code=500, detail="Google authentication is not configured on the server.")
+    try:
+        idinfo = id_token.verify_oauth2_token(token, requests.Request(), GOOGLE_CLIENT_ID)
+        return idinfo
+    except ValueError as e:
+        logger.error(f"Google token verification failed: {e}")
+        raise HTTPException(status_code=401, detail="Invalid Google token.")
+
+async def google_auth_user(email: str, name: str) -> dict:
+    collection = db["users"]
+    user = await collection.find_one({"email": email})
+    
+    if not user:
+        # Create a new user account without a password for Google Sign-in users
+        user_doc = {
+            "email": email,
+            "name": name,
+            "role": "user",
+            "auth_provider": "google",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        result = await collection.insert_one(user_doc)
+        user_id = str(result.inserted_id)
+        role = "user"
+    else:
+        user_id = str(user["_id"])
+        role = user.get("role", "user")
+        
+        # Optionally update user's auth_provider if they sign in with Google now
+        if user.get("auth_provider") != "google":
+            await collection.update_one({"_id": user["_id"]}, {"$set": {"auth_provider": "google"}})
+
+    token = create_access_token(user_id, email)
+    return {"token": token, "user": {"id": user_id, "email": email, "name": name, "role": role}}
 
 
 # ─── Seed Admin ────────────────────────────────────────────────────────────────

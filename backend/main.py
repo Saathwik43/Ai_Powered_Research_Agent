@@ -35,7 +35,7 @@ from integrations.github_knowledge import (
 )
 
 from database import db, ping_db, ensure_indexes
-from auth import signup_user, login_user, get_current_user, seed_admin
+from auth import signup_user, login_user, get_current_user, seed_admin, verify_google_token, google_auth_user
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", filename="backend.log")
 logger = logging.getLogger(__name__)
@@ -105,6 +105,9 @@ class LoginPayload(BaseModel):
     email: str = Field(..., min_length=1)
     password: str = Field(..., min_length=1)
 
+class GoogleAuthPayload(BaseModel):
+    token: str = Field(..., min_length=1)
+
 class ManuscriptPayload(BaseModel):
     topic: str
     section: str = "abstract"
@@ -173,6 +176,15 @@ async def signup(payload: SignupPayload):
 async def login(payload: LoginPayload):
     email = payload.email.strip().lower()
     return await login_user(email, payload.password)
+
+@app.post("/api/auth/google")
+async def google_auth(payload: GoogleAuthPayload):
+    idinfo = verify_google_token(payload.token)
+    email = idinfo.get('email')
+    name = idinfo.get('name', 'Google User')
+    if not email:
+        raise HTTPException(status_code=400, detail="Google token does not contain an email.")
+    return await google_auth_user(email.lower(), name)
 
 
 @app.get("/api/auth/me")
