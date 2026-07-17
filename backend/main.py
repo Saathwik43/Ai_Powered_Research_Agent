@@ -131,6 +131,8 @@ class ManuscriptEditPayload(BaseModel):
 class ManuscriptSavePayload(BaseModel):
     topic: str
     content: Dict[str, Any]
+    gap_analysis: Optional[Dict[str, Any]] = None
+    manuscript_refs: Optional[Dict[str, Any]] = None
 
 class PdfAnalyzePayload(BaseModel):
     text: str
@@ -381,7 +383,12 @@ async def save_manuscript_draft(payload: ManuscriptSavePayload, current_user: di
     if existing:
         await collection.update_one(
             {"user_id": user_id, "topic": payload.topic},
-            {"$set": {"content": payload.content, "updated_at": now}}
+            {"$set": {
+                "content": payload.content,
+                "gap_analysis": payload.gap_analysis,
+                "manuscript_refs": payload.manuscript_refs,
+                "updated_at": now
+            }}
         )
         return {"message": "Draft updated.", "topic": payload.topic}
     else:
@@ -389,6 +396,8 @@ async def save_manuscript_draft(payload: ManuscriptSavePayload, current_user: di
             "user_id": user_id,
             "topic": payload.topic,
             "content": payload.content,
+            "gap_analysis": payload.gap_analysis,
+            "manuscript_refs": payload.manuscript_refs,
             "created_at": now,
             "updated_at": now,
         })

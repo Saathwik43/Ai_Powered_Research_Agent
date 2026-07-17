@@ -157,7 +157,23 @@ export default function ManuscriptBuilder() {
   const [autoStatus, setAutoStatus] = useState('');
   
   const [gapAnalysis, setGapAnalysis] = useState(null);
+  const [gapPanelOpen, setGapPanelOpen] = useState(false);
+  const [gapTab, setGapTab] = useState('consensus');
   const [customContext, setCustomContext] = useState('');
+  
+  const abortControllerRef = useRef(null);
+
+  const processForUnverified = (text) => {
+    if (!text || !unverifiedNumbers || !unverifiedNumbers.length) return text;
+    let processed = text;
+    unverifiedNumbers.forEach(num => {
+      // Split and join is a safe way to replace all occurrences without regex escaping issues
+      processed = processed.split(num).join(`[${num}](#unverified-stat)`);
+    });
+    // Fix double wrapping if any
+    processed = processed.split('](#unverified-stat)](#unverified-stat)').join('](#unverified-stat)').split('[[').join('[');
+    return processed;
+  };
 
   const done = STEPS.filter(s => content[s.id]?.trim()).map(s => s.id);
 
@@ -169,6 +185,8 @@ export default function ManuscriptBuilder() {
     setUnverifiedNumbers([]);
     setRateLimitWait(null);
     setContent(prev => ({ ...prev, [active]: '' })); // Clear old content
+    
+    abortControllerRef.current = new AbortController();
     
     // If the active section is 'references', we don't need the LLM to generate it!
     // We already have the compiled references in `manuscriptRefs`.
@@ -207,6 +225,7 @@ export default function ManuscriptBuilder() {
       const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/stream`, {
         method: 'POST',
         body: JSON.stringify(payload),
+        signal: abortControllerRef.current.signal
       });
       
       if (!res.ok) {
@@ -279,10 +298,20 @@ export default function ManuscriptBuilder() {
         }
       }
     } catch (e) {
-      console.error(e);
-      setGenerateError('Network error. Please try again.');
+      if (e.name === 'AbortError') {
+        setContent(prev => ({ ...prev, [active]: (prev[active] || "") + `\n\n*[Generation stopped by user]*` }));
+      } else {
+        console.error(e);
+        setGenerateError('Network error. Please try again.');
+      }
     }
     finally { setGenerating(false); }
+  };
+
+  const stopGeneration = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
   };
 
   // Countdown timer effect
@@ -411,7 +440,16 @@ export default function ManuscriptBuilder() {
     if (!topic || !Object.keys(content).length) return;
     setSaveStatus('saving');
     try {
-      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/save`, { method: 'POST', body: JSON.stringify({ topic, content }) });
+      const payload = { 
+        topic, 
+        content,
+        gap_analysis: gapAnalysis,
+        manuscript_refs: manuscriptRefs
+      };
+      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/save`, { 
+        method: 'POST', 
+        body: JSON.stringify(payload) 
+      });
       setSaveStatus(res.ok ? 'saved' : 'error');
       if (res.ok) setTimeout(() => setSaveStatus(''), 3000);
     } catch { setSaveStatus('error'); }
@@ -462,6 +500,13 @@ export default function ManuscriptBuilder() {
         const data = await res.json();
         setContent(data.data.content || {});
         setTopic(data.data.topic || t);
+        if (data.data.gap_analysis) {
+          setGapAnalysis(data.data.gap_analysis);
+          setGapPanelOpen(false); // keep it closed on initial load
+        }
+        if (data.data.manuscript_refs) {
+          setManuscriptRefs(data.data.manuscript_refs);
+        }
         setShowLoad(false);
         setDraftFilter('');
       } else { setLoadError('No draft found for this topic.'); }
@@ -616,9 +661,15 @@ export default function ManuscriptBuilder() {
             <div className="responsive-actions" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
               {autoStatus && <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{autoStatus}</span>}
               <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <button className="btn btn-secondary" onClick={generate} disabled={generating || !topic.trim() || rateLimitWait > 0}>
-                  {generating ? <Spinner size={14} /> : <><Sparkles size={14} /> {rateLimitWait ? `Wait ${rateLimitWait}s` : 'Generate'}</>}
-                </button>
+                {generating ? (
+                  <button className="btn btn-secondary" onClick={stopGeneration} style={{ background: 'var(--danger)', color: 'white', borderColor: 'var(--danger)' }}>
+                    <Spinner size={14} /> Stop
+                  </button>
+                ) : (
+                  <button className="btn btn-secondary" onClick={generate} disabled={!topic.trim() || rateLimitWait > 0}>
+                    <Sparkles size={14} /> {rateLimitWait ? `Wait ${rateLimitWait}s` : 'Generate'}
+                  </button>
+                )}
                 <button className="btn btn-ghost" onClick={save} disabled={!topic || !Object.keys(content).length || saveStatus === 'saving'}>
                   <Save size={14} /> {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : 'Save'}
                 </button>
@@ -626,61 +677,89 @@ export default function ManuscriptBuilder() {
             </div>
           </div>
 
-          {/* Topic and settings were moved to the sidebar */}
-
           {/* Gap Analysis Panel */}
           {gapAnalysis && (
             <div style={{ marginBottom: '1.5rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.5rem' }}>
-              <h3 style={{ margin: '0 0 1rem 0', fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Search size={16} color="var(--primary)" /> Research Gaps Analysis</h3>
+              <button onClick={() => setGapPanelOpen(o => !o)} style={{display:'flex', alignItems:'center', gap:'0.5rem', width:'100%', background:'none', border:'none', cursor:'pointer', fontSize:'1.05rem', fontWeight:600}}>
+                <Search size={16} color="var(--primary)" /> Research Gaps Analysis
+                <span style={{fontSize:'0.8rem', color:'var(--text-subtle)', fontWeight:400}}>
+                  ({gapAnalysis.conflicts?.length || 0} conflicts, {gapAnalysis.gaps?.length || 0} gaps)
+                </span>
+                <ChevronDown size={16} style={{marginLeft:'auto', transform: gapPanelOpen ? 'rotate(180deg)' : 'none', transition:'transform 150ms ease'}} />
+              </button>
               
-              {gapAnalysis.status === 'insufficient_literature' ? (
-                <div style={{ textAlign: 'center', padding: '1rem', color: 'var(--text-muted)' }}>
-                  <p style={{ margin: 0 }}>{gapAnalysis.message}</p>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                  {gapAnalysis.consensus && gapAnalysis.consensus.length > 0 && (
-                  <div>
-                    <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem', color: 'var(--success)' }}>Consensus</h4>
-                    <ul style={{ margin: 0, paddingLeft: '1.5rem', fontSize: '0.88rem', color: 'var(--text)' }}>
-                      {(gapAnalysis.consensus || []).map((item, i) => (
-                        <li key={i} style={{ marginBottom: '0.25rem' }}>
-                          {item.claim} <span style={{color: 'var(--text-subtle)'}}>[{item.supporting_papers?.join(', ')}]</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+              {gapPanelOpen && (
+                <div style={{ marginTop: '1.25rem' }}>
+                  {gapAnalysis.status === 'insufficient_literature' ? (
+                    <div style={{ textAlign: 'center', padding: '1rem', color: 'var(--text-muted)' }}>
+                      <p style={{ margin: 0 }}>{gapAnalysis.message}</p>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                      <div style={{ display: 'flex', gap: '0.25rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>
+                        {['consensus', 'conflicts', 'gaps'].map(tab => (
+                          <button
+                            key={tab}
+                            onClick={() => setGapTab(tab)}
+                            style={{ background: 'none', border: 'none', padding: '0.25rem 0.75rem', borderBottom: gapTab === tab ? '2px solid var(--primary)' : '2px solid transparent', color: gapTab === tab ? 'var(--primary)' : 'var(--text-subtle)', fontWeight: gapTab === tab ? 600 : 400, cursor: 'pointer', transition: 'var(--transition)', fontSize: '0.88rem', textTransform: 'capitalize' }}
+                          >
+                            {tab}
+                          </button>
+                        ))}
+                      </div>
+
+                      {gapTab === 'consensus' && gapAnalysis.consensus && gapAnalysis.consensus.length > 0 && (
+                        <div>
+                          <ul style={{ margin: 0, paddingLeft: '1.5rem', fontSize: '0.88rem', color: 'var(--text)' }}>
+                            {(gapAnalysis.consensus || []).map((item, i) => (
+                              <li key={i} style={{ marginBottom: '0.25rem' }}>
+                                {item.claim} <span style={{color: 'var(--text-subtle)'}}>[{item.supporting_papers?.join(', ')}]</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      
+                      {gapTab === 'conflicts' && gapAnalysis.conflicts && gapAnalysis.conflicts.length > 0 && (
+                        <div>
+                          <ul style={{ margin: 0, paddingLeft: '1.5rem', fontSize: '0.88rem', color: 'var(--text)' }}>
+                            {(gapAnalysis.conflicts || []).map((item, i) => (
+                              <li key={i} style={{ marginBottom: '0.25rem' }}>
+                                {item.claim_a} <strong>vs</strong> {item.claim_b} <span style={{color: 'var(--text-subtle)'}}>[{item.papers?.join(', ')}]</span><br/>
+                                <span style={{fontSize: '0.8rem', color: 'var(--text-subtle)'}}>{item.note}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {gapTab === 'gaps' && gapAnalysis.gaps && gapAnalysis.gaps.length > 0 && (
+                        <div>
+                          <ul style={{ margin: 0, paddingLeft: '1.5rem', fontSize: '0.88rem', color: 'var(--text)' }}>
+                            {(gapAnalysis.gaps || []).map((item, i) => (
+                              <li key={i} style={{ marginBottom: '0.25rem' }}>
+                                {item.description} <span style={{color: 'var(--text-subtle)'}}>[{item.informed_by?.join(', ')}]</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      <div style={{ background: 'rgba(0, 87, 255, 0.05)', padding: '1rem', borderRadius: 'var(--radius-md)', border: '1px solid rgba(0, 87, 255, 0.15)' }}>
+                        <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem', color: 'var(--primary)' }}>Suggested Direction</h4>
+                        <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--text)' }}>{gapAnalysis.suggested_direction}</p>
+                        <button className="btn btn-primary" style={{marginTop:'0.75rem'}}
+                          onClick={() => { setTopic(gapAnalysis.suggested_direction); generate(); }}>
+                          Use this direction →
+                        </button>
+                        {gapAnalysis.vagueness_warning && (
+                          <div style={{ marginTop: '0.5rem', padding: '0.5rem', background: 'rgba(255, 152, 0, 0.1)', color: 'var(--warning)', borderRadius: '4px', fontSize: '0.8rem' }}>
+                            {gapAnalysis.vagueness_warning}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   )}
-                  {gapAnalysis.conflicts && gapAnalysis.conflicts.length > 0 && (
-                  <div>
-                    <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem', color: 'var(--warning)' }}>Conflicts</h4>
-                    <ul style={{ margin: 0, paddingLeft: '1.5rem', fontSize: '0.88rem', color: 'var(--text)' }}>
-                      {(gapAnalysis.conflicts || []).map((item, i) => (
-                        <li key={i} style={{ marginBottom: '0.25rem' }}>
-                          {item.claim_a} <strong>vs</strong> {item.claim_b} <span style={{color: 'var(--text-subtle)'}}>[{item.papers?.join(', ')}]</span><br/>
-                          <span style={{fontSize: '0.8rem', color: 'var(--text-subtle)'}}>{item.note}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                  )}
-                  <div>
-                    <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem', color: 'var(--warning)' }}>Remaining Gaps</h4>
-                    <ul style={{ margin: 0, paddingLeft: '1.5rem', fontSize: '0.88rem', color: 'var(--text)' }}>
-                      {(gapAnalysis.gaps || []).map((item, i) => (
-                        <li key={i} style={{ marginBottom: '0.25rem' }}>
-                          {item.description} <span style={{color: 'var(--text-subtle)'}}>[{item.informed_by?.join(', ')}]</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                  <div style={{ background: 'rgba(0, 87, 255, 0.05)', padding: '1rem', borderRadius: 'var(--radius-md)', border: '1px solid rgba(0, 87, 255, 0.15)' }}>
-                    <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem', color: 'var(--primary)' }}>Suggested Direction</h4>
-                    <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--text)' }}>{gapAnalysis.suggested_direction}</p>
-                    {gapAnalysis.vagueness_warning && (
-                      <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.75rem', color: 'var(--warning)' }}>⚠️ This suggestion may be broad — consider refining.</p>
-                    )}
-                  </div>
                 </div>
               )}
             </div>
@@ -809,6 +888,12 @@ export default function ManuscriptBuilder() {
                       rehypePlugins={[rehypeKatex]}
                       components={{
                         table: TableOrChart,
+                        a: ({ node, href, children, ...props }) => {
+                          if (href === '#unverified-stat') {
+                            return <span className="unverified-stat" title="Not found in source papers">{children}</span>;
+                          }
+                          return <a href={href} {...props}>{children}</a>;
+                        },
                         code({ node, inline, className, children, ...props }) {
                           const match = /language-(\w+)/.exec(className || '');
                           const language = match ? match[1].toLowerCase() : '';
@@ -827,7 +912,7 @@ export default function ManuscriptBuilder() {
                         }
                       }}
                     >
-                      {(content[active] || '') + (generating ? ' ▋' : '')}
+                      {processForUnverified((content[active] || '') + (generating ? ' ▋' : ''))}
                     </ReactMarkdown>
                   ) : (
                     <p style={{ color: 'var(--text-subtle)', fontStyle: 'italic', margin: 0 }}>Nothing to preview.</p>
@@ -849,6 +934,12 @@ export default function ManuscriptBuilder() {
                           rehypePlugins={[rehypeKatex]}
                           components={{
                             table: TableOrChart,
+                            a: ({ node, href, children, ...props }) => {
+                              if (href === '#unverified-stat') {
+                                return <span className="unverified-stat" title="Not found in source papers">{children}</span>;
+                              }
+                              return <a href={href} {...props}>{children}</a>;
+                            },
                             code({ node, inline, className, children, ...props }) {
                               const match = /language-(\w+)/.exec(className || '');
                               const language = match ? match[1].toLowerCase() : '';
@@ -867,7 +958,7 @@ export default function ManuscriptBuilder() {
                             }
                           }}
                         >
-                          {content[active]}
+                          {processForUnverified(content[active])}
                         </ReactMarkdown>
                       ) : (
                         <p style={{ color: '#999', fontStyle: 'italic', textAlign: 'center', marginTop: '3rem' }}>
@@ -895,6 +986,12 @@ export default function ManuscriptBuilder() {
                             rehypePlugins={[rehypeKatex]}
                             components={{
                               table: TableOrChart,
+                              a: ({ node, href, children, ...props }) => {
+                                if (href === '#unverified-stat') {
+                                  return <span className="unverified-stat" title="Not found in source papers">{children}</span>;
+                                }
+                                return <a href={href} {...props}>{children}</a>;
+                              },
                               code({ node, inline, className, children, ...props }) {
                                 const match = /language-(\w+)/.exec(className || '');
                                 const language = match ? match[1].toLowerCase() : '';
@@ -913,7 +1010,7 @@ export default function ManuscriptBuilder() {
                               }
                             }}
                           >
-                            {content[step.id]}
+                            {processForUnverified(content[step.id])}
                           </ReactMarkdown>
                         </div>
                       ) : null)}

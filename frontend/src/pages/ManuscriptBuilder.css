@@ -218,3 +218,9 @@
 .format-btn:active {
   background: var(--border);
 }
+
+/* Unverified Statistics */
+.unverified-stat {
+  border-bottom: 2px dotted var(--danger);
+  cursor: help;
+}

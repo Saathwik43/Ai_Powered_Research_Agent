@@ -1,8 +1,11 @@
-import React, { createContext, useContext, useState, useRef } from 'react';
+import React, { createContext, useContext, useState, useRef, useEffect } from 'react';
+import { useAuth } from './AuthContext';
 
 const AppContext = createContext();
 
 export const AppProvider = ({ children }) => {
+  const { user } = useAuth();
+
   // Manuscript Builder State
   const [manuscriptActive, setManuscriptActive] = useState('abstract');
   const [manuscriptTopic, setManuscriptTopic] = useState('');
@@ -25,6 +28,30 @@ export const AppProvider = ({ children }) => {
   const [litFilterYear, setLitFilterYear] = useState('All');
   const [litFilterSource, setLitFilterSource] = useState('All');
   const [litVisibleCount, setLitVisibleCount] = useState(15);
+
+  // Clear state when user logs out or changes
+  useEffect(() => {
+    if (!user) {
+      setManuscriptActive('abstract');
+      setManuscriptTopic('');
+      setManuscriptContent({});
+      setManuscriptGenerating(false);
+      setManuscriptEditHistory({});
+      setManuscriptRefs(null);
+      lastSavedContentRef.current = {};
+      
+      setLitQuery('');
+      setLitPapers([]);
+      setLitLoading(false);
+      setLitActiveTab('search');
+      setLitSearchError('');
+      setLitHasSearched(false);
+      setLitLastQuery('');
+      setLitFilterYear('All');
+      setLitFilterSource('All');
+      setLitVisibleCount(15);
+    }
+  }, [user]);
 
   const value = {
     // Manuscript
