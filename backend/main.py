@@ -182,9 +182,10 @@ async def google_auth(payload: GoogleAuthPayload):
     idinfo = verify_google_token(payload.token)
     email = idinfo.get('email')
     name = idinfo.get('name', 'Google User')
+    picture = idinfo.get('picture')
     if not email:
         raise HTTPException(status_code=400, detail="Google token does not contain an email.")
-    return await google_auth_user(email.lower(), name)
+    return await google_auth_user(email.lower(), name, picture)
 
 
 @app.get("/api/auth/me")

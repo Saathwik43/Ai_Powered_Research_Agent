@@ -69,13 +69,14 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(b
     usage_tracker.current_user_id.set(user_id)
     
     # Also attach role if possible, but standard token only has email. 
-    # Let's fetch the user to get the role.
     collection = db["users"]
     from bson import ObjectId
     user = await collection.find_one({"_id": ObjectId(user_id)})
     role = user.get("role", "user") if user else "user"
+    name = user.get("name", "") if user else ""
+    picture = user.get("picture") if user else None
     
-    return {"user_id": user_id, "email": payload.get("email"), "role": role}
+    return {"user_id": user_id, "email": payload.get("email"), "role": role, "name": name, "picture": picture}
 
 
 # ─── Signup ────────────────────────────────────────────────────────────────────
@@ -123,7 +124,7 @@ def verify_google_token(token: str) -> dict:
         logger.error(f"Google token verification failed: {e}")
         raise HTTPException(status_code=401, detail="Invalid Google token.")
 
-async def google_auth_user(email: str, name: str) -> dict:
+async def google_auth_user(email: str, name: str, picture: str = None) -> dict:
     collection = db["users"]
     user = await collection.find_one({"email": email})
     
@@ -134,6 +135,7 @@ async def google_auth_user(email: str, name: str) -> dict:
             "name": name,
             "role": "user",
             "auth_provider": "google",
+            "picture": picture,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         result = await collection.insert_one(user_doc)
@@ -143,12 +145,16 @@ async def google_auth_user(email: str, name: str) -> dict:
         user_id = str(user["_id"])
         role = user.get("role", "user")
         
-        # Optionally update user's auth_provider if they sign in with Google now
-        if user.get("auth_provider") != "google":
-            await collection.update_one({"_id": user["_id"]}, {"$set": {"auth_provider": "google"}})
+        # Optionally update user's auth_provider and picture if they sign in with Google now
+        update_fields = {"auth_provider": "google"}
+        if picture and user.get("picture") != picture:
+            update_fields["picture"] = picture
+            
+        await collection.update_one({"_id": user["_id"]}, {"$set": update_fields})
+        picture = user.get("picture") or picture # Default to existing if not provided by Google
 
     token = create_access_token(user_id, email)
-    return {"token": token, "user": {"id": user_id, "email": email, "name": name, "role": role}}
+    return {"token": token, "user": {"id": user_id, "email": email, "name": name, "role": role, "picture": picture}}
 
 
 # ─── Seed Admin ────────────────────────────────────────────────────────────────

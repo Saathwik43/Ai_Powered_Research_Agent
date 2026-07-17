@@ -96,7 +96,13 @@ const Sidebar = ({ open, onClose, collapsed, onToggleCollapse }) => {
         <div className="sidebar-footer">
           {user && (
             <div className="user-info">
-              <div className="user-avatar">{initials}</div>
+              <div className="user-avatar" style={{ overflow: 'hidden' }}>
+                {user.picture ? (
+                  <img src={user.picture} alt={user.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} referrerPolicy="no-referrer" />
+                ) : (
+                  initials
+                )}
+              </div>
               <div className="user-details">
                 <div className="user-name">{user.name}</div>
                 <div className="user-email">{user.email}</div>
