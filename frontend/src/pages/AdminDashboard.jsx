@@ -52,30 +52,30 @@ const AdminDashboard = () => {
         </div>
       </header>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
-        <div className="card" style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '1.5rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 'var(--space-5)', marginBottom: 'var(--space-6)' }}>
+        <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', padding: 'var(--space-5)' }}>
           <div style={{ width: 48, height: 48, borderRadius: '12px', background: 'rgba(var(--primary-rgb), 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary)' }}>
             <Users size={24} />
           </div>
           <div>
-            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Active Users Today</div>
-            <div style={{ fontSize: '1.5rem', fontWeight: 600, color: 'var(--text)' }}>{usages.length}</div>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Active Users Today</div>
+            <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 600, color: 'var(--text)' }}>{usages.length}</div>
           </div>
         </div>
         
-        <div className="card" style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '1.5rem' }}>
+        <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', padding: 'var(--space-5)' }}>
           <div style={{ width: 48, height: 48, borderRadius: '12px', background: 'rgba(var(--primary-rgb), 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary)' }}>
             <Activity size={24} />
           </div>
           <div>
-            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Total Tokens Burned</div>
-            <div style={{ fontSize: '1.5rem', fontWeight: 600, color: 'var(--text)' }}>{totalTokens.toLocaleString()}</div>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Total Tokens Burned</div>
+            <div style={{ fontSize: 'var(--fs-lg)', fontWeight: 600, color: 'var(--text)' }}>{totalTokens.toLocaleString()}</div>
           </div>
         </div>
       </div>
 
       <div className="card">
-        <h3 style={{ margin: '0 0 1rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '1.1rem' }}>
+        <h3 style={{ margin: '0 0 var(--space-4) 0', display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 'var(--fs-md)' }}>
           <Battery size={20} className="text-primary" />
           User Quotas
         </h3>
@@ -103,16 +103,16 @@ const AdminDashboard = () => {
                       <span style={{ 
                         background: isWarning ? 'rgba(239, 68, 68, 0.1)' : 'rgba(var(--primary-rgb), 0.1)', 
                         color: isWarning ? '#ef4444' : 'var(--primary)',
-                        padding: '0.25rem 0.75rem',
+                        padding: 'var(--space-1) var(--space-3)',
                         borderRadius: '2rem',
-                        fontSize: '0.85rem',
+                        fontSize: 'var(--fs-sm)',
                         fontWeight: 600
                       }}>
                         {u.messages_left}
                       </span>
                     </td>
                     <td style={{ minWidth: '200px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 'var(--space-1)', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
                         <span>{pct.toFixed(1)}% used</span>
                         <span>{u.quota.toLocaleString()} max</span>
                       </div>
@@ -130,7 +130,7 @@ const AdminDashboard = () => {
               })}
               {usages.length === 0 && (
                 <tr>
-                  <td colSpan={4} style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  <td colSpan={4} style={{ padding: 'var(--space-6)', textAlign: 'center', color: 'var(--text-muted)' }}>
                     No usage recorded today.
                   </td>
                 </tr>

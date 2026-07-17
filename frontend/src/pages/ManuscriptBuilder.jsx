@@ -82,13 +82,13 @@ const TableOrChart = ({ node, children, ...props }) => {
     const yKey = headers.find((h, i) => i > 0 && !isNaN(rows[0][h])) || headers[1];
 
     return (
-      <div className="table-chart-container" style={{ margin: '1.5rem 0' }}>
+      <div className="table-chart-container" style={{ margin: 'var(--space-5) 0' }}>
         {graphTitle && (
-          <div style={{ textAlign: 'center', fontWeight: '600', fontSize: '0.95rem', marginBottom: '0.5rem', color: 'var(--text-primary)' }}>
+          <div style={{ textAlign: 'center', fontWeight: '600', fontSize: 'var(--fs-sm)', marginBottom: 'var(--space-2)', color: 'var(--text-primary)' }}>
             {graphTitle}
           </div>
         )}
-        <div style={{ width: '100%', height: 300, background: 'var(--bg-card)', padding: '1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+        <div style={{ width: '100%', height: 300, background: 'var(--bg-card)', padding: 'var(--space-4)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={rows} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
               <XAxis dataKey={xKey} tick={{fontSize: 12}} />
@@ -104,7 +104,7 @@ const TableOrChart = ({ node, children, ...props }) => {
 
   // Otherwise: always render as a plain table
   return (
-    <div style={{ overflowX: 'auto', margin: '1.5rem 0' }}>
+    <div style={{ overflowX: 'auto', margin: 'var(--space-5) 0' }}>
       <table {...props}>{children}</table>
     </div>
   );
@@ -548,17 +548,17 @@ export default function ManuscriptBuilder() {
   return (
     <div className="animate-fade-in">
       {/* Header */}
-      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--space-6)', flexWrap: 'wrap', gap: 'var(--space-4)' }}>
         <div>
           <h1>Manuscript Builder</h1>
           <p className="text-muted">Write your research paper section by section with AI assistance.</p>
-          <div style={{ marginTop: '0.75rem', color: 'var(--text-muted)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-            <span style={{ fontSize: '1rem' }}>💡</span>
+          <div style={{ marginTop: 'var(--space-3)', color: 'var(--text-muted)', fontSize: 'var(--fs-sm)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+            <span style={{ fontSize: 'var(--fs-base)' }}>💡</span>
             <span><strong>Note:</strong> AI can make mistakes, review before proceeding.</span>
           </div>
         </div>
-        <div className="responsive-actions" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          <div style={{ padding: '0.4rem 0.8rem', background: 'var(--bg-card-alt)', borderRadius: '6px', fontSize: '0.85rem', fontWeight: '500', color: 'var(--text-muted)', border: '1px solid var(--border-color)' }}>
+        <div className="responsive-actions" style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
+          <div style={{ padding: 'var(--space-2) var(--space-3)', background: 'var(--bg-card-alt)', borderRadius: '6px', fontSize: 'var(--fs-sm)', fontWeight: '500', color: 'var(--text-muted)', border: '1px solid var(--border-color)' }}>
             {citationStyle.toUpperCase()} Format
           </div>
           <button className="btn btn-secondary" onClick={() => { setShowLoad(true); setLoadError(''); setDraftFilter(''); }}>
@@ -578,10 +578,10 @@ export default function ManuscriptBuilder() {
         </div>
       </div>
 
-      <div className="manuscript-layout" style={{ display: 'flex', gap: '1.25rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+      <div className="manuscript-layout" style={{ display: 'flex', gap: 'var(--space-4)', alignItems: 'flex-start', flexWrap: 'wrap' }}>
 
         {/* Sidebar Container */}
-        <div style={{ flex: '0 0 220px', minWidth: '220px', display: 'flex', flexDirection: 'column', gap: '1rem', position: 'sticky', top: '1.5rem' }}>
+        <div style={{ flex: '0 0 220px', minWidth: '220px', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', position: 'sticky', top: '1.5rem' }}>
           
           <SectionsList 
             sections={STEPS} 
@@ -592,27 +592,27 @@ export default function ManuscriptBuilder() {
           />
 
           {/* Configuration Block */}
-          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.25rem' }}>
-            <p style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text-subtle)', marginBottom: '1rem' }}>Configuration</p>
+          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 'var(--space-4)' }}>
+            <p style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text-subtle)', marginBottom: 'var(--space-4)' }}>Configuration</p>
             
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
               
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
                 <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Research Topic</span>
                 <input
                   placeholder="Enter research topic..."
                   value={topic}
                   onChange={e => setTopic(e.target.value)}
-                  style={{ padding: '0.6rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: '0.85rem', width: '100%' }}
+                  style={{ padding: 'var(--space-2)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: 'var(--fs-sm)', width: '100%' }}
                 />
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
                 <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Citation Format</span>
                 <select 
                   value={citationStyle} 
                   onChange={e => setCitationStyle(e.target.value)}
-                  style={{ padding: '0.6rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: '0.85rem', width: '100%' }}
+                  style={{ padding: 'var(--space-2)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: 'var(--fs-sm)', width: '100%' }}
                 >
                   <option value="ieee">IEEE Citation Format</option>
                   <option value="apa">APA Citation Format</option>
@@ -621,24 +621,24 @@ export default function ManuscriptBuilder() {
                 </select>
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
                 <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Generation Model</span>
                 
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem', borderRadius: 'var(--radius-md)', border: `1px solid ${autoMode ? 'var(--primary)' : 'var(--border)'}`, background: autoMode ? 'var(--primary-light)' : 'transparent', cursor: 'pointer', transition: 'var(--transition)' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', padding: 'var(--space-2)', borderRadius: 'var(--radius-md)', border: `1px solid ${autoMode ? 'var(--primary)' : 'var(--border)'}`, background: autoMode ? 'var(--primary-light)' : 'transparent', cursor: 'pointer', transition: 'var(--transition)' }}>
                   <input type="radio" checked={autoMode} onChange={() => setAutoMode(true)} style={{ margin: 0 }} />
-                  <span style={{ fontSize: '0.85rem', color: autoMode ? 'var(--primary)' : 'var(--text)' }}>Auto (Recommended)</span>
+                  <span style={{ fontSize: 'var(--fs-sm)', color: autoMode ? 'var(--primary)' : 'var(--text)' }}>Auto (Recommended)</span>
                 </label>
                 
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem', borderRadius: 'var(--radius-md)', border: `1px solid ${!autoMode ? 'var(--primary)' : 'var(--border)'}`, background: !autoMode ? 'var(--primary-light)' : 'transparent', cursor: 'pointer', transition: 'var(--transition)' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', padding: 'var(--space-2)', borderRadius: 'var(--radius-md)', border: `1px solid ${!autoMode ? 'var(--primary)' : 'var(--border)'}`, background: !autoMode ? 'var(--primary-light)' : 'transparent', cursor: 'pointer', transition: 'var(--transition)' }}>
                   <input type="radio" checked={!autoMode} onChange={() => setAutoMode(false)} style={{ margin: 0 }} />
-                  <span style={{ fontSize: '0.85rem', color: !autoMode ? 'var(--primary)' : 'var(--text)' }}>Choose Specific</span>
+                  <span style={{ fontSize: 'var(--fs-sm)', color: !autoMode ? 'var(--primary)' : 'var(--text)' }}>Choose Specific</span>
                 </label>
                 
                 {!autoMode && (
                   <select 
                     value={selectedModelId} 
                     onChange={e => setSelectedModelId(e.target.value)}
-                    style={{ padding: '0.6rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text)', fontSize: '0.85rem', width: '100%', marginTop: '0.2rem' }}
+                    style={{ padding: 'var(--space-2)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text)', fontSize: 'var(--fs-sm)', width: '100%', marginTop: 'var(--space-1)' }}
                   >
                     {Array.from(new Set(MODELS.map(m => m.group))).map(group => (
                       <optgroup key={group} label={group}>
@@ -655,12 +655,12 @@ export default function ManuscriptBuilder() {
         </div>
 
         {/* Editor */}
-        <div style={{ flex: 1, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.5rem', minWidth: 0 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-            <h2 style={{ margin: 0, fontSize: '1.1rem' }}>{currentStep?.label}</h2>
-            <div className="responsive-actions" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-              {autoStatus && <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{autoStatus}</span>}
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <div style={{ flex: 1, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 'var(--space-5)', minWidth: 0 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
+            <h2 style={{ margin: 0, fontSize: 'var(--fs-md)' }}>{currentStep?.label}</h2>
+            <div className="responsive-actions" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
+              {autoStatus && <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>{autoStatus}</span>}
+              <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
                 {generating ? (
                   <button className="btn btn-secondary" onClick={stopGeneration} style={{ background: 'var(--danger)', color: 'white', borderColor: 'var(--danger)' }}>
                     <Spinner size={14} /> Stop
@@ -679,29 +679,29 @@ export default function ManuscriptBuilder() {
 
           {/* Gap Analysis Panel */}
           {gapAnalysis && (
-            <div style={{ marginBottom: '1.5rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.5rem' }}>
-              <button onClick={() => setGapPanelOpen(o => !o)} style={{display:'flex', alignItems:'center', gap:'0.5rem', width:'100%', background:'none', border:'none', cursor:'pointer', fontSize:'1.05rem', fontWeight:600}}>
+            <div style={{ marginBottom: 'var(--space-5)', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 'var(--space-5)' }}>
+              <button onClick={() => setGapPanelOpen(o => !o)} style={{display:'flex', alignItems:'center', gap:'var(--space-2)', width:'100%', background:'none', border:'none', cursor:'pointer', fontSize:'var(--fs-md)', fontWeight:600}}>
                 <Search size={16} color="var(--primary)" /> Research Gaps Analysis
-                <span style={{fontSize:'0.8rem', color:'var(--text-subtle)', fontWeight:400}}>
+                <span style={{fontSize:'var(--fs-sm)', color:'var(--text-subtle)', fontWeight:400}}>
                   ({gapAnalysis.conflicts?.length || 0} conflicts, {gapAnalysis.gaps?.length || 0} gaps)
                 </span>
                 <ChevronDown size={16} style={{marginLeft:'auto', transform: gapPanelOpen ? 'rotate(180deg)' : 'none', transition:'transform 150ms ease'}} />
               </button>
               
               {gapPanelOpen && (
-                <div style={{ marginTop: '1.25rem' }}>
+                <div style={{ marginTop: 'var(--space-4)' }}>
                   {gapAnalysis.status === 'insufficient_literature' ? (
-                    <div style={{ textAlign: 'center', padding: '1rem', color: 'var(--text-muted)' }}>
+                    <div style={{ textAlign: 'center', padding: 'var(--space-4)', color: 'var(--text-muted)' }}>
                       <p style={{ margin: 0 }}>{gapAnalysis.message}</p>
                     </div>
                   ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                      <div style={{ display: 'flex', gap: '0.25rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                      <div style={{ display: 'flex', gap: 'var(--space-1)', borderBottom: '1px solid var(--border)', paddingBottom: 'var(--space-2)' }}>
                         {['consensus', 'conflicts', 'gaps'].map(tab => (
                           <button
                             key={tab}
                             onClick={() => setGapTab(tab)}
-                            style={{ background: 'none', border: 'none', padding: '0.25rem 0.75rem', borderBottom: gapTab === tab ? '2px solid var(--primary)' : '2px solid transparent', color: gapTab === tab ? 'var(--primary)' : 'var(--text-subtle)', fontWeight: gapTab === tab ? 600 : 400, cursor: 'pointer', transition: 'var(--transition)', fontSize: '0.88rem', textTransform: 'capitalize' }}
+                            style={{ background: 'none', border: 'none', padding: 'var(--space-1) var(--space-3)', borderBottom: gapTab === tab ? '2px solid var(--primary)' : '2px solid transparent', color: gapTab === tab ? 'var(--primary)' : 'var(--text-subtle)', fontWeight: gapTab === tab ? 600 : 400, cursor: 'pointer', transition: 'var(--transition)', fontSize: 'var(--fs-sm)', textTransform: 'capitalize' }}
                           >
                             {tab}
                           </button>
@@ -710,9 +710,9 @@ export default function ManuscriptBuilder() {
 
                       {gapTab === 'consensus' && gapAnalysis.consensus && gapAnalysis.consensus.length > 0 && (
                         <div>
-                          <ul style={{ margin: 0, paddingLeft: '1.5rem', fontSize: '0.88rem', color: 'var(--text)' }}>
+                          <ul style={{ margin: 0, paddingLeft: 'var(--space-5)', fontSize: 'var(--fs-sm)', color: 'var(--text)' }}>
                             {(gapAnalysis.consensus || []).map((item, i) => (
-                              <li key={i} style={{ marginBottom: '0.25rem' }}>
+                              <li key={i} style={{ marginBottom: 'var(--space-1)' }}>
                                 {item.claim} <span style={{color: 'var(--text-subtle)'}}>[{item.supporting_papers?.join(', ')}]</span>
                               </li>
                             ))}
@@ -722,11 +722,11 @@ export default function ManuscriptBuilder() {
                       
                       {gapTab === 'conflicts' && gapAnalysis.conflicts && gapAnalysis.conflicts.length > 0 && (
                         <div>
-                          <ul style={{ margin: 0, paddingLeft: '1.5rem', fontSize: '0.88rem', color: 'var(--text)' }}>
+                          <ul style={{ margin: 0, paddingLeft: 'var(--space-5)', fontSize: 'var(--fs-sm)', color: 'var(--text)' }}>
                             {(gapAnalysis.conflicts || []).map((item, i) => (
-                              <li key={i} style={{ marginBottom: '0.25rem' }}>
+                              <li key={i} style={{ marginBottom: 'var(--space-1)' }}>
                                 {item.claim_a} <strong>vs</strong> {item.claim_b} <span style={{color: 'var(--text-subtle)'}}>[{item.papers?.join(', ')}]</span><br/>
-                                <span style={{fontSize: '0.8rem', color: 'var(--text-subtle)'}}>{item.note}</span>
+                                <span style={{fontSize: 'var(--fs-sm)', color: 'var(--text-subtle)'}}>{item.note}</span>
                               </li>
                             ))}
                           </ul>
@@ -735,9 +735,9 @@ export default function ManuscriptBuilder() {
 
                       {gapTab === 'gaps' && gapAnalysis.gaps && gapAnalysis.gaps.length > 0 && (
                         <div>
-                          <ul style={{ margin: 0, paddingLeft: '1.5rem', fontSize: '0.88rem', color: 'var(--text)' }}>
+                          <ul style={{ margin: 0, paddingLeft: 'var(--space-5)', fontSize: 'var(--fs-sm)', color: 'var(--text)' }}>
                             {(gapAnalysis.gaps || []).map((item, i) => (
-                              <li key={i} style={{ marginBottom: '0.25rem' }}>
+                              <li key={i} style={{ marginBottom: 'var(--space-1)' }}>
                                 {item.description} <span style={{color: 'var(--text-subtle)'}}>[{item.informed_by?.join(', ')}]</span>
                               </li>
                             ))}
@@ -745,15 +745,15 @@ export default function ManuscriptBuilder() {
                         </div>
                       )}
 
-                      <div style={{ background: 'rgba(0, 87, 255, 0.05)', padding: '1rem', borderRadius: 'var(--radius-md)', border: '1px solid rgba(0, 87, 255, 0.15)' }}>
-                        <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem', color: 'var(--primary)' }}>Suggested Direction</h4>
-                        <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--text)' }}>{gapAnalysis.suggested_direction}</p>
-                        <button className="btn btn-primary" style={{marginTop:'0.75rem'}}
+                      <div style={{ background: 'rgba(0, 87, 255, 0.05)', padding: 'var(--space-4)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(0, 87, 255, 0.15)' }}>
+                        <h4 style={{ margin: '0 0 var(--space-2) 0', fontSize: 'var(--fs-sm)', color: 'var(--primary)' }}>Suggested Direction</h4>
+                        <p style={{ margin: 0, fontSize: 'var(--fs-sm)', color: 'var(--text)' }}>{gapAnalysis.suggested_direction}</p>
+                        <button className="btn btn-primary" style={{marginTop:'var(--space-3)'}}
                           onClick={() => { setTopic(gapAnalysis.suggested_direction); generate(); }}>
                           Use this direction →
                         </button>
                         {gapAnalysis.vagueness_warning && (
-                          <div style={{ marginTop: '0.5rem', padding: '0.5rem', background: 'rgba(255, 152, 0, 0.1)', color: 'var(--warning)', borderRadius: '4px', fontSize: '0.8rem' }}>
+                          <div style={{ marginTop: 'var(--space-2)', padding: 'var(--space-2)', background: 'rgba(255, 152, 0, 0.1)', color: 'var(--warning)', borderRadius: '4px', fontSize: 'var(--fs-sm)' }}>
                             {gapAnalysis.vagueness_warning}
                           </div>
                         )}
@@ -766,32 +766,32 @@ export default function ManuscriptBuilder() {
           )}
 
           {generateError && (
-            <div style={{ marginTop: '1rem', marginBottom: '1rem', padding: '0.85rem 1rem', background: 'rgba(229,28,35,0.08)', border: '1px solid rgba(229,28,35,0.2)', borderRadius: 'var(--radius-md)', color: 'var(--danger)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <div style={{ marginTop: 'var(--space-4)', marginBottom: 'var(--space-4)', padding: 'var(--space-3) var(--space-4)', background: 'rgba(229,28,35,0.08)', border: '1px solid rgba(229,28,35,0.2)', borderRadius: 'var(--radius-md)', color: 'var(--danger)', fontSize: 'var(--fs-sm)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
               <X size={15} /> {generateError}
             </div>
           )}
-          {unverifiedWarning && <p style={{ color: 'var(--warning)', fontSize: '0.85rem', marginBottom: '1rem', background: 'rgba(255,176,0,0.1)', padding: '0.75rem', borderRadius: 'var(--radius-md)' }}>{unverifiedWarning}</p>}
+          {unverifiedWarning && <p style={{ color: 'var(--warning)', fontSize: 'var(--fs-sm)', marginBottom: 'var(--space-4)', background: 'rgba(255,176,0,0.1)', padding: 'var(--space-3)', borderRadius: 'var(--radius-md)' }}>{unverifiedWarning}</p>}
           {unverifiedNumbers.length > 0 && (
-            <div style={{ color: 'var(--danger)', fontSize: '0.85rem', marginBottom: '1rem', background: 'rgba(229,28,35,0.08)', border: '1px solid rgba(229,28,35,0.2)', padding: '0.75rem', borderRadius: 'var(--radius-md)' }}>
-              <p style={{ margin: '0 0 0.5rem 0', fontWeight: 600 }}>⚠️ Unverified Statistics Detected</p>
-              <p style={{ margin: '0 0 0.5rem 0' }}>The following numbers were not found in the source papers and may be hallucinated:</p>
-              <ul style={{ margin: 0, paddingLeft: '1.5rem' }}>
+            <div style={{ color: 'var(--danger)', fontSize: 'var(--fs-sm)', marginBottom: 'var(--space-4)', background: 'rgba(229,28,35,0.08)', border: '1px solid rgba(229,28,35,0.2)', padding: 'var(--space-3)', borderRadius: 'var(--radius-md)' }}>
+              <p style={{ margin: '0 0 var(--space-2) 0', fontWeight: 600 }}>⚠️ Unverified Statistics Detected</p>
+              <p style={{ margin: '0 0 var(--space-2) 0' }}>The following numbers were not found in the source papers and may be hallucinated:</p>
+              <ul style={{ margin: 0, paddingLeft: 'var(--space-5)' }}>
                 {unverifiedNumbers.map((num, i) => <li key={i}><strong>{num}</strong></li>)}
               </ul>
             </div>
           )}
 
           {generating && (
-            <div style={{ marginTop: '2rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem', background: 'rgba(0, 87, 255, 0.04)', border: '1px solid rgba(0, 87, 255, 0.1)', padding: '1.25rem', borderRadius: 'var(--radius-lg)' }}>
+            <div style={{ marginTop: 'var(--space-6)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', marginBottom: 'var(--space-5)', background: 'rgba(0, 87, 255, 0.04)', border: '1px solid rgba(0, 87, 255, 0.1)', padding: 'var(--space-4)', borderRadius: 'var(--radius-lg)' }}>
                 <div style={{ animation: 'spin 3s linear infinite' }}>
                   <Sparkles size={24} style={{ color: 'var(--primary)' }} />
                 </div>
                 <div>
-                  <h2 style={{ fontSize: '1.1rem', fontWeight: 600, margin: '0 0 0.35rem 0', color: 'var(--primary)' }}>
+                  <h2 style={{ fontSize: 'var(--fs-md)', fontWeight: 600, margin: '0 0 var(--space-1) 0', color: 'var(--primary)' }}>
                     Generating your manuscript...
                   </h2>
-                  <div style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <div style={{ margin: 0, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
                     <Spinner size={12} /> Synthesizing evidence and structuring content...
                   </div>
                 </div>
@@ -802,9 +802,9 @@ export default function ManuscriptBuilder() {
 
           {pendingEdit ? (
             <div className="manuscript-diff-view">
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', marginBottom: '1rem' }}>
-                <h3 style={{ margin: 0, fontSize: '1rem', color: 'var(--primary)' }}>Review AI Revisions</h3>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--space-4)', marginBottom: 'var(--space-4)' }}>
+                <h3 style={{ margin: 0, fontSize: 'var(--fs-base)', color: 'var(--primary)' }}>Review AI Revisions</h3>
+                <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
                   <button className="btn btn-ghost" onClick={rejectEdit} style={{ color: 'var(--danger)' }}><X size={16} /> Discard</button>
                   <button className="btn btn-primary" onClick={acceptEdit}><CheckCircle size={16} /> Accept Changes</button>
                 </div>
@@ -820,13 +820,13 @@ export default function ManuscriptBuilder() {
           ) : !generating && (
             <div className="manuscript-editor-surface" key={active}>
               <div className="manuscript-toolbar">
-                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', gap: '0.25rem' }}>
+                <div style={{ display: 'flex', gap: 'var(--space-4)', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', gap: 'var(--space-1)' }}>
                     {['write', 'preview', 'paper'].map(mode => (
                       <button
                         key={mode}
                         onClick={() => setViewMode(mode)}
-                        style={{ background: 'none', border: 'none', padding: '0.25rem 0.5rem', borderBottom: viewMode === mode ? '2px solid var(--primary)' : '2px solid transparent', color: viewMode === mode ? 'var(--primary)' : 'var(--text-subtle)', fontWeight: viewMode === mode ? 600 : 400, cursor: 'pointer', transition: 'var(--transition)', fontSize: '0.88rem' }}
+                        style={{ background: 'none', border: 'none', padding: 'var(--space-1) var(--space-2)', borderBottom: viewMode === mode ? '2px solid var(--primary)' : '2px solid transparent', color: viewMode === mode ? 'var(--primary)' : 'var(--text-subtle)', fontWeight: viewMode === mode ? 600 : 400, cursor: 'pointer', transition: 'var(--transition)', fontSize: 'var(--fs-sm)' }}
                       >
                         {mode === 'write' ? 'Write' : mode === 'preview' ? 'Preview' : 'Paper Preview'}
                       </button>
@@ -864,7 +864,7 @@ export default function ManuscriptBuilder() {
                     </div>
                   )}
                 </div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-subtle)', fontWeight: 500, minWidth: '70px', textAlign: 'right' }}>
+                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-subtle)', fontWeight: 500, minWidth: '70px', textAlign: 'right' }}>
                   {content[active] ? content[active].trim().split(/\s+/).length : 0} words
                 </div>
               </div>
@@ -876,12 +876,12 @@ export default function ManuscriptBuilder() {
                   value={(content[active] || '') + (generating ? '▋' : '')}
                   onChange={e => setContent(prev => ({ ...prev, [active]: e.target.value }))}
                   disabled={generating}
-                  style={{ width: '100%', minHeight: '420px', padding: '1rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', color: 'var(--text)', fontFamily: 'inherit', fontSize: '0.93rem', resize: 'vertical', outline: 'none', lineHeight: 1.75, transition: 'var(--transition)', boxSizing: 'border-box', opacity: generating ? 0.8 : 1 }}
+                  style={{ width: '100%', minHeight: '420px', padding: 'var(--space-4)', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', color: 'var(--text)', fontFamily: 'inherit', fontSize: 'var(--fs-sm)', resize: 'vertical', outline: 'none', lineHeight: 1.75, transition: 'var(--transition)', boxSizing: 'border-box', opacity: generating ? 0.8 : 1 }}
                   onFocus={e => { e.target.style.borderColor = 'var(--border-focus)'; e.target.style.boxShadow = '0 0 0 3px var(--primary-light)'; }}
                   onBlur={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.boxShadow = 'none'; }}
                 />
               ) : viewMode === 'preview' ? (
-                <div className="pdf-markdown-body" style={{ width: '100%', minHeight: '420px', padding: '1rem', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', color: 'var(--text)', overflowY: 'auto', boxSizing: 'border-box' }}>
+                <div className="pdf-markdown-body" style={{ width: '100%', minHeight: '420px', padding: 'var(--space-4)', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', color: 'var(--text)', overflowY: 'auto', boxSizing: 'border-box' }}>
                   {content[active] ? (
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm, remarkMath]}
@@ -961,7 +961,7 @@ export default function ManuscriptBuilder() {
                           {processForUnverified(content[active])}
                         </ReactMarkdown>
                       ) : (
-                        <p style={{ color: '#999', fontStyle: 'italic', textAlign: 'center', marginTop: '3rem' }}>
+                        <p style={{ color: '#999', fontStyle: 'italic', textAlign: 'center', marginTop: 'var(--space-7)' }}>
                           No content to preview for this section.
                         </p>
                       )}
@@ -975,9 +975,9 @@ export default function ManuscriptBuilder() {
                     </div>
                     <div className="paper-body">
                       {STEPS.map(step => content[step.id] ? (
-                        <div key={step.id} className="paper-section" style={{ marginBottom: '2.5rem' }}>
+                        <div key={step.id} className="paper-section" style={{ marginBottom: 'var(--space-6)' }}>
                           {step.id !== 'abstract' && (
-                            <h2 style={{ textTransform: 'uppercase', fontSize: '1.2rem', marginBottom: '1rem', borderBottom: '1px solid #eee', paddingBottom: '0.5rem' }}>
+                            <h2 style={{ textTransform: 'uppercase', fontSize: 'var(--fs-md)', marginBottom: 'var(--space-4)', borderBottom: '1px solid #eee', paddingBottom: 'var(--space-2)' }}>
                               {step.label}
                             </h2>
                           )}
@@ -1020,12 +1020,12 @@ export default function ManuscriptBuilder() {
               )}
 
               {content[active] && !generating && (
-                <div style={{ position: 'absolute', bottom: '1.5rem', right: '1.5rem', display: 'flex', gap: '0.75rem' }}>
+                <div style={{ position: 'absolute', bottom: '1.5rem', right: '1.5rem', display: 'flex', gap: 'var(--space-3)' }}>
                   {editHistory[active] && editHistory[active].length > 0 && (
                     <button 
                       className="btn btn-secondary"
                       onClick={undoLastEdit}
-                      style={{ borderRadius: '50px', padding: '0.75rem 1.25rem', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}
+                      style={{ borderRadius: '50px', padding: 'var(--space-3) var(--space-4)', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}
                     >
                       <Undo size={16} /> Undo AI Edit
                     </button>
@@ -1033,7 +1033,7 @@ export default function ManuscriptBuilder() {
                   <button 
                     className="btn btn-primary"
                     onClick={() => setRevisePanelOpen(true)}
-                    style={{ borderRadius: '50px', padding: '0.75rem 1.25rem', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}
+                    style={{ borderRadius: '50px', padding: 'var(--space-3) var(--space-4)', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}
                   >
                     <Sparkles size={16} /> AI Revise
                   </button>
@@ -1042,11 +1042,11 @@ export default function ManuscriptBuilder() {
 
               <div className="manuscript-revise-panel-container">
                 <div className={`manuscript-revise-panel ${revisePanelOpen ? 'open' : ''}`}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                    <p style={{ margin: 0, fontSize: '0.9rem', fontWeight: 600, color: 'var(--primary)' }}><Sparkles size={14} style={{ display: 'inline', verticalAlign: 'text-bottom' }}/> Revise Section</p>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)' }}>
+                    <p style={{ margin: 0, fontSize: 'var(--fs-sm)', fontWeight: 600, color: 'var(--primary)' }}><Sparkles size={14} style={{ display: 'inline', verticalAlign: 'text-bottom' }}/> Revise Section</p>
                     <button onClick={() => setRevisePanelOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)' }}><X size={16} /></button>
                   </div>
-                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
                     <input
                       placeholder="e.g. Make this shorter, add bullet points, fix grammar..."
                       value={editPrompt}
@@ -1059,7 +1059,7 @@ export default function ManuscriptBuilder() {
                       {editing ? <Spinner size={14} /> : <Send size={14} />} Apply Revision
                     </button>
                   </div>
-                  {editError && <div style={{ color: 'var(--danger)', fontSize: '0.8rem', marginTop: '0.5rem' }}>{editError}</div>}
+                  {editError && <div style={{ color: 'var(--danger)', fontSize: 'var(--fs-sm)', marginTop: 'var(--space-2)' }}>{editError}</div>}
                 </div>
               </div>
             </div>
@@ -1077,15 +1077,15 @@ export default function ManuscriptBuilder() {
               
               <div className={`manuscript-refs-drawer ${refsOpen ? 'open' : ''}`}>
                 <div className="manuscript-refs-drawer-header">
-                  <h3 style={{ margin: 0, fontSize: '1.05rem', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <h3 style={{ margin: 0, fontSize: 'var(--fs-md)', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
                     <BookOpen size={16} color="var(--primary)" /> References
                   </h3>
                   <button onClick={() => setRefsOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)' }}><X size={16} /></button>
                 </div>
                 <div className="manuscript-refs-drawer-content">
-                  <ol style={{ margin: 0, paddingLeft: '1.5rem', fontSize: '0.88rem', color: 'var(--text-subtle)', lineHeight: 1.6 }}>
+                  <ol style={{ margin: 0, paddingLeft: 'var(--space-5)', fontSize: 'var(--fs-sm)', color: 'var(--text-subtle)', lineHeight: 1.6 }}>
                     {Object.entries(manuscriptRefs).map(([idx, refString]) => (
-                      <li key={idx} style={{ marginBottom: '0.5rem' }}>{refString}</li>
+                      <li key={idx} style={{ marginBottom: 'var(--space-2)' }}>{refString}</li>
                     ))}
                   </ol>
                 </div>
@@ -1107,21 +1107,21 @@ export default function ManuscriptBuilder() {
       {/* Load modal */}
       {showLoad && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' }} onClick={() => setShowLoad(false)}>
-          <div className="animate-scale-in" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: '2rem', width: '100%', maxWidth: '400px' }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+          <div className="animate-scale-in" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 'var(--space-6)', width: '100%', maxWidth: '400px' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
               <h3 style={{ margin: 0 }}>Load Draft</h3>
               <button onClick={() => setShowLoad(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', display: 'flex' }}><X size={17} /></button>
             </div>
-            <p style={{ fontSize: '0.85rem', marginBottom: '0.875rem' }}>Choose one of your saved manuscript drafts.</p>
-            <div style={{ position: 'relative', marginBottom: '0.9rem' }}>
+            <p style={{ fontSize: 'var(--fs-sm)', marginBottom: 'var(--space-3)' }}>Choose one of your saved manuscript drafts.</p>
+            <div style={{ position: 'relative', marginBottom: 'var(--space-4)' }}>
               <Search size={15} style={{ position: 'absolute', left: '0.9rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-subtle)', pointerEvents: 'none' }} />
-              <input placeholder="Filter saved drafts..." value={draftFilter} onChange={e => setDraftFilter(e.target.value)} style={{ paddingLeft: '2.45rem' }} />
+              <input placeholder="Filter saved drafts..." value={draftFilter} onChange={e => setDraftFilter(e.target.value)} style={{ paddingLeft: 'var(--space-6)' }} />
             </div>
-            {loadError && <p style={{ color: 'var(--danger)', fontSize: '0.83rem', marginBottom: '0.75rem' }}>{loadError}</p>}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem', maxHeight: '280px', overflowY: 'auto', marginBottom: '1rem' }}>
-              {draftLoading && <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.86rem' }}>Loading drafts...</p>}
+            {loadError && <p style={{ color: 'var(--danger)', fontSize: 'var(--fs-sm)', marginBottom: 'var(--space-3)' }}>{loadError}</p>}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', maxHeight: '280px', overflowY: 'auto', marginBottom: 'var(--space-4)' }}>
+              {draftLoading && <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 'var(--fs-sm)' }}>Loading drafts...</p>}
               {!draftLoading && visibleDrafts.length === 0 && (
-                <div className="empty-state" style={{ padding: '1.25rem', fontSize: '0.86rem' }}>
+                <div className="empty-state" style={{ padding: 'var(--space-4)', fontSize: 'var(--fs-sm)' }}>
                   {drafts.length ? 'No drafts match your filter.' : 'No saved drafts yet.'}
                 </div>
               )}
@@ -1133,11 +1133,11 @@ export default function ManuscriptBuilder() {
                   style={{ justifyContent: 'space-between', whiteSpace: 'normal', textAlign: 'left' }}
                 >
                   <span>{draft.topic}</span>
-                  <span style={{ color: 'var(--text-subtle)', fontSize: '0.72rem', fontWeight: 700 }}>Load</span>
+                  <span style={{ color: 'var(--text-subtle)', fontSize: 'var(--fs-xs)', fontWeight: 700 }}>Load</span>
                 </button>
               ))}
             </div>
-            <div style={{ display: 'flex', gap: '0.65rem', justifyContent: 'flex-end' }}>
+            <div style={{ display: 'flex', gap: 'var(--space-3)', justifyContent: 'flex-end' }}>
               <button className="btn btn-ghost" onClick={() => setShowLoad(false)}>Cancel</button>
             </div>
           </div>

@@ -105,7 +105,10 @@ async def signup_user(email: str, password: str, name: str) -> dict:
 async def login_user(email: str, password: str) -> dict:
     collection = db["users"]
     user = await collection.find_one({"email": email})
-    if not user or not verify_password(password, user["password"]):
+    if not user or not user.get("password") or not verify_password(password, user["password"]):
+        # If user exists but has no password, they likely signed up via Google
+        if user and not user.get("password"):
+            raise HTTPException(status_code=401, detail="This account was created using Google Sign-In. Please sign in with Google.")
         raise HTTPException(status_code=401, detail="Invalid email or password.")
 
     user_id = str(user["_id"])

@@ -176,7 +176,7 @@ export default function LiteratureSurvey() {
 
   return (
     <div className="animate-fade-in">
-      <div style={{ marginBottom: '2rem' }}>
+      <div style={{ marginBottom: 'var(--space-6)' }}>
         <h1>Literature Survey</h1>
         <p className="text-muted">Search research papers from multiple academic sources in one place.</p>
       </div>
@@ -184,13 +184,13 @@ export default function LiteratureSurvey() {
       <div className="lit-tabs">
         <button 
           onClick={() => setActiveTab('search')} 
-          style={{ background: 'none', border: 'none', padding: '0.75rem 1rem', cursor: 'pointer', color: activeTab === 'search' ? 'var(--primary)' : 'var(--text-muted)', fontWeight: activeTab === 'search' ? 600 : 400, display: 'flex', alignItems: 'center', gap: '0.5rem', zIndex: 1 }}
+          style={{ background: 'none', border: 'none', padding: 'var(--space-3) var(--space-4)', cursor: 'pointer', color: activeTab === 'search' ? 'var(--primary)' : 'var(--text-muted)', fontWeight: activeTab === 'search' ? 600 : 400, display: 'flex', alignItems: 'center', gap: 'var(--space-2)', zIndex: 1 }}
         >
           <Search size={16} /> Search
         </button>
         <button 
           onClick={() => setActiveTab('saved')} 
-          style={{ background: 'none', border: 'none', padding: '0.75rem 1rem', cursor: 'pointer', color: activeTab === 'saved' ? 'var(--primary)' : 'var(--text-muted)', fontWeight: activeTab === 'saved' ? 600 : 400, display: 'flex', alignItems: 'center', gap: '0.5rem', zIndex: 1 }}
+          style={{ background: 'none', border: 'none', padding: 'var(--space-3) var(--space-4)', cursor: 'pointer', color: activeTab === 'saved' ? 'var(--primary)' : 'var(--text-muted)', fontWeight: activeTab === 'saved' ? 600 : 400, display: 'flex', alignItems: 'center', gap: 'var(--space-2)', zIndex: 1 }}
         >
           <Bookmark size={16} /> Saved Surveys
         </button>
@@ -200,7 +200,7 @@ export default function LiteratureSurvey() {
       {activeTab === 'search' ? (
         <>
       {/* Search */}
-      <div className="lit-search-row" style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.75rem', flexWrap: 'wrap' }}>
+      <div className="lit-search-row" style={{ display: 'flex', gap: 'var(--space-3)', marginBottom: 'var(--space-5)', flexWrap: 'wrap' }}>
         <div style={{ position: 'relative', flex: 1, minWidth: '220px' }}>
           <Search size={15} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-subtle)', pointerEvents: 'none' }} />
           <input
@@ -208,7 +208,7 @@ export default function LiteratureSurvey() {
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && search()}
-            style={{ paddingLeft: '2.6rem' }}
+            style={{ paddingLeft: 'var(--space-7)' }}
           />
         </div>
         <InteractiveHoverButton 
@@ -220,21 +220,21 @@ export default function LiteratureSurvey() {
       
 
       {searchError && (
-        <div style={{ marginBottom: '1.75rem', padding: '0.85rem 1rem', background: 'rgba(229,28,35,0.08)', border: '1px solid rgba(229,28,35,0.2)', borderRadius: 'var(--radius-md)', color: 'var(--danger)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <div style={{ marginBottom: 'var(--space-5)', padding: 'var(--space-3) var(--space-4)', background: 'rgba(229,28,35,0.08)', border: '1px solid rgba(229,28,35,0.2)', borderRadius: 'var(--radius-md)', color: 'var(--danger)', fontSize: 'var(--fs-sm)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
           <X size={15} /> {searchError}
         </div>
       )}
 
       {/* Toolbar and Filters */}
       {papers.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.25rem', background: 'var(--bg-card)', padding: '1.25rem', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', marginBottom: 'var(--space-4)', background: 'var(--bg-card)', padding: 'var(--space-4)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
               <BookOpen size={15} color="var(--primary)" />
-              <span style={{ fontWeight: 600, fontSize: '0.93rem' }}>{filteredPapers.length} results</span>
-              <span style={{ color: 'var(--text-subtle)', fontSize: '0.83rem' }}>for "{lastQuery}"</span>
+              <span style={{ fontWeight: 600, fontSize: 'var(--fs-sm)' }}>{filteredPapers.length} results</span>
+              <span style={{ color: 'var(--text-subtle)', fontSize: 'var(--fs-sm)' }}>for "{lastQuery}"</span>
             </div>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
               <button className="btn btn-secondary" onClick={saveSurvey} disabled={saveStatus === 'saving'}>
                 <Save size={14} /> {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : 'Save'}
               </button>
@@ -244,10 +244,10 @@ export default function LiteratureSurvey() {
             </div>
           </div>
           
-          <div className="lit-filter-row" style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>Year:</label>
-              <select value={filterYear} onChange={e => { setFilterYear(e.target.value); setVisibleCount(15); }} style={{ padding: '0.4rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: '0.85rem' }}>
+          <div className="lit-filter-row" style={{ display: 'flex', gap: 'var(--space-4)', flexWrap: 'wrap', borderTop: '1px solid var(--border)', paddingTop: 'var(--space-4)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+              <label style={{ fontSize: 'var(--fs-sm)', fontWeight: 600, color: 'var(--text-muted)' }}>Year:</label>
+              <select value={filterYear} onChange={e => { setFilterYear(e.target.value); setVisibleCount(15); }} style={{ padding: 'var(--space-2)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: 'var(--fs-sm)' }}>
                 <option value="All">All Years</option>
                 <option value="Last 5 Years">Last 5 Years</option>
                 <option value="2026">2026</option>
@@ -258,9 +258,9 @@ export default function LiteratureSurvey() {
                 <option value="2021">2021</option>
               </select>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>Source:</label>
-              <select value={filterSource} onChange={e => { setFilterSource(e.target.value); setVisibleCount(15); }} style={{ padding: '0.4rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: '0.85rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+              <label style={{ fontSize: 'var(--fs-sm)', fontWeight: 600, color: 'var(--text-muted)' }}>Source:</label>
+              <select value={filterSource} onChange={e => { setFilterSource(e.target.value); setVisibleCount(15); }} style={{ padding: 'var(--space-2)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: 'var(--fs-sm)' }}>
                 <option value="All">All Sources</option>
                 <option value="Semantic Scholar">Semantic Scholar</option>
                 <option value="IEEE">IEEE</option>
@@ -278,24 +278,24 @@ export default function LiteratureSurvey() {
       )}
 
       {/* Papers */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
         {loading && (
-          <div style={{ marginTop: '2rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem', background: 'rgba(0, 87, 255, 0.04)', border: '1px solid rgba(0, 87, 255, 0.1)', padding: '1.25rem', borderRadius: 'var(--radius-lg)' }}>
+          <div style={{ marginTop: 'var(--space-6)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', marginBottom: 'var(--space-5)', background: 'rgba(0, 87, 255, 0.04)', border: '1px solid rgba(0, 87, 255, 0.1)', padding: 'var(--space-4)', borderRadius: 'var(--radius-lg)' }}>
               <div style={{ animation: 'spin 3s linear infinite' }}>
                 <Sparkles size={24} style={{ color: 'var(--primary)' }} />
               </div>
               <div>
-                <h2 style={{ fontSize: '1.1rem', fontWeight: 600, margin: '0 0 0.35rem 0', color: 'var(--primary)' }}>
+                <h2 style={{ fontSize: 'var(--fs-md)', fontWeight: 600, margin: '0 0 var(--space-1) 0', color: 'var(--primary)' }}>
                   Searching Literature...
                 </h2>
-                <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <p style={{ margin: 0, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
                   <Spinner size={12} /> Querying multiple academic libraries simultaneously. This deep search may take a few seconds...
                 </p>
               </div>
             </div>
             
-            <div style={{ width: '100%', height: '4px', background: 'var(--border)', borderRadius: '2px', overflow: 'hidden', marginBottom: '1.5rem' }}>
+            <div style={{ width: '100%', height: '4px', background: 'var(--border)', borderRadius: '2px', overflow: 'hidden', marginBottom: 'var(--space-5)' }}>
               <div style={{ height: '100%', background: 'var(--primary)', width: '0%', animation: 'progressAnim 15s cubic-bezier(0.1, 0.8, 0.3, 1) forwards' }} />
             </div>
             <style>{`
@@ -314,44 +314,44 @@ export default function LiteratureSurvey() {
 
         {!loading && papers.length === 0 && !hasSearched && !searchError && (
           <div className="empty-state">
-            <BookOpen size={38} style={{ margin: '0 auto 0.875rem', color: 'var(--text-subtle)', display: 'block' }} />
+            <BookOpen size={38} style={{ margin: '0 auto var(--space-3)', color: 'var(--text-subtle)', display: 'block' }} />
             Enter a topic to discover relevant research.
           </div>
         )}
 
         {!loading && papers.length === 0 && hasSearched && !searchError && (
           <div className="empty-state">
-            <BookOpen size={38} style={{ margin: '0 auto 0.875rem', color: 'var(--text-subtle)', display: 'block' }} />
+            <BookOpen size={38} style={{ margin: '0 auto var(--space-3)', color: 'var(--text-subtle)', display: 'block' }} />
             No results found for '{lastQuery}'. Try a different search term.
           </div>
         )}
 
         {!loading && papers.length > 0 && filteredPapers.length === 0 && (
           <div className="empty-state">
-            <BookOpen size={38} style={{ margin: '0 auto 0.875rem', color: 'var(--text-subtle)', display: 'block' }} />
+            <BookOpen size={38} style={{ margin: '0 auto var(--space-3)', color: 'var(--text-subtle)', display: 'block' }} />
             No papers match your selected filters.
           </div>
         )}
 
         {displayedPapers.map((p, i) => (
           <div key={p.id || i} className="lit-result-card animate-slide-up"
-            style={{ animationDelay: `${(i % 15) * 0.04}s`, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.25rem 1.5rem', transition: 'transform 0.18s ease, border-color 0.18s ease' }}
+            style={{ animationDelay: `${(i % 15) * 0.04}s`, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 'var(--space-4) var(--space-5)', transition: 'transform 0.18s ease, border-color 0.18s ease' }}
             onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(0,87,255,0.28)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
             onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.transform = ''; }}
           >
             {/* Title + citations */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', marginBottom: '0.4rem', width: '100%' }}>
-              <h3 style={{ margin: 0, fontSize: '0.97rem', fontWeight: 600, lineHeight: 1.45, flex: 1, color: 'var(--text)' }}>{p.title}</h3>
-              <div className="action-buttons" style={{ display: 'flex', gap: '0.4rem', flexShrink: 0 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 'var(--space-4)', marginBottom: 'var(--space-2)', width: '100%' }}>
+              <h3 style={{ margin: 0, fontSize: 'var(--fs-sm)', fontWeight: 600, lineHeight: 1.45, flex: 1, color: 'var(--text)' }}>{p.title}</h3>
+              <div className="action-buttons" style={{ display: 'flex', gap: 'var(--space-2)', flexShrink: 0 }}>
                 {p.oa_url && (
-                  <a href={p.oa_url} target="_blank" rel="noreferrer" style={{ fontSize: '0.72rem', fontWeight: 600, color: '#16a34a', background: 'rgba(22,163,74,0.08)', border: '1px solid rgba(22,163,74,0.22)', padding: '0.18rem 0.55rem', borderRadius: '999px', whiteSpace: 'nowrap', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+                  <a href={p.oa_url} target="_blank" rel="noreferrer" style={{ fontSize: 'var(--fs-xs)', fontWeight: 600, color: '#16a34a', background: 'rgba(22,163,74,0.08)', border: '1px solid rgba(22,163,74,0.22)', padding: 'var(--space-1) var(--space-2)', borderRadius: '999px', whiteSpace: 'nowrap', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 'var(--space-1)' }}
                     title="Open Access — free full text available"
                   >
                     <Unlock size={11} /> Open Access
                   </a>
                 )}
                 {p.citations > 0 && (
-                  <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', background: 'var(--bg-elevated)', border: '1px solid var(--border)', padding: '0.18rem 0.55rem', borderRadius: '999px', whiteSpace: 'nowrap' }}>
+                  <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 600, color: 'var(--text-muted)', background: 'var(--bg-elevated)', border: '1px solid var(--border)', padding: 'var(--space-1) var(--space-2)', borderRadius: '999px', whiteSpace: 'nowrap' }}>
                     {p.citations.toLocaleString()} citations
                   </span>
                 )}
@@ -359,7 +359,7 @@ export default function LiteratureSurvey() {
             </div>
 
             {/* Authors + year */}
-            <p style={{ margin: '0 0 0.65rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            <p style={{ margin: '0 0 var(--space-3)', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
               {p.authors}
               {p.year && p.year !== 'N/A' && <span style={{ color: 'var(--text-subtle)' }}> · {p.year}</span>}
               {p.published && p.year === 'Unknown' && <span style={{ color: 'var(--text-subtle)' }}> · {p.published}</span>}
@@ -367,25 +367,25 @@ export default function LiteratureSurvey() {
 
             {/* Abstract */}
             {p.abstract && p.abstract !== 'No abstract available' && (
-              <p style={{ margin: '0 0 0.875rem', fontSize: '0.84rem', color: 'var(--text-subtle)', lineHeight: 1.6 }}>
+              <p style={{ margin: '0 0 var(--space-3)', fontSize: 'var(--fs-sm)', color: 'var(--text-subtle)', lineHeight: 1.6 }}>
                 {p.abstract.substring(0, 240)}{p.abstract.length > 240 ? '...' : ''}
               </p>
             )}
 
             {/* Links */}
-            <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
               {p.url && (
-                <a href={p.url} target="_blank" rel="noreferrer" className="btn btn-ghost" style={{ fontSize: '0.79rem', padding: '0.3rem 0.65rem', textDecoration: 'none' }}>
+                <a href={p.url} target="_blank" rel="noreferrer" className="btn btn-ghost" style={{ fontSize: 'var(--fs-sm)', padding: 'var(--space-1) var(--space-3)', textDecoration: 'none' }}>
                   <ExternalLink size={12} /> View
                 </a>
               )}
               {p.pdf_url && p.pdf_url !== p.url && (
-                <a href={p.pdf_url} target="_blank" rel="noreferrer" className="btn btn-ghost" style={{ fontSize: '0.79rem', padding: '0.3rem 0.65rem', textDecoration: 'none' }}>
+                <a href={p.pdf_url} target="_blank" rel="noreferrer" className="btn btn-ghost" style={{ fontSize: 'var(--fs-sm)', padding: 'var(--space-1) var(--space-3)', textDecoration: 'none' }}>
                   <FileText size={12} /> PDF
                 </a>
               )}
               {p.oa_url && p.oa_url !== p.url && p.oa_url !== p.pdf_url && (
-                <a href={p.oa_url} target="_blank" rel="noreferrer" className="btn btn-ghost" style={{ fontSize: '0.79rem', padding: '0.3rem 0.65rem', textDecoration: 'none', color: '#16a34a' }}>
+                <a href={p.oa_url} target="_blank" rel="noreferrer" className="btn btn-ghost" style={{ fontSize: 'var(--fs-sm)', padding: 'var(--space-1) var(--space-3)', textDecoration: 'none', color: '#16a34a' }}>
                   <Unlock size={12} /> Full Text (OA)
                 </a>
               )}
@@ -394,7 +394,7 @@ export default function LiteratureSurvey() {
                 target="_blank"
                 rel="noreferrer"
                 className="btn btn-ghost"
-                style={{ fontSize: '0.79rem', padding: '0.3rem 0.65rem', textDecoration: 'none' }}
+                style={{ fontSize: 'var(--fs-sm)', padding: 'var(--space-1) var(--space-3)', textDecoration: 'none' }}
               >
                 <Search size={12} /> Scholar
               </a>
@@ -404,9 +404,9 @@ export default function LiteratureSurvey() {
 
         {/* Load more button */}
         {hasMoreFiltered && !loading && (
-          <div style={{ display: 'flex', justifyContent: 'center', padding: '1rem 0' }}>
+          <div style={{ display: 'flex', justifyContent: 'center', padding: 'var(--space-4) 0' }}>
             <button className="btn btn-secondary" onClick={loadMore} disabled={loadingMore}
-              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 1.5rem' }}
+              style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', padding: 'var(--space-3) var(--space-5)' }}
             >
               {loadingMore ? <Spinner size={16} /> : <><ChevronDown size={16} /> Load more results</>}
             </button>
@@ -415,24 +415,24 @@ export default function LiteratureSurvey() {
       </div>
         </>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
           {loadingSaved ? (
-            <div style={{ display: 'flex', justifyContent: 'center', padding: '2rem' }}><Spinner /></div>
+            <div style={{ display: 'flex', justifyContent: 'center', padding: 'var(--space-6)' }}><Spinner /></div>
           ) : savedSurveys.length === 0 ? (
             <div className="empty-state">
-              <Bookmark size={38} style={{ margin: '0 auto 0.875rem', color: 'var(--text-subtle)', display: 'block' }} />
+              <Bookmark size={38} style={{ margin: '0 auto var(--space-3)', color: 'var(--text-subtle)', display: 'block' }} />
               You haven't saved any surveys yet.
             </div>
           ) : (
             savedSurveys.map((survey, i) => (
               <div key={i} className="lit-result-card animate-slide-up"
-                style={{ animationDelay: `${i * 0.04}s`, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.25rem 1.5rem', transition: 'transform 0.18s ease, border-color 0.18s ease', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}
+                style={{ animationDelay: `${i * 0.04}s`, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 'var(--space-4) var(--space-5)', transition: 'transform 0.18s ease, border-color 0.18s ease', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-4)' }}
               >
                 <div>
-                  <h3 style={{ margin: '0 0 0.25rem', fontSize: '1.05rem', fontWeight: 600, color: 'var(--text)' }}>{survey.query}</h3>
-                  <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>{survey.papers?.length || 0} papers saved</p>
+                  <h3 style={{ margin: '0 0 var(--space-1)', fontSize: 'var(--fs-md)', fontWeight: 600, color: 'var(--text)' }}>{survey.query}</h3>
+                  <p style={{ margin: 0, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>{survey.papers?.length || 0} papers saved</p>
                 </div>
-                <div className="action-buttons" style={{ display: 'flex', gap: '0.5rem' }}>
+                <div className="action-buttons" style={{ display: 'flex', gap: 'var(--space-2)' }}>
                   <button className="btn btn-secondary" onClick={() => exportSurveyToPDF(survey.papers, survey.query)}>
                     <Download size={14} /> Download PDF
                   </button>

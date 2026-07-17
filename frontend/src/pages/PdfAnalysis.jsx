@@ -33,7 +33,7 @@ const SUGGESTIONS = [
 
 function TypingIndicator() {
   return (
-    <div style={{ padding: '0.25rem 0' }}>
+    <div style={{ padding: 'var(--space-1) 0' }}>
       <TypingDots />
     </div>
   );
@@ -46,7 +46,7 @@ function MessageBubble({ msg }) {
     if (msg.isLoading) return <TypingIndicator />;
     if (msg.error) {
       return (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--danger)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', color: 'var(--danger)' }}>
           <AlertCircle size={14} />
           {msg.content}
         </div>
@@ -418,7 +418,7 @@ export default function PdfAnalysis() {
                  <Document 
                     file={file} 
                     onLoadSuccess={({ numPages }) => { setNumPages(numPages); setPageNumber(1); }} 
-                    loading={<div style={{padding: '2rem', textAlign: 'center'}}><Spinner size={24} /></div>}
+                    loading={<div style={{padding: 'var(--space-6)', textAlign: 'center'}}><Spinner size={24} /></div>}
                  >
                    <div style={{ transform: `scale(${1 / pixelRatio})`, transformOrigin: 'top left', width: `${100 * pixelRatio}%` }}>
                      <Page 
@@ -431,18 +431,18 @@ export default function PdfAnalysis() {
                  </Document>
                </div>
             ) : (
-               <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem', textAlign: 'center', color: 'var(--text-subtle)' }}>
+               <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 'var(--space-6)', textAlign: 'center', color: 'var(--text-subtle)' }}>
                  <p>Preview unavailable for loaded chats.<br/>(PDF file not stored in browser)</p>
                </div>
             )}
             {file.size && numPages && (
               <div className="pdf-viewer-controls">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
                   <button className="btn btn-secondary btn-icon" title="Zoom Out" onClick={() => setZoom(z => Math.max(0.5, z - 0.2))}><Minus size={16} /></button>
                   <span style={{ minWidth: '3.5rem', textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
                   <button className="btn btn-secondary btn-icon" title="Zoom In" onClick={() => setZoom(z => Math.min(3.0, z + 0.2))}><Plus size={16} /></button>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
                   <button className="btn btn-secondary btn-icon" disabled={pageNumber <= 1} onClick={() => setPageNumber(p => p - 1)}><ChevronLeft size={16} /></button>
                   <span>Page {pageNumber} of {numPages}</span>
                   <button className="btn btn-secondary btn-icon" disabled={pageNumber >= numPages} onClick={() => setPageNumber(p => p + 1)}><ChevronRight size={16} /></button>
@@ -455,7 +455,7 @@ export default function PdfAnalysis() {
         {/* Chat Pane */}
         <div className="pdf-chat-container">
         <div className="pdf-chat-header">
-          <div className="pdf-chat-title" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <div className="pdf-chat-title" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
             <button 
               className={`pdf-history-toggle ${!historyCollapsed ? 'desktop-hide' : ''}`}
               onClick={() => setHistoryCollapsed(false)}
@@ -470,7 +470,7 @@ export default function PdfAnalysis() {
             <div className="pdf-file-badge">
               <FileText size={14} />
               {file.name}
-              <button onClick={() => setFile(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', marginLeft: '0.25rem', color: 'currentColor' }}>
+              <button onClick={() => setFile(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', marginLeft: 'var(--space-1)', color: 'currentColor' }}>
                 <X size={14} />
               </button>
             </div>
@@ -481,21 +481,21 @@ export default function PdfAnalysis() {
           {isExtracting ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-subtle)' }}>
               <Spinner size={48} />
-              <h2 style={{ marginTop: '1.5rem', fontWeight: 600, color: 'var(--text)' }}>Extracting Document Text...</h2>
+              <h2 style={{ marginTop: 'var(--space-5)', fontWeight: 600, color: 'var(--text)' }}>Extracting Document Text...</h2>
               <p>This may take a few seconds.</p>
             </div>
           ) : (!file && !extractedText) ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, width: '100%' }}>
-              <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
-                <div style={{ display: 'inline-flex', padding: '0.75rem', background: 'var(--primary-light)', borderRadius: '50%', color: 'var(--primary)', marginBottom: '0.75rem' }}>
+              <div style={{ textAlign: 'center', marginBottom: 'var(--space-5)' }}>
+                <div style={{ display: 'inline-flex', padding: 'var(--space-3)', background: 'var(--primary-light)', borderRadius: '50%', color: 'var(--primary)', marginBottom: 'var(--space-3)' }}>
                   <FileText size={32} />
                 </div>
-                <h1 style={{ fontSize: '1.5rem', fontWeight: 800, margin: '0 0 0.5rem' }}>Chat with your PDF</h1>
-                <p style={{ color: 'var(--text-subtle)', fontSize: '0.9rem', maxWidth: '350px', margin: '0 auto' }}>Upload a research paper to extract insights, find gaps, and summarize methodology.</p>
+                <h1 style={{ fontSize: 'var(--fs-lg)', fontWeight: 800, margin: '0 0 var(--space-2)' }}>Chat with your PDF</h1>
+                <p style={{ color: 'var(--text-subtle)', fontSize: 'var(--fs-sm)', maxWidth: '350px', margin: '0 auto' }}>Upload a research paper to extract insights, find gaps, and summarize methodology.</p>
               </div>
 
               {error && (
-                <div style={{ color: 'var(--danger)', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <div style={{ color: 'var(--danger)', marginBottom: 'var(--space-4)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
                   <AlertCircle size={16} /> {error}
                 </div>
               )}
@@ -511,11 +511,11 @@ export default function PdfAnalysis() {
                   if (files.length) handleFileChange(files[0]);
                 }}
                 onClick={() => fileInputRef.current?.click()}
-                style={{ maxWidth: '400px', padding: '2rem 1.5rem' }}
+                style={{ maxWidth: '400px', padding: 'var(--space-6) var(--space-5)' }}
               >
-                <UploadCloud size={32} className="pdf-dropzone-icon" style={{ marginBottom: '0.75rem' }} />
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 600, margin: '0 0 0.25rem' }}>Drop your PDF here</h3>
-                <p style={{ color: 'var(--text-subtle)', fontSize: '0.85rem', margin: 0 }}>or click to browse from your computer</p>
+                <UploadCloud size={32} className="pdf-dropzone-icon" style={{ marginBottom: 'var(--space-3)' }} />
+                <h3 style={{ fontSize: 'var(--fs-md)', fontWeight: 600, margin: '0 0 var(--space-1)' }}>Drop your PDF here</h3>
+                <p style={{ color: 'var(--text-subtle)', fontSize: 'var(--fs-sm)', margin: 0 }}>or click to browse from your computer</p>
               </div>
             </div>
           ) : (
@@ -591,7 +591,7 @@ export default function PdfAnalysis() {
       {/* History Sidebar */}
       <div className={`pdf-history-sidebar ${historyCollapsed ? 'collapsed' : ''}`}>
         <div className="pdf-history-header">
-          <button className="btn btn-primary" onClick={reset} style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}>
+          <button className="btn btn-primary" onClick={reset} style={{ padding: 'var(--space-2) var(--space-3)', fontSize: 'var(--fs-sm)' }}>
             + New Chat
           </button>
           <button 
@@ -605,9 +605,9 @@ export default function PdfAnalysis() {
         {!historyCollapsed && (
           <div className="pdf-history-list">
             {loadingChats ? (
-              <div style={{ display: 'flex', justifyContent: 'center', padding: '1rem' }}><Spinner size={16}/></div>
+              <div style={{ display: 'flex', justifyContent: 'center', padding: 'var(--space-4)' }}><Spinner size={16}/></div>
             ) : chatList.length === 0 ? (
-              <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-subtle)', fontSize: '0.85rem' }}>No past chats found.</div>
+              <div style={{ padding: 'var(--space-4)', textAlign: 'center', color: 'var(--text-subtle)', fontSize: 'var(--fs-sm)' }}>No past chats found.</div>
             ) : (
               chatList.map(chat => (
                 <div 

@@ -30,8 +30,8 @@ const impactColor = (i) => ({ 'Very High': '#0057ff', 'High': '#ff4d00', 'Medium
 const ChartTooltip = ({ active, payload }) => {
   if (!active || !payload?.length) return null;
   return (
-    <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '0.65rem 0.875rem', fontSize: '0.83rem' }}>
-      <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: '0.15rem' }}>{payload[0].payload.title}</div>
+    <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: 'var(--space-3) var(--space-3)', fontSize: 'var(--fs-sm)' }}>
+      <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 'var(--space-1)' }}>{payload[0].payload.title}</div>
       <div style={{ color: 'var(--text-muted)' }}>{payload[0].payload.impact} impact</div>
     </div>
   );
@@ -183,14 +183,14 @@ export default function Dashboard() {
   return (
     <div className="animate-fade-in">
       {/* Header */}
-      <div style={{ marginBottom: '2rem' }}>
+      <div style={{ marginBottom: 'var(--space-6)' }}>
         <h1>Research Discovery</h1>
         <p className="text-muted">Explore trending research areas and discover high-impact topics.</p>
       </div>
 
       {/* Search */}
-      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.5rem', marginBottom: '2rem' }}>
-        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 'var(--space-5)', marginBottom: 'var(--space-6)' }}>
+        <div style={{ display: 'flex', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
           <div ref={inputWrap} style={{ position: 'relative', flex: 1, minWidth: '220px' }}>
             <Search size={15} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-subtle)', pointerEvents: 'none' }} />
             <input
@@ -199,13 +199,13 @@ export default function Dashboard() {
               onChange={e => handleInputChange(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') discover(); if (e.key === 'Escape') setShowSug(false); }}
               onFocus={() => suggestions.length && setShowSug(true)}
-              style={{ paddingLeft: '2.6rem' }}
+              style={{ paddingLeft: 'var(--space-7)' }}
             />
             {showSug && (
               <div style={{ position: 'absolute', top: 'calc(100% + 5px)', left: 0, right: 0, background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', zIndex: 50, overflow: 'hidden', boxShadow: 'var(--shadow-lg)' }}>
                 {suggestions.map((s, i) => (
                   <div key={i} onMouseDown={() => discover(s)}
-                    style={{ padding: '0.6rem 1rem', cursor: 'pointer', fontSize: '0.88rem', color: 'var(--text-muted)', borderBottom: i < suggestions.length - 1 ? '1px solid var(--border)' : 'none', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                    style={{ padding: 'var(--space-2) var(--space-4)', cursor: 'pointer', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', borderBottom: i < suggestions.length - 1 ? '1px solid var(--border)' : 'none', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}
                     onMouseEnter={e => { e.currentTarget.style.background = 'var(--primary-light)'; e.currentTarget.style.color = 'var(--primary)'; }}
                     onMouseLeave={e => { e.currentTarget.style.background = ''; e.currentTarget.style.color = 'var(--text-muted)'; }}
                   >
@@ -222,15 +222,15 @@ export default function Dashboard() {
           />
         </div>
         {error && (
-          <div style={{ marginTop: '1rem', padding: '0.85rem 1rem', background: 'rgba(229,28,35,0.08)', border: '1px solid rgba(229,28,35,0.2)', borderRadius: 'var(--radius-md)', color: 'var(--danger)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <div style={{ marginTop: 'var(--space-4)', padding: 'var(--space-3) var(--space-4)', background: 'rgba(229,28,35,0.08)', border: '1px solid rgba(229,28,35,0.2)', borderRadius: 'var(--radius-md)', color: 'var(--danger)', fontSize: 'var(--fs-sm)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
             <X size={15} /> {error}
           </div>
         )}
       </div>
 
       {loading && (
-        <div style={{ marginTop: '2rem' }}>
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 600, margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <div style={{ marginTop: 'var(--space-6)' }}>
+          <h2 style={{ fontSize: 'var(--fs-md)', fontWeight: 600, margin: '0 0 var(--space-4)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
             <Sparkles size={18} style={{ color: 'var(--primary)' }} /> Finding relevant literature...
           </h2>
           <SkeletonList count={4} />
@@ -239,27 +239,27 @@ export default function Dashboard() {
 
       {/* Preloaded Neat Data (Empty State) */}
       {!loading && results.length === 0 && !error && !activeCategory && (
-        <div className="dashboard-welcome animate-fade-in" style={{ marginTop: '1rem', marginBottom: '3rem' }}>
-          <div className="grid-cols-2" style={{ display: 'grid', gap: '2rem' }}>
+        <div className="dashboard-welcome animate-fade-in" style={{ marginTop: 'var(--space-4)', marginBottom: 'var(--space-7)' }}>
+          <div className="grid-cols-2" style={{ display: 'grid', gap: 'var(--space-6)' }}>
             
             {/* Trending Research Domains */}
             <div>
-              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text)' }}>
+              <h3 style={{ fontSize: 'var(--fs-md)', fontWeight: 700, marginBottom: 'var(--space-4)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)', color: 'var(--text)' }}>
                 <TrendingUp size={16} style={{ color: 'var(--primary)' }} /> Trending Research Domains
               </h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
                 {[
                   { title: "Machine Learning in Healthcare", tag: "AI/Medical", trend: "+12%" },
                   { title: "Quantum Computing Algorithms", tag: "Physics/CS", trend: "+8%" },
                   { title: "LLM Alignment and Safety", tag: "AI/Ethics", trend: "+24%" },
                   { title: "CRISPR Gene Editing", tag: "Bio/Genetics", trend: "+18%" }
                 ].map((item, i) => (
-                  <div key={item.title} onClick={() => discover(item.title)} className="solid-card animate-card-in" style={{ padding: '1.25rem', cursor: 'pointer', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', animationDelay: `${i * 0.05}s` }}>
+                  <div key={item.title} onClick={() => discover(item.title)} className="solid-card animate-card-in" style={{ padding: 'var(--space-4)', cursor: 'pointer', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', animationDelay: `${i * 0.05}s` }}>
                     <div>
-                      <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text)' }}>{item.title}</div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-subtle)', marginTop: '0.35rem' }}>{item.tag}</div>
+                      <div style={{ fontWeight: 700, fontSize: 'var(--fs-sm)', color: 'var(--text)' }}>{item.title}</div>
+                      <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-subtle)', marginTop: 'var(--space-1)' }}>{item.tag}</div>
                     </div>
-                    <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--success)', background: 'rgba(39, 201, 63, 0.12)', padding: '0.25rem 0.65rem', borderRadius: '999px' }}>{item.trend}</span>
+                    <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--success)', background: 'rgba(39, 201, 63, 0.12)', padding: 'var(--space-1) var(--space-3)', borderRadius: '999px' }}>{item.trend}</span>
                   </div>
                 ))}
               </div>
@@ -267,35 +267,35 @@ export default function Dashboard() {
 
             {/* Recent Activity */}
             <div>
-              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text)' }}>
+              <h3 style={{ fontSize: 'var(--fs-md)', fontWeight: 700, marginBottom: 'var(--space-4)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)', color: 'var(--text)' }}>
                 <FileText size={16} style={{ color: 'var(--accent)' }} /> Recent Surveys
               </h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
                 {loadingRecent ? (
                   <SkeletonList count={3} />
                 ) : recentSurveys.length === 0 ? (
-                  <div className="solid-card" style={{ padding: '1.25rem', borderRadius: '12px', textAlign: 'center', color: 'var(--text-subtle)' }}>
+                  <div className="solid-card" style={{ padding: 'var(--space-4)', borderRadius: '12px', textAlign: 'center', color: 'var(--text-subtle)' }}>
                     No recent surveys found.
                   </div>
                 ) : (
                   recentSurveys.map((survey, i) => (
-                    <div key={i} className="solid-card animate-card-in" style={{ padding: '1.25rem', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '0.5rem', animationDelay: `${i * 0.1}s` }}>
+                    <div key={i} className="solid-card animate-card-in" style={{ padding: 'var(--space-4)', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', animationDelay: `${i * 0.1}s` }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Literature Survey</span>
+                        <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Literature Survey</span>
                         <button 
                           className="btn btn-icon"
                           onClick={(e) => deleteRecentSurvey(survey.query, e)}
-                          style={{ color: 'var(--danger)', padding: '0.2rem', margin: '-0.2rem' }}
+                          style={{ color: 'var(--danger)', padding: 'var(--space-1)', margin: '-var(--space-1)' }}
                         >
                           <Trash2 size={13} />
                         </button>
                       </div>
-                      <div style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--text)' }}>{survey.query}</div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{survey.papers?.length || 0} papers saved</div>
+                      <div style={{ fontWeight: 600, fontSize: 'var(--fs-sm)', color: 'var(--text)' }}>{survey.query}</div>
+                      <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>{survey.papers?.length || 0} papers saved</div>
                       <button 
                         className="btn btn-ghost" 
                         onClick={() => navigate('/literature-survey')}
-                        style={{ alignSelf: 'flex-start', padding: 0, marginTop: '0.25rem', color: 'var(--primary)', fontSize: '0.85rem' }}
+                        style={{ alignSelf: 'flex-start', padding: 0, marginTop: 'var(--space-1)', color: 'var(--primary)', fontSize: 'var(--fs-sm)' }}
                       >
                         View in Surveys <ArrowRight size={12} />
                       </button>
@@ -311,29 +311,29 @@ export default function Dashboard() {
 
       {/* AI Results */}
       {!loading && results.length > 0 && (
-        <div style={{ marginBottom: '2rem' }}>
-          <div style={{ background: 'var(--accent-light)', border: '1px solid rgba(255,77,0,0.2)', borderRadius: 'var(--radius-lg)', padding: '0.9rem 1rem', marginBottom: '1rem', color: 'var(--text)', fontSize: '0.9rem', fontWeight: 700 }}>
+        <div style={{ marginBottom: 'var(--space-6)' }}>
+          <div style={{ background: 'var(--accent-light)', border: '1px solid rgba(255,77,0,0.2)', borderRadius: 'var(--radius-lg)', padding: 'var(--space-4) var(--space-4)', marginBottom: 'var(--space-4)', color: 'var(--text)', fontSize: 'var(--fs-sm)', fontWeight: 700 }}>
             Topic suggestions are ready. Related research papers are shown below so you can continue from discovery into reading.
           </div>
-          <div className="grid-cols-2" style={{ display: 'grid', gap: '1rem', marginBottom: '1.25rem' }}>
+          <div className="grid-cols-2" style={{ display: 'grid', gap: 'var(--space-4)', marginBottom: 'var(--space-4)' }}>
             {results.map((t, i) => (
               <div key={i} className="stat-card animate-slide-up" style={{ animationDelay: `${i * 0.07}s`, cursor: 'pointer' }} onClick={() => navigate('/literature-survey')}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.6rem' }}>
-                  <span style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-subtle)' }}>#{i + 1}</span>
-                  <span style={{ background: 'var(--primary-light)', color: 'var(--primary)', padding: '0.15rem 0.55rem', borderRadius: '999px', fontSize: '0.7rem', fontWeight: 600 }}>{t.impact}</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 'var(--space-2)' }}>
+                  <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-subtle)' }}>#{i + 1}</span>
+                  <span style={{ background: 'var(--primary-light)', color: 'var(--primary)', padding: 'var(--space-1) var(--space-2)', borderRadius: '999px', fontSize: 'var(--fs-xs)', fontWeight: 600 }}>{t.impact}</span>
                 </div>
-                <p style={{ fontWeight: 600, fontSize: '0.93rem', color: 'var(--text)', margin: '0 0 0.65rem', lineHeight: 1.4 }}>{t.title}</p>
+                <p style={{ fontWeight: 600, fontSize: 'var(--fs-sm)', color: 'var(--text)', margin: '0 0 var(--space-3)', lineHeight: 1.4 }}>{t.title}</p>
                 <a href={`https://scholar.google.com/scholar?q=${encodeURIComponent(t.title)}`} target="_blank" rel="noreferrer"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.77rem', color: 'var(--primary)', textDecoration: 'none', fontWeight: 500 }}>
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-1)', fontSize: 'var(--fs-xs)', color: 'var(--primary)', textDecoration: 'none', fontWeight: 500 }}>
                   Explore <ExternalLink size={11} />
                 </a>
               </div>
             ))}
           </div>
 
-          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.5rem', marginBottom: '1.25rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 'var(--space-5)', marginBottom: 'var(--space-4)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-4)', marginBottom: 'var(--space-4)', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
                 <FileText size={17} color="var(--accent)" />
                 <span style={{ fontWeight: 750 }}>Papers related to "{topic}"</span>
               </div>
@@ -346,7 +346,7 @@ export default function Dashboard() {
               <p style={{ margin: 0, color: 'var(--text-muted)' }}>No related papers were found for this search.</p>
             )}
             {!papersLoading && relatedPapers.length > 0 && (
-              <div style={{ display: 'grid', gap: '0.65rem' }}>
+              <div style={{ display: 'grid', gap: 'var(--space-3)' }}>
                 {relatedPapers.map((paper, i) => (
                   <a
                     key={paper.id || `${paper.title}-${i}`}
@@ -354,24 +354,24 @@ export default function Dashboard() {
                     target="_blank"
                     rel="noreferrer"
                     className="animate-slide-up"
-                    style={{ animationDelay: `${i * 0.04}s`, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '1rem', padding: '0.85rem 0.95rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', textDecoration: 'none', color: 'var(--text)', background: '#fff' }}
+                    style={{ animationDelay: `${i * 0.04}s`, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 'var(--space-4)', padding: 'var(--space-3) var(--space-4)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', textDecoration: 'none', color: 'var(--text)', background: '#fff' }}
                   >
                     <span style={{ minWidth: 0 }}>
-                      <strong style={{ display: 'block', fontSize: '0.9rem', lineHeight: 1.4 }}>{paper.title}</strong>
-                      <span style={{ display: 'block', color: 'var(--text-muted)', fontSize: '0.78rem', marginTop: '0.2rem' }}>{paper.authors || paper.year || 'Research paper'}</span>
+                      <strong style={{ display: 'block', fontSize: 'var(--fs-sm)', lineHeight: 1.4 }}>{paper.title}</strong>
+                      <span style={{ display: 'block', color: 'var(--text-muted)', fontSize: 'var(--fs-xs)', marginTop: 'var(--space-1)' }}>{paper.authors || paper.year || 'Research paper'}</span>
                     </span>
-                    <ExternalLink size={14} color="var(--text-subtle)" style={{ flexShrink: 0, marginTop: '0.2rem' }} />
+                    <ExternalLink size={14} color="var(--text-subtle)" style={{ flexShrink: 0, marginTop: 'var(--space-1)' }} />
                   </a>
                 ))}
               </div>
             )}
           </div>
 
-          <div className="grid-cols-2" style={{ display: 'grid', gap: '1rem' }}>
-            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.5rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '1rem' }}>
+          <div className="grid-cols-2" style={{ display: 'grid', gap: 'var(--space-4)' }}>
+            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 'var(--space-5)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-4)' }}>
                 <TrendingUp size={16} color="var(--primary)" />
-                <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Impact Overview</span>
+                <span style={{ fontWeight: 600, fontSize: 'var(--fs-sm)' }}>Impact Overview</span>
               </div>
               <ResponsiveContainer width="100%" height={180}>
                 <BarChart data={chartData} barCategoryGap="35%">
@@ -385,20 +385,20 @@ export default function Dashboard() {
               </ResponsiveContainer>
             </div>
 
-            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.5rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '1rem' }}>
+            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 'var(--space-5)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-4)' }}>
                 <TrendingUp size={16} color="var(--accent)" />
-                <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Suggested Fields</span>
+                <span style={{ fontWeight: 600, fontSize: 'var(--fs-sm)' }}>Suggested Fields</span>
               </div>
               {results.map((t, i) => (
                 <a key={i} href={`https://scholar.google.com/scholar?q=${encodeURIComponent(t.title)}`} target="_blank" rel="noreferrer"
-                  style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.65rem 0.875rem', marginBottom: '0.5rem', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', transition: 'var(--transition)' }}
+                  style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'var(--space-3) var(--space-3)', marginBottom: 'var(--space-2)', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', transition: 'var(--transition)' }}
                   onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(0,87,255,0.28)'; e.currentTarget.style.background = 'var(--bg-input)'; }}
                   onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--bg-elevated)'; }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
                     <div style={{ width: 7, height: 7, borderRadius: '50%', background: impactColor(t.impact), flexShrink: 0 }} />
-                    <span style={{ fontWeight: 500, fontSize: '0.87rem', color: 'var(--text)' }}>{t.title}</span>
+                    <span style={{ fontWeight: 500, fontSize: 'var(--fs-sm)', color: 'var(--text)' }}>{t.title}</span>
                   </div>
                   <ArrowUpRight size={13} color="var(--text-subtle)" />
                 </a>
@@ -410,8 +410,8 @@ export default function Dashboard() {
 
       {/* Category cards */}
       <div>
-        <h2 style={{ fontSize: '1.05rem', fontWeight: 600, marginBottom: '1rem', color: 'var(--text)' }}>Browse by Field</h2>
-        <div className="grid-cols-3" style={{ display: 'grid', gap: '0.875rem' }}>
+        <h2 style={{ fontSize: 'var(--fs-md)', fontWeight: 600, marginBottom: 'var(--space-4)', color: 'var(--text)' }}>Browse by Field</h2>
+        <div className="grid-cols-3" style={{ display: 'grid', gap: 'var(--space-3)' }}>
           {CATEGORIES.map((cat, i) => (
             <div key={i} className="animate-slide-up" onClick={() => openCategory(cat)}
               style={{ animationDelay: `${i * 0.05}s`, position: 'relative', borderRadius: 'var(--radius-lg)', overflow: 'hidden', cursor: 'pointer', border: '1px solid var(--border)', aspectRatio: '16/9', transition: 'transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease' }}
@@ -421,9 +421,9 @@ export default function Dashboard() {
               <img src={cat.image} alt={cat.title} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} onError={e => { e.target.style.display = 'none'; }} />
               <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.25) 55%, transparent 100%)' }} />
               <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '3px', background: cat.color }} />
-              <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '0.875rem' }}>
-                <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#fff', marginBottom: '0.15rem' }}>{cat.title}</div>
-                <div style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.6)' }}>{cat.subtitle}</div>
+              <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 'var(--space-3)' }}>
+                <div style={{ fontWeight: 700, fontSize: 'var(--fs-sm)', color: '#fff', marginBottom: 'var(--space-1)' }}>{cat.title}</div>
+                <div style={{ fontSize: 'var(--fs-xs)', color: 'rgba(255,255,255,0.6)' }}>{cat.subtitle}</div>
               </div>
             </div>
           ))}
@@ -432,19 +432,19 @@ export default function Dashboard() {
 
       {/* Category paper drawer */}
       {activeCategory && (
-        <div className="animate-fade-in" style={{ marginTop: '2rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+        <div className="animate-fade-in" style={{ marginTop: 'var(--space-6)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-4)', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
               <div style={{ width: 10, height: 10, borderRadius: '50%', background: activeCategory.color }} />
-              <h2 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 600 }}>Latest in {activeCategory.title}</h2>
+              <h2 style={{ margin: 0, fontSize: 'var(--fs-md)', fontWeight: 600 }}>Latest in {activeCategory.title}</h2>
             </div>
-            <button className="btn btn-ghost" style={{ fontSize: '0.82rem' }} onClick={() => { setActiveCategory(null); setCategoryPapers([]); }}>
+            <button className="btn btn-ghost" style={{ fontSize: 'var(--fs-sm)' }} onClick={() => { setActiveCategory(null); setCategoryPapers([]); }}>
               <X size={14} /> Close
             </button>
           </div>
 
           {catLoading && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: 'var(--text-muted)', fontSize: '0.9rem', padding: '1.5rem 0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', color: 'var(--text-muted)', fontSize: 'var(--fs-sm)', padding: 'var(--space-5) 0' }}>
               <Spinner size={20} /> Loading papers...
             </div>
           )}
@@ -455,21 +455,21 @@ export default function Dashboard() {
             </div>
           )}
 
-          <div className="grid-cols-3" style={{ display: 'grid', gap: '0.875rem' }}>
+          <div className="grid-cols-3" style={{ display: 'grid', gap: 'var(--space-3)' }}>
             {categoryPapers.map((p, i) => (
-              <div key={i} className="animate-slide-up" style={{ animationDelay: `${i * 0.04}s`, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.25rem', transition: 'transform 0.2s ease, border-color 0.2s ease' }}
+              <div key={i} className="animate-slide-up" style={{ animationDelay: `${i * 0.04}s`, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 'var(--space-4)', transition: 'transform 0.2s ease, border-color 0.2s ease' }}
                 onMouseEnter={e => { e.currentTarget.style.borderColor = activeCategory.color + '45'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
                 onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.transform = ''; }}
               >
-                <p style={{ margin: '0 0 0.5rem', fontWeight: 600, fontSize: '0.88rem', color: 'var(--text)', lineHeight: 1.45 }}>{p.title}</p>
-                <p style={{ margin: '0 0 0.5rem', fontSize: '0.77rem', color: 'var(--text-muted)' }}>{p.authors}</p>
-                <p style={{ margin: '0 0 0.875rem', fontSize: '0.8rem', color: 'var(--text-subtle)', lineHeight: 1.55 }}>
+                <p style={{ margin: '0 0 var(--space-2)', fontWeight: 600, fontSize: 'var(--fs-sm)', color: 'var(--text)', lineHeight: 1.45 }}>{p.title}</p>
+                <p style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{p.authors}</p>
+                <p style={{ margin: '0 0 var(--space-3)', fontSize: 'var(--fs-sm)', color: 'var(--text-subtle)', lineHeight: 1.55 }}>
                   {p.abstract ? p.abstract.substring(0, 150) + '...' : ''}
                 </p>
-                <div style={{ display: 'flex', gap: '0.4rem' }}>
-                  {p.url && <a href={p.url} target="_blank" rel="noreferrer" className="btn btn-ghost" style={{ fontSize: '0.77rem', padding: '0.3rem 0.6rem', textDecoration: 'none' }}><ExternalLink size={12} /> Abstract</a>}
-                  {p.pdf_url && <a href={p.pdf_url} target="_blank" rel="noreferrer" className="btn btn-ghost" style={{ fontSize: '0.77rem', padding: '0.3rem 0.6rem', textDecoration: 'none' }}><FileText size={12} /> PDF</a>}
-                  <a href={`https://scholar.google.com/scholar?q=${encodeURIComponent(p.title)}`} target="_blank" rel="noreferrer" className="btn btn-ghost" style={{ fontSize: '0.77rem', padding: '0.3rem 0.6rem', textDecoration: 'none' }}><Search size={12} /> Scholar</a>
+                <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+                  {p.url && <a href={p.url} target="_blank" rel="noreferrer" className="btn btn-ghost" style={{ fontSize: 'var(--fs-xs)', padding: 'var(--space-1) var(--space-2)', textDecoration: 'none' }}><ExternalLink size={12} /> Abstract</a>}
+                  {p.pdf_url && <a href={p.pdf_url} target="_blank" rel="noreferrer" className="btn btn-ghost" style={{ fontSize: 'var(--fs-xs)', padding: 'var(--space-1) var(--space-2)', textDecoration: 'none' }}><FileText size={12} /> PDF</a>}
+                  <a href={`https://scholar.google.com/scholar?q=${encodeURIComponent(p.title)}`} target="_blank" rel="noreferrer" className="btn btn-ghost" style={{ fontSize: 'var(--fs-xs)', padding: 'var(--space-1) var(--space-2)', textDecoration: 'none' }}><Search size={12} /> Scholar</a>
                 </div>
               </div>
             ))}
@@ -478,10 +478,10 @@ export default function Dashboard() {
       )}
 
       {!results.length && !loading && !activeCategory && hasSearched && !error && (
-        <div style={{ marginTop: '2rem', textAlign: 'center', padding: '3rem 1.5rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)' }}>
-          <Search size={32} style={{ color: 'var(--text-subtle)', marginBottom: '1rem', opacity: 0.5 }} />
-          <h3 style={{ margin: '0 0 0.5rem', fontSize: '1.1rem', color: 'var(--text)' }}>No results found for "{topic}"</h3>
-          <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>Try a different search term or select a category below.</p>
+        <div style={{ marginTop: 'var(--space-6)', textAlign: 'center', padding: 'var(--space-7) var(--space-5)', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)' }}>
+          <Search size={32} style={{ color: 'var(--text-subtle)', marginBottom: 'var(--space-4)', opacity: 0.5 }} />
+          <h3 style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--fs-md)', color: 'var(--text)' }}>No results found for "{topic}"</h3>
+          <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 'var(--fs-sm)' }}>Try a different search term or select a category below.</p>
         </div>
       )}
     </div>
