@@ -163,6 +163,7 @@ export default function ManuscriptBuilder() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [customContext, setCustomContext] = useState('');
   const [streamSources, setStreamSources] = useState([]);
+  const [sourcesResolved, setSourcesResolved] = useState(false);
   
   const abortControllerRef = useRef(null);
 
@@ -188,6 +189,7 @@ export default function ManuscriptBuilder() {
     setUnverifiedNumbers([]);
     setRateLimitWait(null);
     setStreamSources([]);
+    setSourcesResolved(false);
     setContent(prev => ({ ...prev, [active]: '' })); // Clear old content
     
     abortControllerRef.current = new AbortController();
@@ -269,6 +271,7 @@ export default function ManuscriptBuilder() {
                 setContent(prev => ({ ...prev, [active]: (prev[active] || "") + data.text }));
               } else if (data.type === "sources_list") {
                 setStreamSources(data.sources || []);
+                setSourcesResolved(true);
               } else if (data.type === "provider_active") {
                 setAutoStatus(data.continuing ? `Resuming with ${data.provider}...` : `Generating with ${data.provider}...`);
               } else if (data.type === "provider_status") {
@@ -740,23 +743,27 @@ export default function ManuscriptBuilder() {
           </div>
 
           {/* Source Cards Strip */}
-          {streamSources.length > 0 && (
+          {sourcesResolved && (
             <div style={{ marginBottom: 'var(--space-4)' }}>
-              <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-subtle)', marginBottom: 'var(--space-2)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-                <BookOpen size={12} /> {streamSources.length} Sources Used
-              </div>
-              <div style={{ display: 'flex', gap: 'var(--space-2)', overflowX: 'auto', paddingBottom: 'var(--space-2)' }}>
-                {streamSources.map(src => (
-                  <div
-                    key={src.index}
-                    style={{
-                      minWidth: '200px', maxWidth: '260px', padding: 'var(--space-3)',
-                      background: 'var(--bg-elevated)', border: '1px solid var(--border)',
-                      borderRadius: 'var(--radius-md)', fontSize: 'var(--fs-xs)',
-                      display: 'flex', flexDirection: 'column', gap: 'var(--space-1)',
-                      transition: 'border-color var(--transition), box-shadow var(--transition)',
-                      cursor: 'default', flexShrink: 0,
-                    }}
+              {streamSources.length > 0 ? (
+                <>
+                  <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-subtle)', marginBottom: 'var(--space-2)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                    <BookOpen size={12} /> {streamSources.length} Sources Used
+                  </div>
+                  <div style={{ display: 'flex', gap: 'var(--space-2)', overflowX: 'auto', paddingBottom: 'var(--space-2)' }}>
+                    {streamSources.map((src, i) => (
+                      <div
+                        key={src.index}
+                        className="source-card"
+                        style={{
+                          animationDelay: `${i * 100}ms`,
+                          minWidth: '200px', maxWidth: '260px', padding: 'var(--space-3)',
+                          background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                          borderRadius: 'var(--radius-md)', fontSize: 'var(--fs-xs)',
+                          display: 'flex', flexDirection: 'column', gap: 'var(--space-1)',
+                          transition: 'border-color var(--transition), box-shadow var(--transition)',
+                          cursor: 'default', flexShrink: 0,
+                        }}
                     onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--primary)'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(43,94,168,0.1)'; }}
                     onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.boxShadow = 'none'; }}
                   >
@@ -775,6 +782,12 @@ export default function ManuscriptBuilder() {
                   </div>
                 ))}
               </div>
+              </>
+              ) : (
+                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                  <BookOpen size={14} /> No specific sources cited — generated from general context.
+                </div>
+              )}
             </div>
           )}
 

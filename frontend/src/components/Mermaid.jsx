@@ -26,17 +26,6 @@ export default function Mermaid({ chart }) {
     renderTimeoutRef.current = setTimeout(async () => {
       if (!isMounted || !containerRef.current) return;
 
-      // Pre-validate syntax before rendering
-      try {
-        await mermaid.parse(chart);
-      } catch (parseErr) {
-        if (isMounted) {
-          setError(parseErr?.message || 'Diagram syntax error');
-          if (containerRef.current) containerRef.current.innerHTML = '';
-        }
-        return;
-      }
-
       const id = `mermaid-${Math.random().toString(36).substring(2, 9)}`;
       try {
         const { svg } = await mermaid.render(id, chart);
