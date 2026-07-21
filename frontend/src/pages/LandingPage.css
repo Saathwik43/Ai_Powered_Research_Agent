@@ -52,14 +52,14 @@
 }
 
 .brand-mark strong {
-  font-size: 1.05rem;
+  font-size: var(--fs-md);
   font-weight: 800;
   letter-spacing: -0.02em;
 }
 
 .brand-mark small {
   color: var(--text-subtle);
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   font-weight: 500;
 }
 
@@ -96,7 +96,7 @@
   border-radius: 99px;
   padding: 0.5rem 1rem;
   color: var(--text);
-  font-size: 0.85rem;
+  font-size: var(--fs-sm);
   font-weight: 700;
   box-shadow: 0 4px 12px rgba(0,0,0,0.03);
   margin-bottom: 1.5rem;
@@ -132,7 +132,7 @@
 
 .hero-primary {
   padding: 0.875rem 1.5rem;
-  font-size: 1.05rem;
+  font-size: var(--fs-md);
   border-radius: 99px;
   box-shadow: 0 8px 24px rgba(47, 90, 255, 0.21);
   transition: transform 0.2s, box-shadow 0.2s;
@@ -145,7 +145,7 @@
 
 .hero-secondary {
   padding: 0.875rem 1.5rem;
-  font-size: 1.05rem;
+  font-size: var(--fs-md);
   border-radius: 99px;
   background: var(--bg-card);
   border: 1px solid var(--border-strong);
@@ -160,7 +160,7 @@
   flex-wrap: wrap;
   gap: 1.5rem;
   color: var(--text-subtle);
-  font-size: 0.9rem;
+  font-size: var(--fs-sm);
   font-weight: 500;
 }
 
@@ -193,7 +193,7 @@
   background: rgba(255, 255, 255, 0.6);
   border-bottom: 1px solid rgba(255, 255, 255, 0.5);
   position: relative;
-  font-size: 0.8rem;
+  font-size: var(--fs-sm);
   font-weight: 600;
   color: var(--text-subtle);
 }
@@ -238,7 +238,7 @@
   align-items: center;
   justify-content: center;
   font-weight: 800;
-  font-size: 0.9rem;
+  font-size: var(--fs-sm);
   margin-bottom: 1rem;
 }
 
@@ -278,7 +278,7 @@
 
 .preview-search span {
   flex: 1;
-  font-size: 0.95rem;
+  font-size: var(--fs-base);
 }
 
 .preview-search button {
@@ -287,7 +287,7 @@
   border: none;
   padding: 0.5rem 1rem;
   border-radius: 99px;
-  font-size: 0.85rem;
+  font-size: var(--fs-sm);
   font-weight: 600;
 }
 
@@ -309,14 +309,14 @@
 }
 
 .metric-card small {
-  font-size: 0.8rem;
+  font-size: var(--fs-sm);
   font-weight: 600;
   text-transform: uppercase;
   color: var(--text-subtle);
 }
 
 .metric-card strong {
-  font-size: 1.5rem;
+  font-size: var(--fs-xl);
   font-weight: 800;
 }
 
@@ -352,13 +352,13 @@
 }
 
 .section-heading h2 {
-  font-size: 2.5rem;
+  font-size: var(--fs-3xl);
   font-weight: 800;
   margin-bottom: 1rem;
 }
 
 .section-heading p {
-  font-size: 1.1rem;
+  font-size: var(--fs-md);
   color: var(--text-muted);
 }
 
@@ -395,7 +395,7 @@
 }
 
 .feature-card h3 {
-  font-size: 1.25rem;
+  font-size: var(--fs-lg);
   font-weight: 700;
   margin-bottom: 0.75rem;
 }

@@ -5,7 +5,7 @@ export default function SectionsList({ sections, activeSectionId, onSelectSectio
 
   return (
     <div className="manuscript-outline-panel" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.25rem' }}>
-      <p style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text-subtle)', marginBottom: '0.875rem' }}>Sections</p>
+      <p style={{ fontSize: 'var(--fs-2xs)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text-subtle)', marginBottom: '0.875rem' }}>Sections</p>
       
       <div style={{ height: '4px', borderRadius: '99px', background: 'var(--border)', marginBottom: '1rem', overflow: 'hidden' }}>
         <div style={{ height: '100%', background: 'var(--success)', width: `${progressPercent}%`, transition: 'width 0.3s ease' }}></div>
@@ -47,7 +47,7 @@ export default function SectionsList({ sections, activeSectionId, onSelectSectio
                   padding: '0.6rem 0.75rem', 
                   borderRadius: 'var(--radius-md)', 
                   cursor: 'pointer', 
-                  fontSize: '0.88rem', 
+                  fontSize: 'var(--fs-sm)', 
                   fontWeight: isActive ? 700 : 500, 
                   color: isActive ? 'var(--primary)' : isDone ? 'var(--text)' : 'var(--text-muted)', 
                   background: isGenerating ? 'var(--primary-light)' : (isActive ? 'var(--bg-elevated)' : 'transparent'), 
@@ -56,7 +56,7 @@ export default function SectionsList({ sections, activeSectionId, onSelectSectio
                 }}
               >
                 <span>{step.label}</span>
-                <span style={{ fontSize: '0.65rem', color: isGenerating ? 'var(--primary)' : 'var(--text-subtle)', fontWeight: 600 }}>
+                <span style={{ fontSize: 'var(--fs-2xs)', color: isGenerating ? 'var(--primary)' : 'var(--text-subtle)', fontWeight: 600 }}>
                   {statusLabel}
                 </span>
               </div>
@@ -64,7 +64,7 @@ export default function SectionsList({ sections, activeSectionId, onSelectSectio
           );
         })}
       </div>
-      <div style={{ marginTop: '1rem', paddingTop: '0.875rem', borderTop: '1px solid var(--border)', fontSize: '0.75rem', color: 'var(--text-subtle)', textAlign: 'center' }}>
+      <div style={{ marginTop: '1rem', paddingTop: '0.875rem', borderTop: '1px solid var(--border)', fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)', textAlign: 'center' }}>
         {doneIds.length} of {sections.length} written
       </div>
     </div>

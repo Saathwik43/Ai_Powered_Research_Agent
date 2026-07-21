@@ -43,7 +43,7 @@ const ProtectedLayout = () => {
         </button>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
           <img src="/9672704.webp" alt="Logo" style={{ width: 32, height: 32, borderRadius: '6px', objectFit: 'cover' }} />
-          <span style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text)' }}>Research Agent</span>
+          <span style={{ fontWeight: 700, fontSize: 'var(--fs-base)', color: 'var(--text)' }}>Research Agent</span>
         </div>
         <div style={{ width: 30 }} />
       </div>

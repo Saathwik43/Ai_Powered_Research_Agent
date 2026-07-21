@@ -66,13 +66,13 @@
   align-items: center;
   justify-content: center;
   font-weight: 900;
-  font-size: 0.95rem;
+  font-size: var(--fs-base);
   flex-shrink: 0;
   box-shadow: 0 8px 18px rgba(47, 90, 255, 0.16);
 }
 
 .sidebar-header h2 {
-  font-size: 1rem;
+  font-size: var(--fs-base);
   font-weight: 800;
   color: var(--text);
   margin: 0;
@@ -80,7 +80,7 @@
 }
 
 .sidebar-header span {
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   color: var(--text-muted);
   font-weight: 600;
 }
@@ -95,7 +95,7 @@
 }
 
 .nav-section-label {
-  font-size: 0.66rem;
+  font-size: var(--fs-2xs);
   font-weight: 850;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -113,7 +113,7 @@
   text-decoration: none;
   border-radius: var(--radius-md);
   transition: background-color var(--transition), color var(--transition), transform var(--transition), border-color var(--transition);
-  font-size: 0.9rem;
+  font-size: var(--fs-sm);
   font-weight: 700;
   position: relative;
   border: 1px solid transparent;
@@ -178,7 +178,7 @@
   align-items: center;
   justify-content: center;
   font-weight: 850;
-  font-size: 0.82rem;
+  font-size: var(--fs-sm);
   color: white;
   flex-shrink: 0;
 }
@@ -189,7 +189,7 @@
 }
 
 .user-name {
-  font-size: 0.84rem;
+  font-size: var(--fs-sm);
   font-weight: 750;
   color: var(--text);
   white-space: nowrap;
@@ -198,7 +198,7 @@
 }
 
 .user-email {
-  font-size: 0.7rem;
+  font-size: var(--fs-xs);
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -215,7 +215,7 @@
   border: 1px solid transparent;
   border-radius: var(--radius-md);
   color: var(--text-muted);
-  font-size: 0.85rem;
+  font-size: var(--fs-sm);
   font-weight: 750;
   cursor: pointer;
   transition: var(--transition);

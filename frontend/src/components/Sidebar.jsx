@@ -81,7 +81,7 @@ const Sidebar = ({ open, onClose, collapsed, onToggleCollapse }) => {
         </nav>
 
         {usage && !collapsed && (
-          <div style={{ padding: '1rem 1.25rem', borderTop: '1px solid var(--border)', fontSize: '0.8rem' }}>
+          <div style={{ padding: '1rem 1.25rem', borderTop: '1px solid var(--border)', fontSize: 'var(--fs-sm)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem', color: 'var(--text)' }}>
               <span>Session: {Math.min(100, (usage.used / usage.quota) * 100).toFixed(0)}%</span>
               <span>Reset in: {usage.reset_in}</span>

@@ -633,7 +633,7 @@ export default function ManuscriptBuilder() {
             
             {/* Topic Input - Always Visible */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-              <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Research Topic</span>
+              <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Research Topic</span>
               <input
                 placeholder="Enter research topic..."
                 value={topic}
@@ -648,10 +648,10 @@ export default function ManuscriptBuilder() {
                 onClick={() => setSettingsOpen(!settingsOpen)}
                 style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
               >
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Settings</span>
+                <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Settings</span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
                   {!settingsOpen && (
-                    <span style={{ fontSize: '11px', color: 'var(--primary)', fontWeight: 500 }}>
+                    <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--primary)', fontWeight: 500 }}>
                       {citationStyle.toUpperCase()} · {autoMode ? 'Auto' : 'Specific'}
                     </span>
                   )}
@@ -664,7 +664,7 @@ export default function ManuscriptBuilder() {
                   
                   {/* Citation Format */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-                    <span style={{ fontSize: '11px', color: 'var(--text-subtle)' }}>Citation Format</span>
+                    <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-subtle)' }}>Citation Format</span>
                     <select 
                       value={citationStyle} 
                       onChange={e => setCitationStyle(e.target.value)}
@@ -679,7 +679,7 @@ export default function ManuscriptBuilder() {
 
                   {/* Model Selection */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-                    <span style={{ fontSize: '11px', color: 'var(--text-subtle)' }}>Generation Model</span>
+                    <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-subtle)' }}>Generation Model</span>
                     
                     <div style={{ display: 'flex', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
                       <button
@@ -768,14 +768,14 @@ export default function ManuscriptBuilder() {
                     onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.boxShadow = 'none'; }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
-                      <span style={{ background: 'var(--primary)', color: 'white', borderRadius: '50%', width: '18px', height: '18px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 700, flexShrink: 0 }}>{src.index}</span>
+                      <span style={{ background: 'var(--primary)', color: 'white', borderRadius: '50%', width: '18px', height: '18px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 'var(--fs-2xs)', fontWeight: 700, flexShrink: 0 }}>{src.index}</span>
                       <span style={{ fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{src.title}</span>
                     </div>
                     <div style={{ color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {src.authors} {src.year && `(${src.year})`}
                     </div>
                     {src.url && (
-                      <a href={src.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)', display: 'inline-flex', alignItems: 'center', gap: '2px', fontSize: '0.65rem', textDecoration: 'none', marginTop: 'auto' }}>
+                      <a href={src.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)', display: 'inline-flex', alignItems: 'center', gap: '2px', fontSize: 'var(--fs-2xs)', textDecoration: 'none', marginTop: 'auto' }}>
                         <ExternalLink size={10} /> View source
                       </a>
                     )}

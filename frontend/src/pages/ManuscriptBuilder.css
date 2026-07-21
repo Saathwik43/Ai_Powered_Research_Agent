@@ -1,7 +1,7 @@
 .manuscript-editor-surface {
   max-width: 720px;
   margin: 0 auto;
-  font-size: 17px;
+  font-size: var(--fs-md);
   line-height: 1.7;
   animation: stepFadeIn 0.15s ease-out;
   position: relative;
@@ -72,7 +72,7 @@
   padding: 1rem;
   max-height: 400px;
   overflow-y: auto;
-  font-size: 0.9rem;
+  font-size: var(--fs-sm);
   color: var(--text);
   white-space: pre-wrap;
   line-height: 1.6;
