@@ -802,8 +802,8 @@ export default function ManuscriptBuilder() {
                 <ChevronDown size={16} style={{marginLeft:'auto', transform: gapPanelOpen ? 'rotate(180deg)' : 'none', transition:'transform 150ms ease'}} />
               </button>
               
-              <div style={{ display: 'grid', gridTemplateRows: gapPanelOpen ? '1fr' : '0fr', transition: 'grid-template-rows var(--transition)' }}>
-                <div style={{ overflow: 'hidden' }}>
+              <div className={`gap-panel-body${gapPanelOpen ? ' open' : ''}`}>
+                <div className="inner">
                   <div style={{ paddingTop: gapPanelOpen ? 'var(--space-4)' : '0', transition: 'padding-top var(--transition)' }}>
                   {gapAnalysis.status === 'insufficient_literature' ? (
                     <div style={{ textAlign: 'center', padding: 'var(--space-4)', color: 'var(--text-muted)' }}>
