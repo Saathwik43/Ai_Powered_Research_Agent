@@ -338,8 +338,10 @@ Instructions:
 )
 
 def _edit_prompt_fn(topic: str, section: str, current_content: str, instructions: str) -> str:
+    safe_content = current_content.replace("{","{{").replace("}","}}")
+    safe_instructions=instructions.replace("{","{{").replace("}","}}")
     return edit_prompt_template.format(
-        topic=topic, section=section, current_content=current_content, instructions=instructions
+        topic=topic, section=section, current_content=safe_content, instructions=safe_instructions
     )
 
 
@@ -351,7 +353,7 @@ async def edit_section(topic: str, section: str, current_content: str, instructi
         result = await generate_completion(system_prompt, user_prompt, max_tokens=1200, temperature=0.45)
         return result
     except Exception as e:
-        logger.error(f"manuscript edit failed: {e}")
+        logger.error(f"manuscript edit failed: {e}",exc_info=True)
 
     # If all fail, return current content with a note
     return current_content + "\n\n_(Note: AI revision providers failed. Original content retained.)_"
