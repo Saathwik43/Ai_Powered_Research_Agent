@@ -97,7 +97,9 @@ async def _generate_gemini(system_prompt: str, user_prompt: str, max_tokens: int
         "cached_content": cached_content
     }
     
-    if not is_pro:
+    if not is_pro and max_tokens < 2000:
+        config_kwargs["thinking_config"] = genai_types.ThinkingConfig(thinking_budget=0)
+    elif not is_pro: 
         config_kwargs["thinking_config"] = genai_types.ThinkingConfig(thinking_budget=300)
         
     config = genai_types.GenerateContentConfig(**config_kwargs)
@@ -110,7 +112,11 @@ async def _generate_gemini(system_prompt: str, user_prompt: str, max_tokens: int
         )
         usage = response.usage_metadata.total_token_count if hasattr(response, 'usage_metadata') and response.usage_metadata else 0
         if hasattr(response, 'usage_metadata') and response.usage_metadata:
-            logger.info(f"Gemini usage: {response.usage_metadata}")
+            thoughts=getattr(response.usage_metadata, 'thoughts_token_count',0)
+            output = getattr(response.usage_metadata, 'candidates_token_count',0)
+            logger.info(f"Gemini usage: total = {usage}, thinking={thoughts},output={output}")
+            if thoughts and output and thoughts > output : 
+                logger.warning(f"Thinking Consumed more budget than output (thinking={thoughts},output={output}) - likely truncated")
         return response.text.strip(), usage
     except Exception as e:
         logger.error(f"Gemini API Error ({type(e).__name__}): {e}", exc_info=True)
