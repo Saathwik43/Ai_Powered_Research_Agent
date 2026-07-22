@@ -316,9 +316,14 @@ async def generate_section_stream(topic: str, section: str, context: str, citati
 
 
 edit_prompt_template = PromptTemplate(
-    input_variables=["topic", "section", "current_content", "instructions"],
+    input_variables=["topic", "section", "current_content", "instructions","source_context"],
     template="""You are an expert academic editor.
 You are editing the "{section}" section of a research paper on the topic: "{topic}".
+
+Here is the source material and reference list you must stay grounded in - do not introduce claims or citations that aren't supported by it : 
+<sources>
+ {sources_context}
+</sources>
 
 Here is the current content of the section:
 <current_content>
@@ -332,25 +337,38 @@ The user has requested the following specific changes or revisions:
 
 Instructions:
 1. Revise the current content strictly according to the user's instructions.
-2. Maintain a highly rigorous, well-structured, and formal academic tone unless instructed otherwise.
-3. DO NOT include a title or heading for the section. Start directly with the revised content.
-4. Output ONLY the revised text in clean Markdown, without any conversational filler or introductory remarks like "Here is the revised section."."""
+2. Stay grounded in <sources> - any new or changed claim must be traceable to it . Do not hallucinate citations
+3. Maintain a highly rigorous, well-structured, and formal academic tone unless instructed otherwise.
+4. DO NOT include a title or heading for the section. Start directly with the revised content.
+5. Output ONLY the revised text in clean Markdown, without any conversational filler or introductory remarks like "Here is the revised section."."""
 )
 
-def _edit_prompt_fn(topic: str, section: str, current_content: str, instructions: str) -> str:
+def _edit_prompt_fn(topic: str, section: str, current_content: str, instructions: str, source_context: str = "") -> str:
     safe_content = current_content.replace("{","{{").replace("}","}}")
     safe_instructions=instructions.replace("{","{{").replace("}","}}")
+    safe_context = (source_context or "").replace("{","{{").replace("}","}}")
     return edit_prompt_template.format(
-        topic=topic, section=section, current_content=safe_content, instructions=safe_instructions
+        topic=topic, section=section, current_content=safe_content, instructions=safe_instructions , source_context=safe_context or "No source context available"
     )
 
 
-async def edit_section(topic: str, section: str, current_content: str, instructions: str):
+async def edit_section(topic: str, section: str, current_content: str, instructions: str, citation_style: str = "ieee"):
     system_prompt = "You are a meticulous academic editor."
-    user_prompt = _edit_prompt_fn(topic, section, current_content, instructions)
+
+    _,_, references_mapping , _, papers , err, cached_content= await _prepare_generation(
+        topic , section , "", citation_style
+    )
+
+    source_context = ""
+    if not err and references_mapping : 
+        source_context = "\n".join(
+            f"[{k}] {v.get('title','')}: {v.get('abstract','') or v.get('evidence','')}"
+            for k, v in references_mapping.items()
+        )
+    user_prompt = _edit_prompt_fn(topic, section, current_content, instructions,source_context)
     
     try:
-        result = await generate_completion(system_prompt, user_prompt, max_tokens=1200, temperature=0.45)
+        result = await generate_completion(system_prompt, user_prompt, max_tokens=1200, temperature=0.45,cached_content=cached_content)
         return result
     except Exception as e:
         logger.error(f"manuscript edit failed: {e}",exc_info=True)
