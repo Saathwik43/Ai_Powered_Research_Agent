@@ -316,13 +316,13 @@ async def generate_section_stream(topic: str, section: str, context: str, citati
 
 
 edit_prompt_template = PromptTemplate(
-    input_variables=["topic", "section", "current_content", "instructions","source_context"],
+    input_variables=["topic", "section", "current_content", "instructions", "source_context"],
     template="""You are an expert academic editor.
 You are editing the "{section}" section of a research paper on the topic: "{topic}".
 
 Here is the source material and reference list you must stay grounded in - do not introduce claims or citations that aren't supported by it : 
 <sources>
- {sources_context}
+ {source_context}
 </sources>
 
 Here is the current content of the section:
@@ -348,7 +348,7 @@ def _edit_prompt_fn(topic: str, section: str, current_content: str, instructions
     safe_instructions=instructions.replace("{","{{").replace("}","}}")
     safe_context = (source_context or "").replace("{","{{").replace("}","}}")
     return edit_prompt_template.format(
-        topic=topic, section=section, current_content=safe_content, instructions=safe_instructions , source_context=safe_context or "No source context available"
+        topic=topic, section=section, current_content=safe_content, instructions=safe_instructions, source_context=safe_context or "No source context available"
     )
 
 
