@@ -36,8 +36,8 @@ MOCK_PAPERS = [
 
 class TestManuscriptGeneration(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
-        # Clear cache before each test
-        manuscript_generation._cache.clear()
+        # Clear research cache before each test.
+        manuscript_generation._research_cache.clear()
 
     @patch('ai.manuscript_generation.check_citation_grounding', new_callable=AsyncMock)
     @patch('ai.manuscript_generation.extract_evidence_for_paper', new_callable=AsyncMock)
@@ -81,33 +81,32 @@ class TestManuscriptGeneration(unittest.IsolatedAsyncioTestCase):
     @patch('ai.manuscript_generation.search_all', new_callable=AsyncMock)
     @patch('ai.manuscript_generation._filter_relevant_papers', new_callable=AsyncMock)
     @patch('ai.manuscript_generation.generate_completion', new_callable=AsyncMock)
-    async def test_cache_hit_skips_network(self, mock_gen, mock_filter, mock_search, mock_extract, mock_citation):
-        """Cached results should skip network calls."""
-        mock_extract.return_value = ({"objective": "Mock objective"}, "llm-fallback")
+    async def test_research_cache_hit_skips_search_filter_and_evidence(self, mock_gen, mock_filter, mock_search, mock_extract, mock_citation):
+        """Cached research should skip search/filter/evidence while still generating fresh text."""
+        cached_papers = [
+            {
+                **paper,
+                "evidence": {"objective": "Cached objective"},
+                "evidence_source": "cache",
+            }
+            for paper in MOCK_PAPERS
+        ]
         mock_citation.return_value = {}
-        mock_gen.return_value = "Fallback if missed"
+        mock_gen.return_value = "Draft from cached research"
         mock_search.return_value = MOCK_PAPERS
         mock_filter.return_value = MOCK_PAPERS
 
         topic, section, context = "Topic C", "Conclusion", "Context C"
-        # Build context the same way generate_section would
-        ref_text = "\n\nNumbered Reference List:\n"
-        for idx, p in enumerate(MOCK_PAPERS, 1):
-            ref_text += f"[{idx}] {p['authors']} ({p['year']}). {p['title']}. Objective: Mock objective. {p.get('doi', p.get('url', ''))}\n"
-        full_context = context + ref_text
-
-        cache_key = hash(topic + section + full_context + str(False))
-
-        # Pre-populate cache
-        manuscript_generation._cache[cache_key] = {
-            'content': "Cached Draft",
-            'time': time.time()
-        }
+        manuscript_generation._research_cache[topic.lower()] = (cached_papers, time.time())
 
         result, flags = await generate_section(topic, section, context)
 
-        self.assertEqual(result, "Cached Draft", f"Cache missed! Expected Cached Draft, got {result}")
-        mock_gen.assert_not_called()
+        self.assertEqual(result, "Draft from cached research")
+        mock_search.assert_not_called()
+        mock_filter.assert_not_called()
+        mock_extract.assert_not_called()
+        mock_gen.assert_called_once()
+        self.assertIn("references", flags)
 
     @patch('ai.manuscript_generation.check_citation_grounding', new_callable=AsyncMock)
     @patch('ai.manuscript_generation.extract_evidence_for_paper', new_callable=AsyncMock)

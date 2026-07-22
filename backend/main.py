@@ -211,12 +211,14 @@ async def get_topics(intent: str, current_user: dict = Depends(get_current_user)
 async def get_literature(request: Request, query: str, current_user: dict = Depends(get_current_user)):
     """
     Unified literature search across OpenAlex, arXiv, and GitHub knowledge bases.
-    Returns all deduplicated results for client-side filtering.
+    Applies the shared relevance filter used by manuscript generation so noisy
+    cross-domain results do not leak into the literature view.
     """
     # Ask for 20 per source, yielding up to 180 total before deduplication
     papers = await search_all(query, limit_per_source=20)
     total = len(papers)
-    return {"data": papers, "count": total, "total": total, "has_more": False}
+    filtered = await _filter_relevant_papers(query, papers)
+    return {"data": filtered, "count": len(filtered), "total": total, "has_more": False}
 
 
 # ─── arXiv — Keyword Search ────────────────────────────────────────────────────

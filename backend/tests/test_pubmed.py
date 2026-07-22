@@ -311,7 +311,7 @@ class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
             return fast_papers
 
         async def slow_pubmed(*args, **kwargs):
-            await asyncio.sleep(10)   # simulate a hung PubMed
+            await asyncio.sleep(0.2)   # simulate a source exceeding the short test ceiling
             return [{"id": "pmid:SLOW", "title": "Slow PubMed Paper", "source": "PubMed"}]
 
         # search_github_knowledge is sync, wrapped in asyncio.to_thread
@@ -325,9 +325,18 @@ class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
             patch("integrations.paper_search.pubmed_search",    side_effect=slow_pubmed),
             patch("integrations.paper_search.arxiv_search",     side_effect=instant_search),
             patch("integrations.paper_search.search_github_knowledge", side_effect=instant_github),
+            patch("integrations.paper_search.springer_search",  side_effect=instant_search),
+            patch("integrations.paper_search.ieee_search",      side_effect=instant_search),
+            patch("integrations.paper_search.core_search",      side_effect=instant_search),
         ):
             t0 = time.monotonic()
-            results = await ps_module.search_all("ceiling test query xyz", limit_per_source=5)
+            results = await ps_module.search_all(
+                "ceiling test query xyz",
+                limit_per_source=5,
+                semantic_rerank=False,
+                source_timeout=0.05,
+                oa_timeout=0.01,
+            )
             elapsed = time.monotonic() - t0
 
         print(f"\n[ceiling test] search_all() returned in {elapsed:.3f}s")
@@ -335,7 +344,7 @@ class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
         # ── Assertions ──────────────────────────────────────────────────────
         # Must return well within the 6s ceiling (allow 1s of OS/event-loop slack)
         self.assertLess(
-            elapsed, 7.0,
+            elapsed, 1.0,
             f"search_all() took {elapsed:.2f}s — ceiling not enforced! Expected <7s."
         )
 
@@ -357,20 +366,20 @@ class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
         import integrations.paper_search as ps_module
 
         # Pre-populate with the EXACT key search_all() will compute.
-        cache_key = "cached_query_5"   # f"{query}_{limit}" = f"cached_query_5"
+        cache_key = "cached_query_5_all"
         stale_papers = [
             {"id": "cached-001", "title": "Stale Cached Paper", "source": "OpenAlex"}
         ]
         ps_module._cache[cache_key] = (stale_papers, time.time() - 700)  # expired TTL but still present
 
         async def always_slow(*args, **kwargs):
-            await asyncio.sleep(10)
+            await asyncio.sleep(0.2)
             return []
 
         def always_slow_sync(query):
             # Must be a real blocking sleep so asyncio.to_thread() also times out.
             import time as _time
-            _time.sleep(10)
+            _time.sleep(0.2)
             return []
 
         with (
@@ -380,14 +389,23 @@ class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
             patch("integrations.paper_search.pubmed_search",    side_effect=always_slow),
             patch("integrations.paper_search.arxiv_search",     side_effect=always_slow),
             patch("integrations.paper_search.search_github_knowledge", side_effect=always_slow_sync),
+            patch("integrations.paper_search.springer_search",  side_effect=always_slow),
+            patch("integrations.paper_search.ieee_search",      side_effect=always_slow),
+            patch("integrations.paper_search.core_search",      side_effect=always_slow),
         ):
             t0 = time.monotonic()
-            results = await ps_module.search_all("cached_query", limit_per_source=5)
+            results = await ps_module.search_all(
+                "cached_query",
+                limit_per_source=5,
+                semantic_rerank=False,
+                source_timeout=0.05,
+                oa_timeout=0.01,
+            )
             elapsed = time.monotonic() - t0
 
         print(f"\n[cache fallback test] search_all() returned in {elapsed:.3f}s")
 
-        self.assertLess(elapsed, 7.0, f"search_all() still hung for {elapsed:.2f}s")
+        self.assertLess(elapsed, 1.0, f"search_all() still hung for {elapsed:.2f}s")
         self.assertEqual(
             results, stale_papers,
             "When all sources time out, search_all() must return stale cache"
@@ -418,6 +436,9 @@ class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
         async def pm_fast(*a, **k):     return [make_paper("pm-1",  "PubMed")]
         async def ax_fast(*a, **k):     return [make_paper("ax-1",  "arXiv")]
         def gh_fast(query):             return [make_paper("gh-1",  "GitHub")]
+        async def sp_fast(*a, **k):     return [make_paper("sp-1",  "Springer")]
+        async def ie_fast(*a, **k):     return [make_paper("ie-1",  "IEEE")]
+        async def co_fast(*a, **k):     return [make_paper("co-1",  "CORE")]
 
         with (
             patch("integrations.paper_search.s2_search",        side_effect=s2_fast),
@@ -426,9 +447,18 @@ class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
             patch("integrations.paper_search.pubmed_search",    side_effect=pm_fast),
             patch("integrations.paper_search.arxiv_search",     side_effect=ax_fast),
             patch("integrations.paper_search.search_github_knowledge", side_effect=gh_fast),
+            patch("integrations.paper_search.springer_search",  side_effect=sp_fast),
+            patch("integrations.paper_search.ieee_search",      side_effect=ie_fast),
+            patch("integrations.paper_search.core_search",      side_effect=co_fast),
         ):
             t0 = time.monotonic()
-            results = await ps_module.search_all("fast all sources", limit_per_source=6)
+            results = await ps_module.search_all(
+                "fast all sources",
+                limit_per_source=6,
+                semantic_rerank=False,
+                source_timeout=1.0,
+                oa_timeout=0.01,
+            )
             elapsed = time.monotonic() - t0
 
         print(f"\n[all-fast test] search_all() returned in {elapsed:.3f}s with {len(results)} papers")
@@ -436,7 +466,7 @@ class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
         self.assertLess(elapsed, 2.0, f"All-fast case should complete in <2s, took {elapsed:.2f}s")
         sources_present = {p["source"] for p in results}
         self.assertIn("PubMed", sources_present, "PubMed must be present in all-fast results")
-        self.assertEqual(len(results), 6, "Expected 1 paper from each of 6 sources")
+        self.assertEqual(len(results), 9, "Expected 1 paper from each of 9 sources")
 
 
 # ── 4. Partial-results + broad-query regression tests ────────────────────────
@@ -464,7 +494,7 @@ class TestSearchAllPartialResults(unittest.IsolatedAsyncioTestCase):
             return fast_papers
 
         async def slow_pubmed(*a, **k):
-            await asyncio.sleep(10)
+            await asyncio.sleep(0.2)
             return [{"id": "pmid:SLOW", "title": "Slow PubMed Paper", "source": "PubMed"}]
 
         def instant_github(q):
@@ -477,9 +507,18 @@ class TestSearchAllPartialResults(unittest.IsolatedAsyncioTestCase):
             patch("integrations.paper_search.pubmed_search",    side_effect=slow_pubmed),
             patch("integrations.paper_search.arxiv_search",     side_effect=instant),
             patch("integrations.paper_search.search_github_knowledge", side_effect=instant_github),
+            patch("integrations.paper_search.springer_search",  side_effect=instant),
+            patch("integrations.paper_search.ieee_search",      side_effect=instant),
+            patch("integrations.paper_search.core_search",      side_effect=instant),
         ):
             t0 = time.monotonic()
-            results = await ps_module.search_all(query, limit_per_source=5)
+            results = await ps_module.search_all(
+                query,
+                limit_per_source=5,
+                semantic_rerank=False,
+                source_timeout=0.05,
+                oa_timeout=0.01,
+            )
             elapsed = time.monotonic() - t0
 
         return results, elapsed
@@ -508,7 +547,7 @@ class TestSearchAllPartialResults(unittest.IsolatedAsyncioTestCase):
         print(f"\n['machine learning' partial] {len(results)} results in {elapsed:.3f}s")
 
         # Must return within ceiling (allow 1s slack)
-        self.assertLess(elapsed, 7.0, f"Ceiling not enforced: {elapsed:.2f}s")
+        self.assertLess(elapsed, 1.0, f"Ceiling not enforced: {elapsed:.2f}s")
 
         # Must NOT return empty — fast sources finished and must be present
         self.assertGreater(
@@ -531,7 +570,7 @@ class TestSearchAllPartialResults(unittest.IsolatedAsyncioTestCase):
 
         print(f"\n['artificial intelligence' partial] {len(results)} results in {elapsed:.3f}s")
 
-        self.assertLess(elapsed, 7.0)
+        self.assertLess(elapsed, 1.0)
         self.assertGreater(
             len(results), 0,
             "'artificial intelligence' with slow PubMed returned []. "
@@ -560,9 +599,12 @@ class TestSearchAllPartialResults(unittest.IsolatedAsyncioTestCase):
         async def cr_fast(*a, **k):   return [make_paper("cr",  "Crossref")]
         async def ax_fast(*a, **k):   return [make_paper("ax",  "arXiv")]
         async def slow_pm(*a, **k):
-            await asyncio.sleep(10)
+            await asyncio.sleep(0.2)
             return [make_paper("pm", "PubMed")]
         def gh_fast(q):               return []
+        async def sp_fast(*a, **k):   return [make_paper("sp", "Springer")]
+        async def ie_fast(*a, **k):   return [make_paper("ie", "IEEE")]
+        async def co_fast(*a, **k):   return [make_paper("co", "CORE")]
 
         with (
             patch("integrations.paper_search.s2_search",        side_effect=s2_fast),
@@ -571,17 +613,26 @@ class TestSearchAllPartialResults(unittest.IsolatedAsyncioTestCase):
             patch("integrations.paper_search.pubmed_search",    side_effect=slow_pm),
             patch("integrations.paper_search.arxiv_search",     side_effect=ax_fast),
             patch("integrations.paper_search.search_github_knowledge", side_effect=gh_fast),
+            patch("integrations.paper_search.springer_search",  side_effect=sp_fast),
+            patch("integrations.paper_search.ieee_search",      side_effect=ie_fast),
+            patch("integrations.paper_search.core_search",      side_effect=co_fast),
         ):
             t0 = time.monotonic()
-            results = await ps_module.search_all("partial result test", limit_per_source=5)
+            results = await ps_module.search_all(
+                "partial result test",
+                limit_per_source=5,
+                semantic_rerank=False,
+                source_timeout=0.05,
+                oa_timeout=0.01,
+            )
             elapsed = time.monotonic() - t0
 
         sources_present = {p["source"] for p in results}
         print(f"\n[partial sources] {sources_present} in {elapsed:.3f}s")
 
-        self.assertLess(elapsed, 7.0)
+        self.assertLess(elapsed, 1.0)
         # 4 fast sources (S2, OpenAlex, Crossref, arXiv) must be present
-        for expected_source in ("Semantic Scholar", "OpenAlex", "Crossref", "arXiv"):
+        for expected_source in ("Semantic Scholar", "OpenAlex", "Crossref", "arXiv", "Springer", "IEEE", "CORE"):
             self.assertIn(
                 expected_source, sources_present,
                 f"{expected_source} missing from partial results: {sources_present}"

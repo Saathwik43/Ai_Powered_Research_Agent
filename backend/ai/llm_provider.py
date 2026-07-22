@@ -353,16 +353,18 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
         raise RuntimeError(f"{effective_provider.title()} provider failed to generate a completion.")
 
     providers = []
-    if LLM_PROVIDER in ("auto", "gemini") and os.getenv("GEMINI_API_KEY"):
-        providers.append(("Gemini", _generate_gemini))
     if LLM_PROVIDER in ("auto", "groq"):
         providers.append(("Groq", _generate_groq))
-    if LLM_PROVIDER in ("auto", "mistral") and os.getenv("MISTRAL_API_KEY"):
-        providers.append(("Mistral", _generate_mistral))
     if LLM_PROVIDER in ("auto", "openrouter"):
         providers.append(("OpenRouter", _generate_openrouter))
+    if LLM_PROVIDER in ("auto", "huggingface"):
+        providers.append(("HuggingFace", _generate_huggingface))
+    if LLM_PROVIDER in ("mistral",) and os.getenv("MISTRAL_API_KEY"):
+        providers.append(("Mistral", _generate_mistral))
     if LLM_PROVIDER in ("auto", "openai") and os.getenv("OPENAI_API_KEY"):
         providers.append(("OpenAI", _generate_openai))
+    if LLM_PROVIDER == "gemini" and os.getenv("GEMINI_API_KEY"):
+        providers.append(("Gemini", _generate_gemini))
 
 
     for provider_name, provider_func in providers:

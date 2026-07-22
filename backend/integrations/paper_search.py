@@ -194,7 +194,14 @@ def _apply_diversity_quota(papers: list) -> list:
     return diverse + deferred
 
 
-async def search_all(query: str, limit_per_source: int = 15, diversify: bool = False, semantic_rerank: bool = True) -> list:
+async def search_all(
+    query: str,
+    limit_per_source: int = 15,
+    diversify: bool = False,
+    semantic_rerank: bool = True,
+    source_timeout: float = 20.0,
+    oa_timeout: float = 8.0,
+) -> list:
     """
     Query all configured integrations in parallel using asyncio.
     Aggregates, deduplicates, and ranks results.
@@ -223,14 +230,14 @@ async def search_all(query: str, limit_per_source: int = 15, diversify: bool = F
     task_to_name = {task: name for name, task in named}
     all_tasks = {task for _, task in named}
 
-    # Increased timeout to 20 seconds to allow all APIs to respond
-    done, pending = await asyncio.wait(all_tasks, timeout=20.0)
+    # Bound aggregate source latency while still returning fast partial results.
+    done, pending = await asyncio.wait(all_tasks, timeout=source_timeout)
 
     # Cancel only the stragglers — tasks that already finished are untouched.
     if pending:
         slow_names = [task_to_name[t] for t in pending]
         logger.warning(
-            f"search_all() 20s ceiling: cancelling {len(pending)} slow source(s): "
+            f"search_all() {source_timeout:g}s ceiling: cancelling {len(pending)} slow source(s): "
             f"{slow_names}.  Returning partial results from {len(done)} fast source(s)."
         )
         for task in pending:
@@ -333,10 +340,10 @@ async def search_all(query: str, limit_per_source: int = 15, diversify: bool = F
     # Enrich with Unpaywall open-access links (non-blocking best-effort, 8s ceiling for large lists)
     try:
         from integrations.unpaywall import enrich_papers_with_oa
-        unique = await asyncio.wait_for(enrich_papers_with_oa(unique), timeout=8.0)
+        unique = await asyncio.wait_for(enrich_papers_with_oa(unique), timeout=oa_timeout)
     except asyncio.TimeoutError:
         import logging
-        logging.getLogger(__name__).warning("Unpaywall enrichment exceeded 8s ceiling, returning unenriched results.")
+        logging.getLogger(__name__).warning(f"Unpaywall enrichment exceeded {oa_timeout:g}s ceiling, returning unenriched results.")
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning(f"Unpaywall enrichment failed (non-fatal): {e}")

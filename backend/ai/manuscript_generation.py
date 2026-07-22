@@ -216,7 +216,7 @@ async def generate_section(topic: str, section: str, context: str, citation_styl
         max_tokens_limit = 2000
 
     from ai.llm_provider import LLM_PROVIDER
-    active_provider = provider_override or (LLM_PROVIDER if LLM_PROVIDER != "auto" else "gemini")
+    active_provider = provider_override or (LLM_PROVIDER if LLM_PROVIDER != "auto" else None)
     
     effective_max_tokens = max(max_tokens_limit, 1800) if active_provider and active_provider.lower() == "gemini" else max_tokens_limit
     
@@ -271,7 +271,7 @@ async def generate_section_stream(topic: str, section: str, context: str, citati
     max_tokens_limit = 2000 if section.lower().replace(" ", "_") in ("lit_review", "literature_review") else 1200
     
     from ai.llm_provider import LLM_PROVIDER
-    active_provider = provider or (LLM_PROVIDER if LLM_PROVIDER != "auto" else "gemini")
+    active_provider = provider or (LLM_PROVIDER if LLM_PROVIDER != "auto" else None)
     effective_max_tokens = max(max_tokens_limit, 1800) if active_provider and active_provider.lower() == "gemini" else max_tokens_limit
     
     full_text = ""

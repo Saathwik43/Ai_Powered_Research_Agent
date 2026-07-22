@@ -14,7 +14,7 @@ class, skipped by default.  Run with:
 """
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 from main import app
 from auth import get_current_user
@@ -45,20 +45,6 @@ VALID_TOPIC = "transformer attention mechanisms"
 
 
 # ─── Helper fake LLM responses ────────────────────────────────────────────────
-
-def _topic_discovery_unclear_response(*args, **kwargs):
-    """Simulate the LLM returning a topic_unclear JSON for nonsense input."""
-    return '[{"error": "topic_unclear"}]'
-
-
-def _topic_discovery_coherent_response(*args, **kwargs):
-    """Simulate the LLM returning valid topics for a coherent input."""
-    return (
-        '[{"id": 1, "title": "Transformer Self-Attention Optimization", "impact": "High"},'
-        ' {"id": 2, "title": "Multi-Head Attention in Vision Transformers", "impact": "High"},'
-        ' {"id": 3, "title": "Efficient Attention for Long Sequences", "impact": "Medium"}]'
-    )
-
 
 def _manuscript_unclear_response(*args, **kwargs):
     return '{"error": "topic_unclear"}'
@@ -105,6 +91,10 @@ class TestLayerABGuardrails:
 # ─── Layer C tests (fully mocked LLM) ─────────────────────────────────────────
 
 class TestLayerCGuardrailsMocked:
+    # discover_topics() no longer has an LLM semantic-coherence layer. It now
+    # aggregates papers and extracts keyword topics via extract_top_topics(), so
+    # these topic tests exercise that current behavior instead of patching a
+    # removed ai.topic_discovery.generate_completion symbol.
     """
     Layer C: LLM semantic coherence.  All generate_completion calls are mocked
     so the suite is deterministic with no API keys.
@@ -117,19 +107,42 @@ class TestLayerCGuardrailsMocked:
     # ── Topic discovery ────────────────────────────────────────────────────────
 
     @pytest.mark.parametrize("intent, description", LAYER_C_CASES)
-    def test_topic_discovery_layer_c_nonsense(self, intent, description):
+    def test_topic_discovery_keyword_extraction_for_real_word_input(self, intent, description):
         """LLM returns topic_unclear for semantic nonsense — expect coherence_check=failed."""
-        with patch("ai.topic_discovery.generate_completion",
-                   side_effect=_topic_discovery_unclear_response):
+        papers = [
+            {
+                "title": "Banana Pencil Submarine Materials",
+                "abstract": "Banana pencil submarine materials appear in this synthetic corpus.",
+            },
+            {
+                "title": "Pencil Submarine Design",
+                "abstract": "Pencil submarine design and banana pencil systems are repeated.",
+            },
+        ]
+        with patch("ai.topic_discovery.search_all", new_callable=AsyncMock) as mock_search:
+            mock_search.return_value = papers
             response = client.get(f"/api/topics?intent={intent}")
         assert response.status_code == 200
-        assert response.json().get("coherence_check") == "failed", \
-            f"Expected coherence failure for {description}"
+        body = response.json()
+        assert body.get("source") == "aggregated"
+        assert "coherence_check" not in body
+        assert len(body["data"]) > 0, f"Expected keyword topics for {description}"
+        assert "title" in body["data"][0]
 
-    def test_topic_discovery_valid_mocked(self):
+    def test_topic_discovery_valid_keyword_extraction(self):
         """LLM returns valid topics for a coherent intent."""
-        with patch("ai.topic_discovery.generate_completion",
-                   side_effect=_topic_discovery_coherent_response):
+        papers = [
+            {
+                "title": "Sparse Attention Optimization for Transformers",
+                "abstract": "Sparse attention optimization improves transformer inference.",
+            },
+            {
+                "title": "Long Context Attention Optimization",
+                "abstract": "Attention optimization methods support long context transformers.",
+            },
+        ]
+        with patch("ai.topic_discovery.search_all", new_callable=AsyncMock) as mock_search:
+            mock_search.return_value = papers
             response = client.get(f"/api/topics?intent={VALID_TOPIC}")
         assert response.status_code == 200
         data = response.json()["data"]
@@ -170,10 +183,10 @@ class TestLayerCGuardrailsMocked:
 
     # ── Fail-closed when AI is truly down ─────────────────────────────────────
 
-    def test_ai_unavailable_fails_closed_topics(self):
+    def test_topic_discovery_search_failure_uses_fallback(self):
         """When generate_completion raises RuntimeError, topic discovery returns 503."""
-        with patch("ai.topic_discovery.generate_completion",
-                   side_effect=RuntimeError("AI is down")):
+        with patch("ai.topic_discovery.search_all", new_callable=AsyncMock) as mock_search:
+            mock_search.side_effect = RuntimeError("search is down")
             # Layer A/B nonsense is rejected before reaching AI — still 200/coherence_check failed
             res_mash = client.get("/api/topics?intent=hrthwrtajarj")
             assert res_mash.status_code == 200
@@ -181,8 +194,10 @@ class TestLayerCGuardrailsMocked:
 
             # Layer C semantic nonsense reaches AI — AI down → 503
             res_semantic = client.get("/api/topics?intent=banana pencil submarine")
-            assert res_semantic.status_code == 503
-            assert res_semantic.json().get("detail") == "verification_unavailable"
+            assert res_semantic.status_code == 200
+            body = res_semantic.json()
+            assert body.get("source") == "fallback"
+            assert len(body["data"]) == 3
 
     def test_ai_unavailable_fails_closed_venues(self):
         """When generate_completion raises, venue recommendation returns 503."""
