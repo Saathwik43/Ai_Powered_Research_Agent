@@ -1061,7 +1061,7 @@ export default function ManuscriptBuilder() {
                           const language = match ? match[1].toLowerCase() : '';
                           const contentStr = String(children).replace(/\n$/, '');
                           
-                          if (!inline && (language === 'mermaid' || language === 'graph' || contentStr.trim().startsWith('graph ') || contentStr.trim().startsWith('pie ') || contentStr.trim().startsWith('sequenceDiagram'))) {
+                          if (!inline && (language === 'mermaid' || language === 'graph' || language === 'xychart-beta' || contentStr.trim().startsWith('graph ') || contentStr.trim().startsWith('pie ') || contentStr.trim().startsWith('sequenceDiagram') || contentStr.trim().startsWith('xychart-beta'))) {
                             return <Mermaid chart={contentStr} />;
                           }
                           return !inline && match ? (
@@ -1286,7 +1286,7 @@ export default function ManuscriptBuilder() {
       {/* Load modal */}
       {showLoad && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' }} onClick={() => setShowLoad(false)}>
-          <div className="animate-scale-in" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 'var(--space-6)', width: '100%', maxWidth: '400px' }} onClick={e => e.stopPropagation()}>
+          <div className="animate-scale-in" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 'var(--space-6)', width: '100%', maxWidth: '480px' }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
               <h3 style={{ margin: 0 }}>Load Draft</h3>
               <button onClick={() => setShowLoad(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', display: 'flex' }}><X size={17} /></button>
@@ -1294,10 +1294,10 @@ export default function ManuscriptBuilder() {
             <p style={{ fontSize: 'var(--fs-sm)', marginBottom: 'var(--space-3)' }}>Choose one of your saved manuscript drafts.</p>
             <div style={{ position: 'relative', marginBottom: 'var(--space-4)' }}>
               <Search size={15} style={{ position: 'absolute', left: '0.9rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-subtle)', pointerEvents: 'none' }} />
-              <input placeholder="Filter saved drafts..." value={draftFilter} onChange={e => setDraftFilter(e.target.value)} style={{ paddingLeft: 'var(--space-6)' }} />
+              <input placeholder="Filter saved drafts..." value={draftFilter} onChange={e => setDraftFilter(e.target.value)} style={{ paddingLeft: '2.4rem' }} />
             </div>
             {loadError && <p style={{ color: 'var(--danger)', fontSize: 'var(--fs-sm)', marginBottom: 'var(--space-3)' }}>{loadError}</p>}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', maxHeight: '280px', overflowY: 'auto', marginBottom: 'var(--space-4)' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', maxHeight: '320px', overflowY: 'auto', marginBottom: 'var(--space-4)', paddingRight: 'var(--space-1)' }}>
               {draftLoading && <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 'var(--fs-sm)' }}>Loading drafts...</p>}
               {!draftLoading && visibleDrafts.length === 0 && (
                 <div className="empty-state" style={{ padding: 'var(--space-4)', fontSize: 'var(--fs-sm)' }}>
@@ -1305,15 +1305,62 @@ export default function ManuscriptBuilder() {
                 </div>
               )}
               {!draftLoading && visibleDrafts.map((draft) => (
-                <button
+                <div
                   key={draft.topic}
-                  className="btn btn-secondary"
                   onClick={() => load(draft.topic)}
-                  style={{ justifyContent: 'space-between', whiteSpace: 'normal', textAlign: 'left' }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justify: 'space-between',
+                    gap: 'var(--space-3)',
+                    padding: 'var(--space-3) var(--space-4)',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border)',
+                    background: 'var(--bg-muted, rgba(255,255,255,0.03))',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = 'var(--primary)';
+                    e.currentTarget.style.background = 'rgba(99, 102, 241, 0.08)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = 'var(--border)';
+                    e.currentTarget.style.background = 'var(--bg-muted, rgba(255,255,255,0.03))';
+                  }}
                 >
-                  <span>{draft.topic}</span>
-                  <span style={{ color: 'var(--text-subtle)', fontSize: 'var(--fs-xs)', fontWeight: 700 }}>Load</span>
-                </button>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div
+                      style={{
+                        fontWeight: 600,
+                        fontSize: 'var(--fs-sm)',
+                        color: 'var(--text-main)',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        display: '-webkit-box',
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: 'vertical',
+                        lineHeight: 1.35,
+                        wordBreak: 'break-word'
+                      }}
+                      title={draft.topic}
+                    >
+                      {draft.topic}
+                    </div>
+                    {draft.updated_at && (
+                      <div style={{ fontSize: '11px', color: 'var(--text-subtle)', marginTop: '2px' }}>
+                        Updated {new Date(draft.updated_at).toLocaleDateString()}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={(e) => { e.stopPropagation(); load(draft.topic); }}
+                    style={{ flexShrink: 0, height: 'auto', minHeight: '30px', padding: '0.35rem 0.75rem', fontSize: 'var(--fs-xs)' }}
+                  >
+                    Load
+                  </button>
+                </div>
               ))}
             </div>
             <div style={{ display: 'flex', gap: 'var(--space-3)', justifyContent: 'flex-end' }}>
