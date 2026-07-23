@@ -4,7 +4,14 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 import httpx
 
-global_llm_sem = asyncio.Semaphore(3)
+provider_semaphores = {
+    "Groq": asyncio.Semaphore(5),
+    "OpenRouter": asyncio.Semaphore(5),
+    "HuggingFace": asyncio.Semaphore(3),
+    "Mistral": asyncio.Semaphore(3),
+    "Gemini": asyncio.Semaphore(3),
+    "OpenAI": asyncio.Semaphore(2),   # Free tier: 3 RPM ceiling, keep concurrency low
+}
 
 from langchain_huggingface import HuggingFaceEndpoint
 from google import genai
@@ -373,17 +380,23 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
                 user_id = usage_tracker.current_user_id.get()
                 if user_id:
                     await usage_tracker.check_quota(user_id)
-                if provider_name == "Gemini":
-                    result, tokens = await asyncio.wait_for(provider_func(system_prompt, user_prompt, max_tokens, temperature, effective_model, cached_content), timeout=60)
-                else:
-                    result, tokens = await asyncio.wait_for(provider_func(system_prompt, user_prompt, max_tokens, temperature), timeout=60)
+                sem=provider_semaphores.get(provider_name, asyncio.Semaphore(3))
+                async with sem:
+                    if provider_name== "Gemini":
+                        result,tokens = await asyncio.wait_for(provider_func(system_prompt, user_prompt , max_tokens , temperature, effective_model, cached_content),timeout=60)
+                    else:
+                        result,tokens = await asyncio.wait_for(provider_func(system_prompt, user_prompt , max_tokens , temperature),timeout=60)
                 if user_id:
                     await usage_tracker.log_usage(user_id, tokens, provider_name)
+                    await usage_tracker.check_provider_rpd(provider_name)
                 return result
             except Exception as e:
                 import httpx
                 if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 402:
                     logger.info(f"{provider_name} skipped: account out of credits (402).")
+                    break
+                if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 429:
+                    logger.info(f"{provider_name} skipped: rate limited(429), moving to nextt provider.")
                     break
                 logger.error(f"{provider_name} generation failed (attempt {attempt + 1}): {e}")
                 if attempt == 0:

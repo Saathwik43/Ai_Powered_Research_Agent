@@ -56,6 +56,20 @@ async def log_usage(user_id: str, tokens: int, model: str, query_type: str = "ge
     except Exception as e:
         logger.error(f"Failed to log token usage: {e}")
 
+RPD_WARN_THRESHOLD = {"OpenAI": 50}
+
+async def check_provider_rpd(provider: str):
+    """Warn when a provider is approaching its daily request cap.  """
+    if provider not in RPD_WARN_THRESHOLD:
+        return
+    today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    collection = db["usage_logs"]
+    count = await collection.count_documents({"model": provider, "date":today})
+    limit = RPD_WARN_THRESHOLD[provider]
+    if count >= limit * 0.8 : 
+        logger.warning(f" {provider} at {count}/{limit} RPD ({round(count/limit*100)}%) - approaching daily cap. ")
+
+
 async def get_user_usage(user_id: str) -> dict:
     today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     collection = db["usage_logs"]
