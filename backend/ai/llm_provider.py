@@ -13,6 +13,8 @@ provider_semaphores = {
     "OpenAI": asyncio.Semaphore(2),   # Free tier: 3 RPM ceiling, keep concurrency low
 }
 
+global_llm_sem = asyncio.Semaphore(3)  # kept for relevance.py backward-compat import
+
 from langchain_huggingface import HuggingFaceEndpoint
 from google import genai
 from google.genai import types as genai_types

@@ -113,8 +113,8 @@ const TableOrChart = ({ node, children, ...props }) => {
 const STEPS = [
   { id: 'abstract',    label: 'Abstract' },
   { id: 'lit_review',  label: 'Literature Review' },
-  { id: 'methodology', label: 'Methodology' },
-  { id: 'results',     label: 'Results' },
+  { id: 'methodology', label: 'Proposed Methodology' },
+  { id: 'results',     label: 'Projected Outcomes' },
   { id: 'references',  label: 'References' },
 ];
 

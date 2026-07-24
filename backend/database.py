@@ -11,6 +11,9 @@ logger = logging.getLogger(__name__)
 client = AsyncIOMotorClient(MONGO_URI)
 db = client.research_agent_db
 
+from motor.motor_asyncio import AsyncIOMotorGridFSBucket
+pdf_bucket = AsyncIOMotorGridFSBucket(db,bucket_name="pdfs")
+
 async def ping_db():
     try:
         await client.admin.command('ping')

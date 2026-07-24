@@ -10,6 +10,7 @@ import asyncio
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from fastapi.responses import JSONResponse
+from bson import ObjectId
 import traceback
 
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -34,7 +35,7 @@ from integrations.github_knowledge import (
     find_papers_by_category, search_github_knowledge
 )
 
-from database import db, ping_db, ensure_indexes
+from database import db, ping_db, ensure_indexes , pdf_bucket
 from auth import signup_user, login_user, get_current_user, seed_admin, verify_google_token, google_auth_user
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", filename="backend.log")
@@ -436,16 +437,45 @@ async def list_manuscript_drafts(current_user: dict = Depends(get_current_user))
 async def extract_pdf_endpoint(request: Request, file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
     if not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="File must be a PDF")
-    
+
     contents = await file.read()
     if len(contents) > 10 * 1024 * 1024:  # 10MB limit
         raise HTTPException(status_code=400, detail="File too large. Limit is 10MB.")
-        
+
     text, structure = await asyncio.gather(
         extract_pdf_text(contents),
         extract_pdf_structure(contents)
     )
-    return {"text": text, "structure": structure}
+
+    file_id = await pdf_bucket.upload_from_stream(
+        file.filename,
+        contents,
+        metadata={"user_id": str(current_user["_id"]), "content_type": "application/pdf"}
+    )
+
+    return {"text": text, "structure": structure, "file_id": str(file_id)}
+
+
+@app.get("/api/manuscript/pdf/{file_id}")
+@limiter.limit("30/minute")
+async def get_pdf(request: Request, file_id: str, current_user: dict = Depends(get_current_user)):
+    try:
+        oid = ObjectId(file_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid file_id")
+
+    grid_out = await pdf_bucket.open_download_stream(oid)
+    if grid_out.metadata.get("user_id") != str(current_user["_id"]):
+        raise HTTPException(status_code=403, detail="Not your file")
+
+    async def stream():
+        while True:
+            chunk = await grid_out.readchunk()
+            if not chunk:
+                break
+            yield chunk
+
+    return StreamingResponse(stream(), media_type="application/pdf")
 
 
 @app.post("/api/manuscript/analyze-pdf")
@@ -541,7 +571,6 @@ async def delete_literature(query: str, current_user: dict = Depends(get_current
 
 # ─── PDF Chat History ──────────────────────────────────────────────────────────
 
-from bson import ObjectId
 
 @app.post("/api/pdf-chats/save")
 async def save_pdf_chat(payload: PdfChatSavePayload, current_user: dict = Depends(get_current_user)):

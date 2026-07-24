@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 import time
 import re
+
 def _prompt(topic: str, section: str, context: str, citation_style: str = "ieee") -> str:
     # Citation-style-specific inline instructions (minimal token cost)
     _CITE_INSTRUCTIONS = {
@@ -28,6 +29,12 @@ def _prompt(topic: str, section: str, context: str, citation_style: str = "ieee"
         "oxford": "Cite using Oxford footnote-style numbered references.",
     }
     cite_instruction = _CITE_INSTRUCTIONS.get(citation_style, _CITE_INSTRUCTIONS["ieee"])
+
+    _METHOD_RESULTS_FRAMING = {
+        "methodology": "This is a PROPOSED methodology, not a description of an experiment that was actually run. Frame it explicitly as a suggested approach for future work (e.g. 'This study proposes...', 'The following approach is proposed to...'). Do not write as if this was executed.",
+        "results": "These are PROJECTED/EXPECTED outcomes based on literature trends, not real experimental data. Frame explicitly as expectations (e.g. 'Based on trends in prior work, it is expected that...', 'Projected outcomes suggest...'). Do NOT state specific fabricated numbers as if they were measured; only cite ranges/trends directly attributable to the provided literature context.",
+    }
+    section_framing = _METHOD_RESULTS_FRAMING.get(section.strip().lower(), "")
 
     base = f"""You are an expert, highly-cited academic researcher and writer.
 You are writing a formal, peer-reviewed research paper on the topic: "{topic}".
@@ -44,6 +51,8 @@ Here is the background context and literature survey information you MUST incorp
 </context>
 """
     base += f"""
+
+    {section_framing}
 Instructions:
 1. Write a highly rigorous, well-structured, and formal academic "{section}" section.
 2. DO NOT include a title or heading for the section. Start directly with the content.
