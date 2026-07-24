@@ -450,7 +450,7 @@ async def extract_pdf_endpoint(request: Request, file: UploadFile = File(...), c
     file_id = await pdf_bucket.upload_from_stream(
         file.filename,
         contents,
-        metadata={"user_id": str(current_user["_id"]), "content_type": "application/pdf"}
+        metadata={"user_id": str(current_user["user_id"]), "content_type": "application/pdf"}
     )
 
     return {"text": text, "structure": structure, "file_id": str(file_id)}
@@ -465,7 +465,7 @@ async def get_pdf(request: Request, file_id: str, current_user: dict = Depends(g
         raise HTTPException(status_code=400, detail="Invalid file_id")
 
     grid_out = await pdf_bucket.open_download_stream(oid)
-    if grid_out.metadata.get("user_id") != str(current_user["_id"]):
+    if grid_out.metadata.get("user_id") != str(current_user["user_id"]):
         raise HTTPException(status_code=403, detail="Not your file")
 
     async def stream():
