@@ -8,7 +8,7 @@ interface InteractiveHoverButtonProps
   loading?: boolean;
 }
 
-const InteractiveHoverButton = React.forwardRef
+const InteractiveHoverButton = React.forwardRef<
   HTMLButtonElement,
   InteractiveHoverButtonProps
 >(({ text = "Button", loading = false, className, ...props }, ref) => {
