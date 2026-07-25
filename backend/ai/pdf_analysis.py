@@ -275,7 +275,12 @@ async def analyze_uploaded_paper(text: str, custom_prompt: str = None, structure
 CRITICAL FORMATTING RULES:
 1. You MUST format your response using Markdown (use bolding, bullet points, and headers to make the text scannable).
 2. For any mathematical equations, variables, or units with exponents (e.g. 10^3, Beff), you MUST wrap them in LaTeX syntax. Use single dollar signs ($x$) for inline math and double dollar signs ($$x$$) for block equations. Do NOT output raw unformatted math.
-3. If providing code, use standard Markdown code blocks.
+3. When presenting metrics, benchmarks, trends, or workflows, use the appropriate Mermaid diagram block (`xychart-beta`, `pie`, or `graph TD`):
+   - Line chart (`xychart-beta` with `line [...]`): For trends over time or scaling.
+   - Bar chart (`xychart-beta` with `bar [...]`): For model/method comparisons or benchmark metrics.
+   - Pie chart (`pie title "..."`): For percentage breakdowns or dataset distributions.
+   - Flowchart (`graph TD`): For pipeline processes or methodology workflows.
+4. If providing code, use standard Markdown code blocks.
 """
         history_context = ""
         if rolling_summary or recent_turns:

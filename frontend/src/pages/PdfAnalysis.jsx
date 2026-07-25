@@ -245,6 +245,18 @@ export default function PdfAnalysis() {
         setStructure(chat.structure);
         setMessages(chat.messages || []);
         setError('');
+
+        if (chat.file_id) {
+          try {
+            const pdfRes = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/pdf/${chat.file_id}`);
+            if (pdfRes.ok) {
+              const blob = await pdfRes.blob();
+              setPdfBlobUrl(URL.createObjectURL(blob));
+            }
+          } catch (pdfErr) {
+            console.error("Failed to restore PDF preview", pdfErr);
+          }
+        }
       }
     } catch (e) {
       console.error("Failed to load chat", e);
@@ -472,15 +484,16 @@ export default function PdfAnalysis() {
             )}
             {(file?.size || pdfBlobUrl) && numPages && (
               <div className="pdf-viewer-controls">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-                  <button className="btn btn-secondary btn-icon" title="Zoom Out" onClick={() => setZoom(z => Math.max(0.5, z - 0.2))}><Minus size={16} /></button>
-                  <span style={{ minWidth: '3.5rem', textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
-                  <button className="btn btn-secondary btn-icon" title="Zoom In" onClick={() => setZoom(z => Math.min(3.0, z + 0.2))}><Plus size={16} /></button>
+                <div className="pdf-control-cluster zoom-cluster">
+                  <button className="btn btn-secondary pdf-control-btn" title="Zoom Out" onClick={() => setZoom(z => Math.max(0.5, z - 0.2))}><Minus size={15} /></button>
+                  <span className="pdf-control-label">{Math.round(zoom * 100)}%</span>
+                  <button className="btn btn-secondary pdf-control-btn" title="Zoom In" onClick={() => setZoom(z => Math.min(3.0, z + 0.2))}><Plus size={15} /></button>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-                  <button className="btn btn-secondary btn-icon" disabled={pageNumber <= 1} onClick={() => setPageNumber(p => p - 1)}><ChevronLeft size={16} /></button>
-                  <span>Page {pageNumber} of {numPages}</span>
-                  <button className="btn btn-secondary btn-icon" disabled={pageNumber >= numPages} onClick={() => setPageNumber(p => p + 1)}><ChevronRight size={16} /></button>
+                <div className="pdf-control-divider" />
+                <div className="pdf-control-cluster page-cluster">
+                  <button className="btn btn-secondary pdf-control-btn" disabled={pageNumber <= 1} onClick={() => setPageNumber(p => p - 1)}><ChevronLeft size={15} /></button>
+                  <span className="pdf-control-label">Page {pageNumber} of {numPages}</span>
+                  <button className="btn btn-secondary pdf-control-btn" disabled={pageNumber >= numPages} onClick={() => setPageNumber(p => p + 1)}><ChevronRight size={15} /></button>
                 </div>
               </div>
             )}
@@ -490,26 +503,28 @@ export default function PdfAnalysis() {
         {/* Chat Pane */}
         <div className="pdf-chat-container">
         <div className="pdf-chat-header">
-          <div className="pdf-chat-title" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-            <button 
-              className={`pdf-history-toggle ${!historyCollapsed ? 'desktop-hide' : ''}`}
-              onClick={() => setHistoryCollapsed(false)}
-              title="Open Chat History"
-            >
-              <History size={20} />
-            </button>
-            <Bot size={20} style={{ color: 'var(--primary)', flexShrink: 0 }} />
-            <span className="pdf-chat-title-text">PDF Assistant</span>
-          </div>
-          {file && (
-            <div className="pdf-file-badge">
-              <FileText size={14} />
-              {file.name}
-              <button onClick={() => setFile(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', marginLeft: 'var(--space-1)', color: 'currentColor' }}>
-                <X size={14} />
+          <div className="pdf-chat-header-main">
+            <div className="pdf-chat-title">
+              <button 
+                className={`pdf-history-toggle ${!historyCollapsed ? 'desktop-hide' : ''}`}
+                onClick={() => setHistoryCollapsed(false)}
+                title="Open Chat History"
+              >
+                <History size={18} />
               </button>
+              <Bot size={18} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+              <span className="pdf-chat-title-text">PDF Assistant</span>
             </div>
-          )}
+            {file && (
+              <div className="pdf-file-badge">
+                <FileText size={13} />
+                <span className="pdf-file-badge-text">{file.name}</span>
+                <button onClick={() => setFile(null)} className="pdf-file-badge-remove" title="Remove PDF">
+                  <X size={13} />
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="pdf-messages-area">

@@ -16,6 +16,18 @@
   min-height: 500px;
   overflow-y: auto;
   line-height: 1.6;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.paper-preview a,
+.paper-preview p,
+.paper-preview li,
+.paper-preview code,
+.paper-preview .paper-section,
+.paper-preview .paper-refs {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .paper-preview .paper-header {
@@ -197,17 +209,26 @@
 /* ─── Chicago / Oxford Format ──────────────────────────────────────── */
 .paper-preview.format-chicago,
 .paper-preview.format-oxford {
-  font-family: 'Times New Roman', 'Noto Serif', Georgia, serif;
-  font-size: 12pt;
-  line-height: 2;
-  max-width: 680px;
+  font-family: 'Georgia', 'Times New Roman', serif;
+  font-size: 11pt;
+  line-height: 1.8;
+  max-width: 720px;
   margin: 0 auto;
+}
+
+.paper-preview.format-chicago .paper-header,
+.paper-preview.format-oxford .paper-header {
+  text-align: center;
+  border-bottom: 2px solid #111;
+  margin-bottom: 2rem;
+  padding-bottom: 1rem;
 }
 
 .paper-preview.format-chicago .paper-title,
 .paper-preview.format-oxford .paper-title {
   font-weight: 700;
-  font-size: 1.35rem;
+  font-size: 1.4rem;
+  color: #111;
 }
 
 .paper-preview.format-chicago .paper-body,
@@ -218,19 +239,34 @@
 .paper-preview.format-chicago .paper-body h2,
 .paper-preview.format-oxford .paper-body h2 {
   font-weight: 700;
-  font-size: 1.1em;
-  margin-top: 1.5em;
+  font-size: 1.15em;
+  margin-top: 1.75em;
+  text-align: center;
+  border-bottom: none;
 }
 
 .paper-preview.format-chicago .paper-body p,
 .paper-preview.format-oxford .paper-body p {
   text-indent: 0.5in;
-  margin: 0;
+  margin: 0 0 0.5em 0;
+  text-align: justify;
 }
 
 .paper-preview.format-chicago .paper-body p:first-child,
 .paper-preview.format-oxford .paper-body p:first-child {
   text-indent: 0;
+}
+
+.paper-preview.format-chicago .paper-refs ol,
+.paper-preview.format-oxford .paper-refs ol {
+  padding-left: 0.5in;
+}
+
+.paper-preview.format-chicago .paper-refs li,
+.paper-preview.format-oxford .paper-refs li {
+  text-indent: -0.5in;
+  margin-bottom: 0.8em;
+  line-height: 1.6;
 }
 
 

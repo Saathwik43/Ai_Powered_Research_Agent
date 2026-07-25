@@ -151,6 +151,65 @@
 .hide-desktop { display: none; }
 @media (max-width: 768px) { .hide-desktop { display: flex !important; } }
 
+/* Sidebar Usage Card */
+.sidebar-usage-card {
+  margin: 0.5rem 0.75rem;
+  padding: 0.85rem 1rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: var(--fs-xs);
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.sidebar-usage-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.sidebar-usage-stat {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.sidebar-usage-reset {
+  color: var(--text-subtle);
+  font-size: var(--fs-2xs);
+}
+
+.sidebar-usage-track {
+  height: 5px;
+  background: var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.sidebar-usage-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+.sidebar-usage-messages {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+.sidebar-usage-icon {
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
 .sidebar-footer {
   padding: 1rem 0.75rem;
   border-top: 1px solid var(--border);

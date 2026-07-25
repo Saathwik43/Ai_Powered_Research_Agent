@@ -64,17 +64,26 @@ Instructions:
 8. CRITICAL: {cite_instruction} If no numbered reference list is provided, you may generate without citations but ensure academic rigor.
 9. IMPORTANT: If a provided reference doesn't directly support a claim, state the claim as general background without a citation marker rather than force-citing an irrelevant source.
 10. CRITICAL: DO NOT include a "References", "Bibliography", or "Works Cited" list at the end of the section. The references are compiled and managed externally.
-11. IMPORTANT: If you need to present quantitative data trends (like Accuracy vs Clients), you MUST use Mermaid `xychart-beta` code blocks. 
+11. IMPORTANT: Present quantitative data, benchmarks, trends, process flows, or distributions using the appropriate Mermaid diagram block (`xychart-beta`, `pie`, `graph TD`, or `sequenceDiagram`).
+SELECT THE DIAGRAM TYPE BASED ON CONTEXT:
+- Line chart (`xychart-beta` with `line [...]`): For continuous trends over time, epochs, or scaling (e.g. Efficiency vs Year, Accuracy vs Epochs).
+- Bar chart (`xychart-beta` with `bar [...]`): For discrete performance benchmarks, baseline comparisons, or ablation studies (e.g. Model A vs Model B vs Model C).
+- Combined Line & Bar (`xychart-beta` with both `bar [...]` and `line [...]`): For dual metric comparisons (e.g. Accuracy bars + Loss line).
+- Pie chart (`pie title "..." "Category A": 40 "Category B": 60`): For percentage distributions, dataset splits, or resource allocations.
+- Flowchart (`graph TD` / `flowchart TD`): For pipeline architectures, system workflows, or methodology steps.
+
 CRITICAL RULES for xychart-beta:
-- ONLY use simple numerical arrays (e.g., [0.85, 0.88, 0.90]).
-- If your data includes error margins (like $\pm 0.02$), simplify them to just the mean values (e.g., 0.80) in the `line` or `bar` arrays so Mermaid can parse them. Describe the standard deviations in the text below the chart instead!
-Example:
+- ONLY use simple numerical arrays (e.g. [15.2, 21.0, 29.5, 33.1]).
+- Keep `x-axis` string labels short (1-2 words maximum per label like ["Baseline", "SVM", "RF", "CNN-BLSTM", "Ensemble"]) so they remain clear without overlapping.
+- If data includes error margins (like $\pm 0.02$), simplify to mean values in arrays and explain deviations in text.
+Example Bar & Line chart:
 ```mermaid
 xychart-beta
-    title "Accuracy vs Number of Clients"
-    x-axis [10, 20, 30, 40]
-    y-axis "Accuracy" 0.0 --> 1.0
-    line [0.85, 0.88, 0.90, 0.92]
+    title "Model Performance Comparison"
+    x-axis ["Baseline", "ResNet-50", "Transformer", "Proposed"]
+    y-axis "Accuracy (%)" 0 --> 100
+    bar [65.4, 78.2, 86.5, 92.8]
+    line [65.4, 78.2, 86.5, 92.8]
 ```
 NEVER use Markdown tables to simulate graphs."""
     return base

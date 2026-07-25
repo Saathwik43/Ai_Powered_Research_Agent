@@ -3,7 +3,44 @@ import mermaid from 'mermaid';
 
 mermaid.initialize({
   startOnLoad: false,
-  theme: 'default',
+  theme: 'base',
+  themeVariables: {
+    fontFamily: "'Inter', system-ui, -apple-system, sans-serif",
+    fontSize: '13px',
+    primaryColor: '#2B5EA8',
+    primaryTextColor: '#0F1115',
+    primaryBorderColor: '#1F4A87',
+    lineColor: '#2B5EA8',
+    secondaryColor: '#C9622A',
+    tertiaryColor: '#4F8F6B',
+    mainBkg: '#FFFFFF',
+    nodeBorder: '#2B5EA8',
+    clusterBkg: '#FAFAF8',
+    titleColor: '#0F1115',
+    edgeLabelBackground: '#FFFFFF',
+    
+    // Distinct vibrant color palette for Pie Charts & Nodes
+    pie1: '#2B5EA8',
+    pie2: '#C9622A',
+    pie3: '#2E7D32',
+    pie4: '#D97706',
+    pie5: '#6D28D9',
+    pie6: '#0284C7',
+    pie7: '#DC2626',
+
+    // Sharp high-contrast multi-color palette for XY Charts (Bar & Line)
+    xyChart: {
+      backgroundColor: '#FFFFFF',
+      titleColor: '#0F1115',
+      xAxisTitleColor: '#0F1115',
+      xAxisLabelColor: '#0F1115',
+      xAxisLineColor: '#0F1115',
+      yAxisTitleColor: '#0F1115',
+      yAxisLabelColor: '#0F1115',
+      yAxisLineColor: '#0F1115',
+      plotColorPalette: '#2B5EA8, #C9622A, #2E7D32, #D97706, #6D28D9, #0284C7, #DC2626'
+    }
+  },
   securityLevel: 'loose',
   suppressErrorRendering: true,
 });

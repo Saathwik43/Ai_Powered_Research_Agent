@@ -663,3 +663,97 @@ textarea::placeholder {
 .gap-panel-body > .inner {
   overflow: hidden;
 }
+
+/* ── Crisp, High-Contrast Mermaid Charts & Graphs ─────────────── */
+.mermaid-chart {
+  background: var(--bg-card, #FFFFFF);
+  border: 1px solid var(--border, #E4E1D8);
+  border-radius: var(--radius-lg, 12px);
+  padding: 1.25rem;
+  margin: 1.25rem 0;
+  box-shadow: none;
+  overflow-x: auto;
+}
+
+.mermaid-chart svg {
+  max-width: 100% !important;
+  height: auto !important;
+}
+
+/* Sharp Line Charts */
+.mermaid-chart svg path.line,
+.mermaid-chart svg .chart-line,
+.mermaid-chart svg .line-path {
+  stroke-width: 3px !important;
+  stroke: #2B5EA8 !important;
+  stroke-linecap: round !important;
+  stroke-linejoin: round !important;
+  opacity: 1 !important;
+}
+
+.mermaid-chart svg path.line:nth-of-type(2),
+.mermaid-chart svg .chart-line:nth-of-type(2) {
+  stroke: #C9622A !important;
+}
+
+.mermaid-chart svg path.line:nth-of-type(3),
+.mermaid-chart svg .chart-line:nth-of-type(3) {
+  stroke: #2E7D32 !important;
+}
+
+/* Sharp Bar Charts */
+.mermaid-chart svg rect.bar,
+.mermaid-chart svg .chart-bar {
+  fill: #2B5EA8 !important;
+  stroke: #1F4A87 !important;
+  stroke-width: 1.5px !important;
+  opacity: 0.95 !important;
+  rx: 3px !important;
+}
+
+.mermaid-chart svg rect.bar:nth-of-type(2n) {
+  fill: #C9622A !important;
+  stroke: #A44E20 !important;
+}
+
+.mermaid-chart svg rect.bar:nth-of-type(3n) {
+  fill: #2E7D32 !important;
+  stroke: #1B5E20 !important;
+}
+
+/* Sharp Axis & Grid Lines */
+.mermaid-chart svg .main-axis,
+.mermaid-chart svg .axis path,
+.mermaid-chart svg .axis line,
+.mermaid-chart svg .domain {
+  stroke: #0F1115 !important;
+  stroke-width: 1.75px !important;
+  opacity: 1 !important;
+}
+
+.mermaid-chart svg text {
+  fill: #0F1115 !important;
+  font-family: 'Inter', system-ui, sans-serif !important;
+  font-weight: 600 !important;
+}
+
+/* Prevent X-Axis Label Collision: Rotate long tick labels */
+.mermaid-chart svg g[class*="x-axis"] text,
+.mermaid-chart svg g[class*="xaxis"] text,
+.mermaid-chart svg .x-axis text,
+.mermaid-chart svg .xaxis-tick text {
+  font-size: 10.5px !important;
+  font-weight: 650 !important;
+  transform: rotate(-28deg) !important;
+  transform-origin: 50% 0% !important;
+  text-anchor: end !important;
+  dominant-baseline: auto !important;
+}
+
+.mermaid-chart svg .grid line {
+  stroke: #E4E1D8 !important;
+  stroke-dasharray: 4 4 !important;
+  stroke-width: 1px !important;
+  opacity: 0.7 !important;
+}
+

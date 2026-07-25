@@ -41,11 +41,57 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.75rem 1rem;
-  background: var(--bg-elevated);
+  padding: 0.75rem 1.25rem;
+  background: var(--bg-card);
   border-top: 1px solid var(--border);
   font-size: var(--fs-sm);
-  font-weight: 500;
+  font-weight: 600;
+  gap: var(--space-4);
+}
+
+.pdf-control-cluster {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pdf-control-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+}
+
+.pdf-control-btn {
+  padding: var(--space-2) var(--space-3) !important;
+  min-height: 36px;
+  min-width: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text);
+  transition: border-color var(--transition), background-color var(--transition);
+  cursor: pointer;
+}
+
+.pdf-control-btn:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: var(--bg-elevated);
+}
+
+.pdf-control-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.pdf-control-label {
+  padding: 0 var(--space-2);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-xs);
+  font-weight: 600;
 }
 
 .pdf-history-sidebar {
@@ -187,56 +233,87 @@
   background: var(--bg-card);
   border-radius: var(--radius-lg);
   border: 1px solid var(--border);
-  box-shadow: var(--shadow-sm);
+  box-shadow: none;
   overflow: hidden;
 }
 
 /* ── Header ──────────────────────────────────────── */
 .pdf-chat-header {
-  padding: 1rem 1.5rem;
+  padding: 1.1rem 1.5rem;
   border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+  z-index: 10;
+}
+
+.pdf-chat-header-main {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: var(--bg-card);
-  z-index: 10;
+  gap: var(--space-4);
+  flex-wrap: wrap;
 }
 
 .pdf-chat-title {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  font-weight: 600;
+  font-weight: 750;
+  font-size: var(--fs-md);
   color: var(--text);
 }
 
 .pdf-file-badge {
-  background: var(--primary-light);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
   color: var(--primary);
-  padding: 0.25rem 0.75rem;
-  border-radius: 99px;
-  font-size: var(--fs-sm);
-  font-weight: 500;
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.4rem;
+  max-width: 280px;
+}
+
+.pdf-file-badge-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pdf-file-badge-remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  color: var(--text-subtle);
+  padding: 2px;
+  border-radius: 50%;
+  transition: color 0.15s, background-color 0.15s;
+}
+
+.pdf-file-badge-remove:hover {
+  color: var(--danger);
+  background: rgba(178, 58, 46, 0.1);
 }
 
 /* ── Messages Area ──────────────────────────────────────── */
 .pdf-messages-area {
   flex: 1;
   overflow-y: auto;
-  padding: 2rem 1.5rem;
+  padding: 1.75rem 1.5rem;
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 1.25rem;
   scroll-behavior: smooth;
 }
 
 /* ── Message Bubble ──────────────────────────────────────── */
 .pdf-message {
   display: flex;
-  gap: 1rem;
+  gap: 0.75rem;
   max-width: 85%;
   animation: fadeInUp 0.3s ease-out forwards;
 }
@@ -261,8 +338,9 @@
 }
 
 .assistant-avatar {
-  background: linear-gradient(135deg, var(--primary), #5b8fff);
-  color: white;
+  background: var(--primary-light);
+  color: var(--primary);
+  border: 1px solid var(--border);
 }
 
 .user-avatar {
@@ -272,24 +350,25 @@
 }
 
 .pdf-bubble {
-  padding: 1rem 1.25rem;
-  border-radius: 1.25rem;
+  padding: 0.85rem 1.15rem;
+  border-radius: var(--radius-lg);
   font-size: var(--fs-base);
   line-height: 1.6;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  box-shadow: none;
 }
 
 .pdf-message.user .pdf-bubble {
-  background: var(--bg-elevated);
+  background: var(--bg-card);
+  border: 1px solid var(--primary);
   color: var(--text);
-  border-bottom-right-radius: 0.25rem;
+  border-top-right-radius: 0.25rem;
 }
 
 .pdf-message.assistant .pdf-bubble {
-  background: transparent;
+  background: var(--bg-elevated);
   border: 1px solid var(--border);
   color: var(--text);
-  border-bottom-left-radius: 0.25rem;
+  border-top-left-radius: 0.25rem;
 }
 
 /* ── Citation Pill ──────────────────────────────────────── */

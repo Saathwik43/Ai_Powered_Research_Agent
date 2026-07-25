@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, BookOpen, PenTool, LayoutList, LogOut, X, ChevronLeft, ChevronRight, FileText, Shield } from 'lucide-react';
+import { LayoutDashboard, BookOpen, PenTool, LayoutList, LogOut, X, ChevronLeft, ChevronRight, FileText, Shield, Clock, MessageSquare } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import './Sidebar.css';
 
@@ -81,15 +81,19 @@ const Sidebar = ({ open, onClose, collapsed, onToggleCollapse }) => {
         </nav>
 
         {usage && !collapsed && (
-          <div style={{ padding: '1rem 1.25rem', borderTop: '1px solid var(--border)', fontSize: 'var(--fs-sm)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem', color: 'var(--text)' }}>
-              <span>Session: {Math.min(100, (usage.used / usage.quota) * 100).toFixed(0)}%</span>
-              <span>Reset in: {usage.reset_in}</span>
+          <div className="sidebar-usage-card">
+            <div className="sidebar-usage-row">
+              <span className="sidebar-usage-stat">
+                <Clock size={13} className="sidebar-usage-icon" /> Session: {Math.min(100, (usage.used / usage.quota) * 100).toFixed(0)}%
+              </span>
+              <span className="sidebar-usage-reset">Reset in {usage.reset_in}</span>
             </div>
-            <div style={{ height: '6px', background: 'var(--bg-hover)', borderRadius: '4px', overflow: 'hidden', marginBottom: '0.4rem' }}>
-              <div style={{ height: '100%', width: `${Math.min(100, (usage.used / usage.quota) * 100)}%`, background: 'var(--primary)', borderRadius: '4px', transition: 'width 0.3s ease' }}></div>
+            <div className="sidebar-usage-track">
+              <div className="sidebar-usage-fill" style={{ width: `${Math.min(100, (usage.used / usage.quota) * 100)}%` }} />
             </div>
-            <div style={{ color: 'var(--text-muted)' }}>Messages left: {usage.messages_left}</div>
+            <div className="sidebar-usage-messages">
+              <MessageSquare size={13} className="sidebar-usage-icon" /> Messages left: <strong>{usage.messages_left}</strong>
+            </div>
           </div>
         )}
 

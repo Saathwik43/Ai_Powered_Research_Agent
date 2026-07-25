@@ -617,8 +617,8 @@ export default function ManuscriptBuilder() {
 
       <div className="manuscript-layout" style={{ display: 'flex', gap: 'var(--space-4)', alignItems: 'flex-start', flexWrap: 'wrap' }}>
 
-        {/* Sidebar Container */}
-        <div className="sidebar" style={{ flex: '0 0 220px', minWidth: '220px', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', position: 'sticky', top: '1.5rem' }}>
+        {/* Sidebar Column */}
+        <div className="manuscript-sidebar-column" style={{ flex: '0 0 240px', minWidth: '240px', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', sticky: 'top', top: '1.5rem' }}>
           
           <SectionsList 
             sections={STEPS} 
@@ -629,7 +629,7 @@ export default function ManuscriptBuilder() {
           />
 
           {/* Configuration Block */}
-          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 'var(--space-4)' }}>
+          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1rem', boxShadow: 'none' }}>
             
             {/* Topic Input - Always Visible */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>

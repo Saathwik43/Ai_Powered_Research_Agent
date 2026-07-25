@@ -212,7 +212,8 @@ export default function LiteratureSurvey() {
           />
         </div>
         <InteractiveHoverButton 
-          text={loading ? "Searching..." : "Search"} 
+          text={loading ? "Searching" : "Search"} 
+          loading={loading}
           onClick={() => search()} 
           disabled={loading} 
         />
