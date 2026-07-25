@@ -362,18 +362,18 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
         raise RuntimeError(f"{effective_provider.title()} provider failed to generate a completion.")
 
     providers = []
+    if LLM_PROVIDER in ("auto", "openai") and os.getenv("OPENAI_API_KEY"):
+        providers.append(("OpenAI", _generate_openai))
+    if LLM_PROVIDER in ("auto", "gemini") and os.getenv("GEMINI_API_KEY"):
+        providers.append(("Gemini", _generate_gemini))
     if LLM_PROVIDER in ("auto", "groq"):
         providers.append(("Groq", _generate_groq))
     if LLM_PROVIDER in ("auto", "openrouter"):
         providers.append(("OpenRouter", _generate_openrouter))
+    if LLM_PROVIDER in ("auto", "mistral") and os.getenv("MISTRAL_API_KEY"):
+        providers.append(("Mistral", _generate_mistral))
     if LLM_PROVIDER in ("auto", "huggingface"):
         providers.append(("HuggingFace", _generate_huggingface))
-    if LLM_PROVIDER in ("mistral",) and os.getenv("MISTRAL_API_KEY"):
-        providers.append(("Mistral", _generate_mistral))
-    if LLM_PROVIDER in ("auto", "openai") and os.getenv("OPENAI_API_KEY"):
-        providers.append(("OpenAI", _generate_openai))
-    if LLM_PROVIDER == "gemini" and os.getenv("GEMINI_API_KEY"):
-        providers.append(("Gemini", _generate_gemini))
 
 
     for provider_name, provider_func in providers:
@@ -542,6 +542,11 @@ async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: in
         async for chunk in _stream_openai_compatible("https://api.mistral.ai/v1/chat/completions", headers, payload):
             yield chunk
 
+    elif provider == "huggingface":
+        text, _tokens = await _generate_huggingface(system_prompt, user_prompt, max_tokens, temperature)
+        yield {"type": "chunk", "text": text}
+        yield {"type": "done"}
+
     elif provider == "gemini":
         global _gemini_client
         if not _gemini_client:
@@ -588,7 +593,7 @@ async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: in
 
 
 async def stream_completion_auto(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float, cached_content: str = None):
-    fixed_order = ("gemini", "groq", "mistral", "openrouter", "openai")
+    fixed_order = ("openai", "gemini", "groq", "openrouter", "mistral", "huggingface")
     full_accumulated_text = ""
     
     for provider in fixed_order:

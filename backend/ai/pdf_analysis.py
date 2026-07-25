@@ -16,6 +16,16 @@ from ai.gap_analysis import _GAP_SYSTEM_PROMPT
 from ai.pdf_structure import extract_structure
 from ai.grobid_client import extract_via_grobid
 
+_LIGATURE_MAP = {
+    "\ufb00": "ff", "\ufb01": "fi", "\ufb02": "fl",
+    "\ufb03": "ffi", "\ufb04": "ffl", "\u2212": "-",
+}
+
+def _clean_ligatures(text: str) -> str:
+    for lig, plain in _LIGATURE_MAP.items():
+        text = text.replace(lig, plain)
+    return text
+
 logger = logging.getLogger(__name__)
 
 __all__ = ["extract_pdf_text", "extract_pdf_structure", "analyze_uploaded_paper"]
@@ -90,6 +100,7 @@ async def extract_pdf_text(file_bytes: bytes) -> str:
             doc = fitz.open(stream=file_bytes, filetype="pdf")
             for page in doc:
                 text += page.get_text() + "\n"
+            text = _clean_ligatures(text)
             if text.strip():
                 logger.info("Successfully extracted PDF text using PyMuPDF.")
             else:
