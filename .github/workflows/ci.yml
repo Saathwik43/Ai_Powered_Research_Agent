@@ -24,6 +24,11 @@ jobs:
           pip install -r requirements-dev.txt
 
       - name: Run backend tests (excluding integration)
+        env:
+          JWT_SECRET_KEY: "ci-test-secret-key-not-for-production"
+          GOOGLE_CLIENT_ID: "ci-test-placeholder"
+          MONGO_URI: "mongodb://localhost:27017"
+          GEMINI_API_KEY: "ci-test-placeholder"
         run: |
           cd backend
           pytest -v
