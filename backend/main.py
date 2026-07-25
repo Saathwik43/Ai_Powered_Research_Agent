@@ -175,17 +175,20 @@ async def root():
 # ─── Auth ──────────────────────────────────────────────────────────────────────
 
 @app.post("/api/auth/signup")
-async def signup(payload: SignupPayload):
+@limiter.limit("5/minute")
+async def signup(request: Request, payload: SignupPayload):
     email = payload.email.strip().lower()
     return await signup_user(email, payload.password, payload.name.strip())
 
 @app.post("/api/auth/login")
-async def login(payload: LoginPayload):
+@limiter.limit("5/minute")
+async def login(request: Request, payload: LoginPayload):
     email = payload.email.strip().lower()
     return await login_user(email, payload.password)
 
 @app.post("/api/auth/google")
-async def google_auth(payload: GoogleAuthPayload):
+@limiter.limit("10/minute")
+async def google_auth(request: Request, payload: GoogleAuthPayload):
     idinfo = verify_google_token(payload.token)
     email = idinfo.get('email')
     name = idinfo.get('name', 'Google User')
