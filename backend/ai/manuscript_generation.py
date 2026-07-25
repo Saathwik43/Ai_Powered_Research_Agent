@@ -55,7 +55,7 @@ Here is the background context and literature survey information you MUST incorp
     {section_framing}
 Instructions:
 1. Write a highly rigorous, well-structured, and formal academic "{section}" section.
-2. DO NOT include a title or heading for the section. Start directly with the content.
+2. CRITICAL: DO NOT include a title, section header, or '#' heading at the top of your output (e.g. DO NOT start with '# Abstract' or '# {topic}'). Start DIRECTLY with the body text paragraph.
 3. Seamlessly weave the provided literature and context into your arguments. Do not just list them.
 4. Keep all claims appropriately cautious and academically sound (e.g., use "suggests", "indicates", "may").
 5. Format the output in clean Markdown, using paragraphs, lists, or bold text only where academically appropriate.

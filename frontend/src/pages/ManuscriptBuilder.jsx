@@ -168,14 +168,16 @@ export default function ManuscriptBuilder() {
   const abortControllerRef = useRef(null);
 
   const processForUnverified = (text) => {
-    if (!text || !unverifiedNumbers || !unverifiedNumbers.length) return text;
+    if (!text) return '';
     let processed = text;
-    unverifiedNumbers.forEach(num => {
-      // Split and join is a safe way to replace all occurrences without regex escaping issues
-      processed = processed.split(num).join(`[${num}](#unverified-stat)`);
-    });
-    // Fix double wrapping if any
-    processed = processed.split('](#unverified-stat)](#unverified-stat)').join('](#unverified-stat)').split('[[').join('[');
+    // Strip redundant leading top-level # Markdown header if present (e.g. # Abstract, # Topic)
+    processed = processed.replace(/^#\s+[^\n]+\n?/, '').trim();
+    if (unverifiedNumbers && unverifiedNumbers.length) {
+      unverifiedNumbers.forEach(num => {
+        processed = processed.split(num).join(`[${num}](#unverified-stat)`);
+      });
+      processed = processed.split('](#unverified-stat)](#unverified-stat)').join('](#unverified-stat)').split('[[').join('[');
+    }
     return processed;
   };
 

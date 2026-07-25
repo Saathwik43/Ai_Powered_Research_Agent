@@ -38,8 +38,9 @@
 }
 
 .paper-preview .paper-title {
-  font-size: 1.5rem;
+  font-size: 1.3rem;
   font-weight: 700;
+  line-height: 1.3;
   margin: 0 0 0.25rem;
   color: #111;
 }
@@ -63,7 +64,10 @@
 .paper-preview .paper-body h2,
 .paper-preview .paper-body h3 {
   color: #111;
-  margin: 1.5em 0 0.5em;
+  font-size: 1.1em;
+  font-weight: 700;
+  margin: 1.25em 0 0.5em;
+  border-bottom: none;
 }
 
 .paper-preview .paper-body ul,
