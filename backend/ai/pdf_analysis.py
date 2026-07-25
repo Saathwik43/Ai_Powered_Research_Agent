@@ -5,6 +5,7 @@ import logging
 import asyncio
 import tempfile
 import fitz
+from integrations.arxiv import detect_arxiv_id_from_text, fetch_latex_source
 from llama_parse import LlamaParse
 from pypdf import PdfReader
 from fastapi import HTTPException
@@ -45,8 +46,22 @@ USER PROMPT:
 """
 
 async def extract_pdf_text(file_bytes: bytes) -> str:
-    """Extract text from PDF file bytes with tiered fallback: LlamaParse -> PyMuPDF -> pypdf."""
+    """Extract text from PDF file bytes. Tier 0: arXiv LaTeX source (if detected).
+    Tier 1-3 fallback: LlamaParse -> PyMuPDF -> pypdf."""
     text = ""
+
+    # Tier 0: cheap first-page peek for an arXiv ID, then try real LaTeX source
+    try:
+        peek_doc = fitz.open(stream=file_bytes, filetype="pdf")
+        first_page_text = peek_doc[0].get_text() if len(peek_doc) > 0 else ""
+        arxiv_id = detect_arxiv_id_from_text(first_page_text)
+        if arxiv_id:
+            latex_res = await fetch_latex_source(arxiv_id)
+            if latex_res and latex_res.get("sections"):
+                text = latex_res.get("abstract", "") + "\n\n" + "\n\n".join(latex_res["sections"].values())
+                logger.info(f"Successfully extracted PDF text using arXiv LaTeX source ({arxiv_id}).")
+    except Exception as e:
+        logger.warning(f"arXiv ID peek/fetch failed, continuing to normal tiers: {e}")
     
     # Tier 1: LlamaParse
     temp_path = None

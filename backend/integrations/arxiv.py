@@ -223,3 +223,11 @@ async def fetch_latex_source(arxiv_id: str) -> dict | None:
         return None
 
     return _split_latex_sections(full_tex)
+
+_ARXIV_ID_IN_TEXT_RE = re.compile(r"arXiv:\s*([\w.\-]+)(?:v\d+)?", re.IGNORECASE)
+
+def detect_arxiv_id_from_text(first_page_text: str) -> str | None:
+    """arXiv papers self-print their ID (e.g. 'arXiv:2301.12345v2') on page 1 —
+    detect it from raw extracted text of an uploaded PDF."""
+    m = _ARXIV_ID_IN_TEXT_RE.search(first_page_text or "")
+    return m.group(1) if m else None
