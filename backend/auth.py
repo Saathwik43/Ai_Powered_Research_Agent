@@ -72,6 +72,12 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(b
     collection = db["users"]
     from bson import ObjectId
     user = await collection.find_one({"_id": ObjectId(user_id)})
+    if user and user.get("status") == "suspended":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your account has been suspended by an administrator."
+        )
+
     role = user.get("role", "user") if user else "user"
     name = user.get("name", "") if user else ""
     picture = user.get("picture") if user else None

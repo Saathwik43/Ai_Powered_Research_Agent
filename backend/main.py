@@ -10,6 +10,8 @@ import asyncio
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from fastapi.responses import JSONResponse
+import time
+import httpx
 from bson import ObjectId
 import traceback
 
@@ -642,7 +644,7 @@ async def delete_pdf_chat(chat_id: str, current_user: dict = Depends(get_current
     except Exception:
         raise HTTPException(status_code=404, detail="Invalid chat ID.")
 
-from usage_tracker import get_user_usage
+from usage_tracker import get_user_usage, DAILY_TOKEN_QUOTA, TOKENS_PER_MESSAGE
 
 @app.get("/api/user/usage")
 async def get_my_usage(current_user: dict = Depends(get_current_user)):
@@ -656,7 +658,6 @@ async def admin_usage_endpoint(current_user: dict = Depends(get_current_user)):
     collection = db["usage_logs"]
     today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     
-    # Aggregate usage for all users today
     pipeline = [
         {"$match": {"date": today}},
         {"$group": {"_id": "$user_id", "total_tokens": {"$sum": "$tokens"}}}
@@ -670,19 +671,245 @@ async def admin_usage_endpoint(current_user: dict = Depends(get_current_user)):
     for u in usage:
         user_id = u["_id"]
         total_tokens = u["total_tokens"]
-        user_doc = await users_collection.find_one({"_id": ObjectId(user_id)})
+        try:
+            user_doc = await users_collection.find_one({"_id": ObjectId(user_id)})
+        except Exception:
+            user_doc = None
+            
         email = user_doc["email"] if user_doc else user_id
+        custom_q = user_doc.get("custom_quota") if user_doc else None
+        effective_quota = int(custom_q) if custom_q is not None else DAILY_TOKEN_QUOTA
         
-        from usage_tracker import DAILY_TOKEN_QUOTA, TOKENS_PER_MESSAGE
-        messages_left = max(0.0, (DAILY_TOKEN_QUOTA - total_tokens) / TOKENS_PER_MESSAGE)
+        messages_left = max(0.0, (effective_quota - total_tokens) / TOKENS_PER_MESSAGE)
         results.append({
             "user_id": user_id,
             "email": email,
             "used": total_tokens,
             "messages_left": round(messages_left, 1),
-            "quota": DAILY_TOKEN_QUOTA
+            "quota": effective_quota
         })
         
     return {"data": results}
+
+@app.get("/api/admin/users")
+async def admin_get_all_users(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+        
+    users_cursor = db["users"].find({})
+    user_docs = await users_cursor.to_list(length=1000)
+    today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    
+    results = []
+    for u in user_docs:
+        uid_str = str(u["_id"])
+        
+        # Calculate today's tokens
+        today_pipeline = [
+            {"$match": {"user_id": uid_str, "date": today}},
+            {"$group": {"_id": None, "total": {"$sum": "$tokens"}}}
+        ]
+        t_res = await db["usage_logs"].aggregate(today_pipeline).to_list(length=1)
+        tokens_today = t_res[0]["total"] if t_res else 0
+        
+        # Calculate lifetime tokens
+        life_pipeline = [
+            {"$match": {"user_id": uid_str}},
+            {"$group": {"_id": None, "total": {"$sum": "$tokens"}}}
+        ]
+        l_res = await db["usage_logs"].aggregate(life_pipeline).to_list(length=1)
+        tokens_total = l_res[0]["total"] if l_res else 0
+        
+        custom_q = u.get("custom_quota")
+        effective_quota = int(custom_q) if custom_q is not None else DAILY_TOKEN_QUOTA
+        messages_left = max(0.0, (effective_quota - tokens_today) / TOKENS_PER_MESSAGE)
+        
+        created = u.get("created_at")
+        created_str = created.strftime('%Y-%m-%d %H:%M') if isinstance(created, datetime) else "N/A"
+        
+        results.append({
+            "user_id": uid_str,
+            "name": u.get("name", "Unknown"),
+            "email": u.get("email", ""),
+            "role": u.get("role", "user"),
+            "status": u.get("status", "active"),
+            "custom_quota": custom_q,
+            "quota": effective_quota,
+            "tokens_today": tokens_today,
+            "tokens_total": tokens_total,
+            "messages_left": round(messages_left, 1),
+            "created_at": created_str
+        })
+        
+    return {"users": results}
+
+@app.post("/api/admin/users/{user_id}/role")
+async def admin_update_user_role(user_id: str, payload: dict, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+        
+    new_role = payload.get("role")
+    if new_role not in ("user", "admin"):
+        raise HTTPException(status_code=400, detail="Invalid role specified")
+        
+    res = await db["users"].update_one({"_id": ObjectId(user_id)}, {"$set": {"role": new_role}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    return {"message": f"User role updated to {new_role}"}
+
+@app.post("/api/admin/users/{user_id}/status")
+async def admin_update_user_status(user_id: str, payload: dict, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+        
+    new_status = payload.get("status")
+    if new_status not in ("active", "suspended"):
+        raise HTTPException(status_code=400, detail="Invalid status specified")
+        
+    res = await db["users"].update_one({"_id": ObjectId(user_id)}, {"$set": {"status": new_status}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    return {"message": f"User status updated to {new_status}"}
+
+@app.post("/api/admin/users/{user_id}/quota")
+async def admin_update_user_quota(user_id: str, payload: dict, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+        
+    reset_today = payload.get("reset_today", False)
+    custom_quota = payload.get("custom_quota")
+    
+    if reset_today:
+        today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        await db["usage_logs"].delete_many({"user_id": user_id, "date": today})
+        
+    if custom_quota is not None:
+        try:
+            custom_q_val = int(custom_quota) if custom_quota != "" else None
+            if custom_q_val is None:
+                await db["users"].update_one({"_id": ObjectId(user_id)}, {"$unset": {"custom_quota": ""}})
+            else:
+                await db["users"].update_one({"_id": ObjectId(user_id)}, {"$set": {"custom_quota": custom_q_val}})
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Quota must be a valid integer")
+            
+    return {"message": "User quota updated successfully"}
+
+@app.delete("/api/admin/users/{user_id}")
+async def admin_delete_user(user_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if current_user["user_id"] == user_id:
+        raise HTTPException(status_code=400, detail="Cannot delete your own admin account")
+        
+    res = await db["users"].delete_one({"_id": ObjectId(user_id)})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    await db["usage_logs"].delete_many({"user_id": user_id})
+    await db["manuscripts"].delete_many({"user_id": user_id})
+    await db["pdf_chats"].delete_many({"user_id": user_id})
+    return {"message": "User and associated data deleted"}
+
+@app.get("/api/admin/system-status")
+async def admin_system_status(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+        
+    sources = []
+    
+    # 1. Groq API Check
+    groq_key = os.getenv("GROQ_API_KEY")
+    if not groq_key:
+        sources.append({"name": "Groq LLM Engine", "type": "LLM Provider", "status": "no_key", "details": "GROQ_API_KEY missing"})
+    else:
+        try:
+            start_t = time.time()
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                res = await client.get("https://api.groq.com/openai/v1/models", headers={"Authorization": f"Bearer {groq_key}"})
+                latency = round((time.time() - start_t) * 1000)
+                if res.status_code == 200:
+                    sources.append({"name": "Groq LLM Engine", "type": "LLM Provider", "status": "operational", "latency_ms": latency, "details": "Models operational"})
+                elif res.status_code == 429:
+                    sources.append({"name": "Groq LLM Engine", "type": "LLM Provider", "status": "rate_limited", "latency_ms": latency, "details": "Rate limit active"})
+                else:
+                    sources.append({"name": "Groq LLM Engine", "type": "LLM Provider", "status": "degraded", "latency_ms": latency, "details": f"HTTP {res.status_code}"})
+        except Exception as e:
+            sources.append({"name": "Groq LLM Engine", "type": "LLM Provider", "status": "offline", "details": str(e)})
+
+    # 2. Google Gemini Check
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    if not gemini_key:
+        sources.append({"name": "Google Gemini Engine", "type": "LLM Provider", "status": "no_key", "details": "GEMINI_API_KEY missing"})
+    else:
+        try:
+            start_t = time.time()
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                res = await client.get(f"https://generativelanguage.googleapis.com/v1beta/models?key={gemini_key}")
+                latency = round((time.time() - start_t) * 1000)
+                if res.status_code == 200:
+                    sources.append({"name": "Google Gemini Engine", "type": "LLM Provider", "status": "operational", "latency_ms": latency, "details": "Operational"})
+                else:
+                    sources.append({"name": "Google Gemini Engine", "type": "LLM Provider", "status": "degraded", "latency_ms": latency, "details": f"HTTP {res.status_code}"})
+        except Exception as e:
+            sources.append({"name": "Google Gemini Engine", "type": "LLM Provider", "status": "offline", "details": str(e)})
+
+    # 3. Semantic Scholar Search Check
+    try:
+        start_t = time.time()
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            res = await client.get("https://api.semanticscholar.org/graph/v1/paper/autocomplete?query=solar")
+            latency = round((time.time() - start_t) * 1000)
+            if res.status_code in (200, 400):
+                sources.append({"name": "Semantic Scholar API", "type": "Literature Source", "status": "operational", "latency_ms": latency, "details": "Active & Searchable"})
+            elif res.status_code == 429:
+                sources.append({"name": "Semantic Scholar API", "type": "Literature Source", "status": "rate_limited", "latency_ms": latency, "details": "Rate limit active"})
+            else:
+                sources.append({"name": "Semantic Scholar API", "type": "Literature Source", "status": "degraded", "details": f"HTTP {res.status_code}"})
+    except Exception as e:
+        sources.append({"name": "Semantic Scholar API", "type": "Literature Source", "status": "offline", "details": str(e)})
+
+    # 4. arXiv Search Check
+    try:
+        start_t = time.time()
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            res = await client.get("https://export.arxiv.org/api/query?search_query=all:electron&max_results=1")
+            latency = round((time.time() - start_t) * 1000)
+            if res.status_code == 200:
+                sources.append({"name": "arXiv Search API", "type": "Literature Source", "status": "operational", "latency_ms": latency, "details": "Active"})
+            else:
+                sources.append({"name": "arXiv Search API", "type": "Literature Source", "status": "degraded", "details": f"HTTP {res.status_code}"})
+    except Exception as e:
+        sources.append({"name": "arXiv Search API", "type": "Literature Source", "status": "offline", "details": str(e)})
+
+    # 5. PubMed NCBI Check
+    try:
+        start_t = time.time()
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            res = await client.get("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pmc&term=cancer&retmode=json&retmax=1")
+            latency = round((time.time() - start_t) * 1000)
+            if res.status_code == 200:
+                sources.append({"name": "PubMed NCBI Service", "type": "Literature Source", "status": "operational", "latency_ms": latency, "details": "Active"})
+            else:
+                sources.append({"name": "PubMed NCBI Service", "type": "Literature Source", "status": "degraded", "details": f"HTTP {res.status_code}"})
+    except Exception as e:
+        sources.append({"name": "PubMed NCBI Service", "type": "Literature Source", "status": "offline", "details": str(e)})
+
+    # 6. GROBID PDF Engine Check
+    try:
+        start_t = time.time()
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            res = await client.get("http://localhost:8070/api/isalive")
+            latency = round((time.time() - start_t) * 1000)
+            if res.status_code == 200:
+                sources.append({"name": "GROBID Structuring Engine", "type": "PDF Parser", "status": "operational", "latency_ms": latency, "details": "Local GROBID active"})
+            else:
+                sources.append({"name": "GROBID Structuring Engine", "type": "PDF Parser", "status": "degraded", "details": "Resuming heuristic fallback"})
+    except Exception:
+        sources.append({"name": "GROBID Structuring Engine", "type": "PDF Parser", "status": "offline", "details": "Unreachable (Using PyMuPDF Fallback)"})
+
+    return {"sources": sources}
 
 # Trigger reload

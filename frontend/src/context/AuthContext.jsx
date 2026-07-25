@@ -32,6 +32,8 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const authFetch = useCallback(async (url, options = {}) => {
+    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    const fullUrl = url.startsWith('http') ? url : `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
     const isFormData = options.body instanceof FormData;
     const headers = {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -42,7 +44,7 @@ export const AuthProvider = ({ children }) => {
       headers['Content-Type'] = 'application/json';
     }
 
-    return fetch(url, { ...options, headers });
+    return fetch(fullUrl, { ...options, headers });
   }, [token]);
 
   const value = useMemo(() => ({ user, token, login, logout, authFetch, loading }), [user, token, login, logout, authFetch, loading]);

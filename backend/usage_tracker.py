@@ -21,6 +21,15 @@ async def check_quota(user_id: str):
     today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     collection = db["usage_logs"]
     
+    # Check if user has custom_quota in user doc
+    try:
+        from bson import ObjectId
+        user_doc = await db["users"].find_one({"_id": ObjectId(user_id)})
+        user_quota = user_doc.get("custom_quota") if user_doc else None
+        effective_quota = int(user_quota) if user_quota is not None else DAILY_TOKEN_QUOTA
+    except Exception:
+        effective_quota = DAILY_TOKEN_QUOTA
+
     # Aggregate usage for today
     pipeline = [
         {"$match": {"user_id": user_id, "date": today}},
@@ -31,10 +40,10 @@ async def check_quota(user_id: str):
     usage = await cursor.to_list(length=1)
     total_used = usage[0]["total_tokens"] if usage else 0
     
-    if total_used >= DAILY_TOKEN_QUOTA:
+    if total_used >= effective_quota:
         raise HTTPException(
             status_code=429, 
-            detail="Daily message quota exceeded. Please try again tomorrow."
+            detail="Daily message quota exceeded. Please try again tomorrow or contact admin."
         )
 
 async def log_usage(user_id: str, tokens: int, model: str, query_type: str = "general"):
@@ -74,6 +83,14 @@ async def get_user_usage(user_id: str) -> dict:
     today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     collection = db["usage_logs"]
     
+    try:
+        from bson import ObjectId
+        user_doc = await db["users"].find_one({"_id": ObjectId(user_id)})
+        user_quota = user_doc.get("custom_quota") if user_doc else None
+        effective_quota = int(user_quota) if user_quota is not None else DAILY_TOKEN_QUOTA
+    except Exception:
+        effective_quota = DAILY_TOKEN_QUOTA
+
     pipeline = [
         {"$match": {"user_id": user_id, "date": today}},
         {"$group": {"_id": None, "total_tokens": {"$sum": "$tokens"}}}
@@ -82,18 +99,17 @@ async def get_user_usage(user_id: str) -> dict:
     usage = await cursor.to_list(length=1)
     total_used = usage[0]["total_tokens"] if usage else 0
     
-    messages_left = max(0.0, (DAILY_TOKEN_QUOTA - total_used) / TOKENS_PER_MESSAGE)
+    messages_left = max(0.0, (effective_quota - total_used) / TOKENS_PER_MESSAGE)
     
     # Compute reset time (time until midnight UTC)
     now = datetime.now(timezone.utc)
-    # Next day midnight
     tomorrow = datetime(now.year, now.month, now.day, tzinfo=timezone.utc) + __import__('datetime').timedelta(days=1)
     diff = tomorrow - now
     hours = diff.seconds // 3600
     minutes = (diff.seconds % 3600) // 60
     
     return {
-        "quota": DAILY_TOKEN_QUOTA,
+        "quota": effective_quota,
         "used": total_used,
         "messages_left": round(messages_left, 1),
         "reset_in": f"{hours}h {minutes}m"
