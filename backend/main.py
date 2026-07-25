@@ -146,6 +146,7 @@ class PdfChatSavePayload(BaseModel):
     text: str
     structure: Optional[Dict[str, Any]] = None
     messages: List[Dict[str, Any]]
+    file_id: Optional[str] = None
 
 class VenuePayload(BaseModel):
     abstract: str = ""
@@ -584,6 +585,7 @@ async def save_pdf_chat(payload: PdfChatSavePayload, current_user: dict = Depend
         "text": payload.text,
         "structure": payload.structure,
         "messages": payload.messages,
+        "file_id": payload.file_id,
         "updated_at": now
     }
     

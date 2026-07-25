@@ -166,8 +166,36 @@ export default function PdfAnalysis() {
   const [customPrompt, setCustomPrompt] = useState('');
   const [messages, setMessages] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [fileId, setFileId] = useState(null);
+  const [pdfBlobUrl, setPdfBlobUrl] = useState(null);
 
   const [numPages, setNumPages] = useState(null);
+
+  useEffect(() => {
+    let currentBlobUrl = null;
+    if (fileId && (!file || !file?.size)) {
+      const loadPdf = async () => {
+        try {
+          const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/pdf/${fileId}`);
+          if (res.ok) {
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            currentBlobUrl = url;
+            setPdfBlobUrl(url);
+          }
+        } catch (err) {
+          console.error("Failed to load PDF preview", err);
+        }
+      };
+      loadPdf();
+    } else {
+      setPdfBlobUrl(null);
+    }
+
+    return () => {
+      if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
+    };
+  }, [fileId, file, authFetch]);
   const [pageNumber, setPageNumber] = useState(1);
   const [zoom, setZoom] = useState(1.2);
 
@@ -212,6 +240,7 @@ export default function PdfAnalysis() {
         const chat = data.data;
         setActiveChatId(chat.chat_id);
         setFile({ name: chat.filename }); // dummy file object for display
+        setFileId(chat.file_id || null);
         setExtractedText(chat.text);
         setStructure(chat.structure);
         setMessages(chat.messages || []);
@@ -237,7 +266,7 @@ export default function PdfAnalysis() {
     }
   };
 
-  const saveChatState = async (newMessages, currentFile, text, struct) => {
+  const saveChatState = async (newMessages, currentFile, text, struct, currentFileId = fileId) => {
     if (!text || newMessages.length === 0) return;
     try {
       const payload = {
@@ -245,7 +274,8 @@ export default function PdfAnalysis() {
         filename: currentFile?.name || "Unknown PDF",
         text: text,
         structure: struct,
-        messages: newMessages
+        messages: newMessages,
+        file_id: currentFileId
       };
       const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/pdf-chats/save`, {
         method: 'POST',
@@ -272,6 +302,8 @@ export default function PdfAnalysis() {
     }
 
     setFile(selected);
+    setFileId(null);
+    setPdfBlobUrl(null);
     setError('');
     setExtractedText('');
     setStructure(null);
@@ -295,6 +327,7 @@ export default function PdfAnalysis() {
       const data = await res.json();
       setExtractedText(data.text);
       setStructure(data.structure);
+      setFileId(data.file_id);
 
       const initMsgs = [{
         id: Date.now(),
@@ -303,7 +336,7 @@ export default function PdfAnalysis() {
         content: `✅ **"${selected.name}"** has been uploaded and processed successfully!\n\nI've extracted the text and I'm ready to answer your questions. Try one of the suggestions below, or ask me anything about this paper.`,
       }];
       setMessages(initMsgs);
-      await saveChatState(initMsgs, selected, data.text, data.structure);
+      await saveChatState(initMsgs, selected, data.text, data.structure, data.file_id);
     } catch (err) {
       setError(err.message || 'Error extracting PDF text. Please try again.');
       setFile(null);
@@ -372,7 +405,7 @@ export default function PdfAnalysis() {
               }
             : m
         );
-        saveChatState(updated, file, extractedText, structure);
+        saveChatState(updated, file, extractedText, structure, fileId);
         return updated;
       });
     } catch (err) {
@@ -382,7 +415,7 @@ export default function PdfAnalysis() {
             ? { ...m, isLoading: false, error: true, content: err.message || 'Analysis failed. Please try again.' }
             : m
         );
-        saveChatState(updated, file, extractedText, structure);
+        saveChatState(updated, file, extractedText, structure, fileId);
         return updated;
       });
     } finally {
@@ -400,6 +433,8 @@ export default function PdfAnalysis() {
 
   const reset = () => {
     setFile(null);
+    setFileId(null);
+    setPdfBlobUrl(null);
     setExtractedText('');
     setStructure(null);
     setMessages([]);
@@ -413,10 +448,10 @@ export default function PdfAnalysis() {
         {/* PDF Viewer Pane */}
         {(file || extractedText) && (
           <div className="pdf-viewer-pane">
-            {file.size ? (
+            {(file?.size || pdfBlobUrl) ? (
                <div className="pdf-viewer-scroll">
                  <Document 
-                    file={file} 
+                    file={file?.size ? file : pdfBlobUrl} 
                     onLoadSuccess={({ numPages }) => { setNumPages(numPages); setPageNumber(1); }} 
                     loading={<div style={{padding: 'var(--space-6)', textAlign: 'center'}}><Spinner size={24} /></div>}
                  >
@@ -432,10 +467,10 @@ export default function PdfAnalysis() {
                </div>
             ) : (
                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 'var(--space-6)', textAlign: 'center', color: 'var(--text-subtle)' }}>
-                 <p>Preview unavailable for loaded chats.<br/>(PDF file not stored in browser)</p>
+                 <p>Preview unavailable.<br/>{fileId ? "Loading PDF..." : "(PDF file not stored in browser)"}</p>
                </div>
             )}
-            {file.size && numPages && (
+            {(file?.size || pdfBlobUrl) && numPages && (
               <div className="pdf-viewer-controls">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
                   <button className="btn btn-secondary btn-icon" title="Zoom Out" onClick={() => setZoom(z => Math.max(0.5, z - 0.2))}><Minus size={16} /></button>

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowRight,
@@ -24,15 +24,22 @@ const features = [
   { icon: Target, title: 'Venue Matching', desc: 'Compare journal and conference fit with submission guidance before you commit.' },
 ];
 
-const workflow = [
-  'Find an active topic',
-  'Collect related papers',
-  'Draft the manuscript',
-  'Match the best venue',
+const PREVIEW_SLIDES = [
+  { id: 'dashboard', label: 'Topic Discovery' },
+  { id: 'gap-analysis', label: 'Gap Analysis' },
+  { id: 'manuscript', label: 'Manuscript Builder' },
 ];
 
 const LandingPage = () => {
   const navigate = useNavigate();
+  const [activeSlide, setActiveSlide] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setActiveSlide((prev) => (prev + 1) % PREVIEW_SLIDES.length);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, []);
 
   return (
     <div className="landing-page">
@@ -45,8 +52,11 @@ const LandingPage = () => {
           </span>
         </button>
         <div className="landing-nav-actions">
-          <button className="btn btn-ghost" onClick={() => navigate('/login')}>Sign in</button>
-          <InteractiveHoverButton text="Start now" onClick={() => navigate('/signup')} />
+          <button className="nav-signin" onClick={() => navigate('/login')}>Sign in</button>
+          <button className="nav-start-btn" onClick={() => navigate('/signup')}>
+            <span className="nav-start-dot" />
+            Start now
+          </button>
         </div>
       </nav>
 
@@ -63,8 +73,10 @@ const LandingPage = () => {
               drafting manuscripts, and choosing publication venues without switching tools.
             </p>
             <div className="hero-actions">
-              <InteractiveHoverButton text="Create workspace" onClick={() => navigate('/signup')} />
-              <button className="btn hero-secondary" onClick={() => navigate('/login')}>
+              <button className="hero-btn hero-primary" onClick={() => navigate('/signup')}>
+                Create workspace <ArrowRight size={18} />
+              </button>
+              <button className="hero-btn hero-secondary" onClick={() => navigate('/login')}>
                 Open existing account
               </button>
             </div>
@@ -77,44 +89,122 @@ const LandingPage = () => {
 
           <div className="product-preview" aria-label="Research Agent product preview">
             <div className="preview-topbar">
-              <div>
+              <div className="preview-dots">
                 <span className="preview-dot dot-red" />
                 <span className="preview-dot dot-yellow" />
                 <span className="preview-dot dot-green" />
               </div>
-              <span>Topic discovery</span>
+              <div className="preview-url-bar">
+                <span className="preview-url-protocol">https://</span>
+                <span className="preview-url-domain">research-agent.app</span>
+                <span className="preview-url-path">/workspace/{PREVIEW_SLIDES[activeSlide].id}</span>
+              </div>
+              <div className="preview-slide-indicators">
+                {PREVIEW_SLIDES.map((slide, idx) => (
+                  <button
+                    key={slide.id}
+                    className={`slide-dot-btn ${activeSlide === idx ? 'active' : ''}`}
+                    onClick={() => setActiveSlide(idx)}
+                    title={slide.label}
+                    aria-label={`Go to slide ${idx + 1}: ${slide.label}`}
+                  />
+                ))}
+              </div>
             </div>
-            <div className="preview-body">
-              <aside className="preview-sidebar">
-                <div className="preview-logo"><Sparkles size={18} /></div>
-                <span className="active"><LayoutDashboard size={15} /></span>
-                <span><Library size={15} /></span>
-                <span><FileText size={15} /></span>
-              </aside>
-              <div className="preview-main">
-                <div className="preview-search">
-                  <Search size={17} />
-                  <span>machine learning in healthcare</span>
-                  <InteractiveHoverButton text="Discover" />
+
+            <div className="preview-stage">
+              {/* Slide 0: Dashboard Search Bar */}
+              <div className={`preview-slide ${activeSlide === 0 ? 'active' : ''}`}>
+                <div className="preview-search-bar">
+                  <Search size={16} className="text-muted" />
+                  <span className="preview-search-text">Quantum Machine Learning in Healthcare</span>
+                  <span className="badge badge-primary">Active Query</span>
                 </div>
-                <div className="preview-grid">
-                  <div className="metric-card blue">
-                    <small>Impact</small>
-                    <strong>Very High</strong>
+                <div className="preview-grid-3">
+                  <div className="preview-card">
+                    <small className="text-subtle">Topic Impact</small>
+                    <strong className="text-primary" style={{ fontSize: 'var(--fs-lg)' }}>9.4 / 10</strong>
+                    <span className="text-xs text-success">High Growth Field</span>
                   </div>
-                  <div className="metric-card orange">
-                    <small>Papers</small>
-                    <strong>128</strong>
+                  <div className="preview-card">
+                    <small className="text-subtle">Surveyed Papers</small>
+                    <strong className="text-accent" style={{ fontSize: 'var(--fs-lg)' }}>1,284</strong>
+                    <span className="text-xs text-muted">OpenAlex & arXiv</span>
                   </div>
-                  <div className="metric-card green">
-                    <small>Venues</small>
-                    <strong>24</strong>
+                  <div className="preview-card">
+                    <small className="text-subtle">Venue Fit</small>
+                    <strong className="text-success" style={{ fontSize: 'var(--fs-lg)' }}>18 Match</strong>
+                    <span className="text-xs text-muted">IEEE & Nature ML</span>
                   </div>
                 </div>
-                <div className="preview-list">
-                  <span />
-                  <span />
-                  <span />
+                <div className="preview-paper-item">
+                  <div className="preview-paper-header">
+                    <span className="serif" style={{ fontWeight: 600, color: 'var(--text)' }}>
+                      Privacy-Preserving Federated Learning in Electronic Health Records
+                    </span>
+                    <span className="badge badge-accent">142 Citations</span>
+                  </div>
+                  <p className="text-xs text-muted mb-0">arXiv:2403.0192 • CS.AI • Crossref verified</p>
+                </div>
+              </div>
+
+              {/* Slide 1: Gap Analysis Panel */}
+              <div className={`preview-slide ${activeSlide === 1 ? 'active' : ''}`}>
+                <div className="preview-tab-header">
+                  <span className="tab-pill active">Identified Gaps (3)</span>
+                  <span className="tab-pill">Well Covered</span>
+                  <span className="tab-pill">Future Directions</span>
+                </div>
+                <div className="preview-gap-box">
+                  <div className="preview-gap-title">
+                    <Target size={15} className="text-accent" />
+                    <strong>Critical Research Gap #1</strong>
+                    <span className="badge badge-warning">High Priority</span>
+                  </div>
+                  <p className="text-sm text-muted">
+                    Lack of real-time clinical validation on non-stationary patient telemetry streams under noisy sensor conditions.
+                  </p>
+                  <div className="margin-note" style={{ marginTop: '0.25rem' }}>
+                    * Key opportunity for IEEE EMBC 2026 submission!
+                  </div>
+                </div>
+                <div className="preview-recommendation-box">
+                  <div className="text-xs font-medium text-primary">AI Suggested Direction:</div>
+                  <div className="text-xs text-muted">
+                    Propose a dual-attention online transformer architecture with adaptive sliding-window loss function.
+                  </div>
+                </div>
+              </div>
+
+              {/* Slide 2: Manuscript Split-Pane Editor */}
+              <div className={`preview-slide ${activeSlide === 2 ? 'active' : ''}`}>
+                <div className="preview-split-pane">
+                  <div className="preview-split-left">
+                    <div className="preview-pane-title">
+                      <FileText size={14} className="text-primary" /> Outline
+                    </div>
+                    <ul className="preview-tree-list">
+                      <li className="active">1. Introduction</li>
+                      <li>2. Methodology</li>
+                      <li>3. Results</li>
+                      <li>4. References</li>
+                    </ul>
+                  </div>
+                  <div className="preview-split-right">
+                    <div className="preview-editor-header">
+                      <span className="mono text-xs">manuscript_draft_v2.tex</span>
+                      <span className="badge badge-success">Saved</span>
+                    </div>
+                    <h4 className="serif" style={{ fontSize: 'var(--fs-base)', color: 'var(--text)', textTransform: 'none', letterSpacing: 'normal', margin: '0 0 0.5rem 0' }}>
+                      1. Introduction & Background
+                    </h4>
+                    <p className="serif text-xs text-muted" style={{ lineHeight: 1.5, margin: 0 }}>
+                      Recent advancements in Transformer models have demonstrated remarkable success in time-series forecasting. Applying these architectures to ICU telemetry presents distinct challenges <span className="mono citation-id">[1]</span>...
+                    </p>
+                    <div className="margin-note" style={{ marginTop: '0.5rem' }}>
+                      * Note: Insert citation for multi-head self-attention here.
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -142,3 +232,4 @@ const LandingPage = () => {
 };
 
 export default LandingPage;
+
