@@ -1,8 +1,8 @@
+from integrations.arxiv import get_arxiv_id, fetch_latex_source
 import json
 import logging
 import re
 import time
-
 from ai.llm_provider import generate_completion
 from ai.pdf_extraction import (
     _fetch_pdf_bytes,
@@ -177,6 +177,17 @@ async def extract_evidence_for_paper(paper: dict) -> tuple[dict, str]:
         return cached
 
     title = paper.get("title", "Untitled Paper")
+
+    arxiv_id = get_arxiv_id(paper)
+    if arxiv_id:
+        latex_res = await fetch_latex_source(arxiv_id)
+        if latex_res:
+            latex_evidence = _map_grobid_to_evidence(latex_res)
+            if _has_usable_evidence(latex_evidence):
+                _store_cached_evidence(paper, latex_evidence, "arxiv-latex")
+                logger.info("Evidence extraction path for '%s': arxiv-latex", title)
+                return latex_evidence, "arxiv-latex"
+
     oa_url = (paper.get("oa_url") or "").strip()
 
     if oa_url:

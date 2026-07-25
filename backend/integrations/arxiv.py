@@ -3,6 +3,10 @@ import xml.etree.ElementTree as ET
 import logging
 import os
 from datetime import datetime
+import re
+import tarfile
+import gzip
+import io
 
 logger = logging.getLogger(__name__)
 
@@ -145,3 +149,77 @@ async def fetch_multiple_feeds(category_codes: list, limit_per_feed: int = 5) ->
     for r in results:
         papers.extend(r)
     return papers
+
+def get_arxiv_id(paper: dict) -> str | None:
+    """Extract the bare arXiv ID (e.g. '2301.12345') from a paper dict, if it's an arXiv paper."""
+    url = (paper.get("url") or paper.get("arxiv_url") or paper.get("oa_url") or "").strip()
+    m = re.search(r"arxiv\.org/(?:abs|pdf|e-print)/([\w.\-]+?)(?:v\d+)?(?:\.pdf)?$", url)
+    return m.group(1) if m else None
+
+
+_SECTION_RE = re.compile(r"\\section\*?\{([^}]*)\}")
+_ABSTRACT_RE = re.compile(r"\\begin\{abstract\}(.*?)\\end\{abstract\}", re.DOTALL)
+
+
+def _strip_latex_comments(tex: str) -> str:
+    return re.sub(r"(?<!\\)%.*", "", tex)
+
+
+def _split_latex_sections(tex: str) -> dict:
+    tex = _strip_latex_comments(tex)
+    abstract_match = _ABSTRACT_RE.search(tex)
+    abstract = abstract_match.group(1).strip() if abstract_match else ""
+
+    sections = {}
+    matches = list(_SECTION_RE.finditer(tex))
+    for i, m in enumerate(matches):
+        heading = m.group(1).strip().lower()
+        start = m.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(tex)
+        body = tex[start:end].strip()
+        if heading and body:
+            sections[heading] = body
+
+    return {"abstract": abstract, "sections": sections}
+
+
+async def fetch_latex_source(arxiv_id: str) -> dict | None:
+    """Fetch and lightly parse arXiv LaTeX source. Returns None if unavailable
+    (old scanned papers, PDF-only submissions) or on any failure — caller falls
+    back to GROBID/PDF extraction in that case."""
+    url = f"https://arxiv.org/e-print/{arxiv_id}"
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.get(url)
+            if resp.status_code != 200:
+                return None
+            raw = resp.content
+    except Exception as e:
+        logger.warning(f"arXiv e-print fetch failed for {arxiv_id}: {e}")
+        return None
+
+    try:
+        # e-print is usually a gzipped tarball of multiple .tex files
+        with tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz") as tar:
+            tex_parts = []
+            for member in tar.getmembers():
+                if member.name.endswith(".tex"):
+                    f = tar.extractfile(member)
+                    if f:
+                        tex_parts.append(f.read().decode("utf-8", errors="ignore"))
+            full_tex = "\n".join(tex_parts)
+    except tarfile.ReadError:
+        # Sometimes it's a single gzipped .tex file, not a tarball
+        try:
+            full_tex = gzip.decompress(raw).decode("utf-8", errors="ignore")
+        except Exception as e:
+            logger.warning(f"arXiv source for {arxiv_id} not a tar or gzip: {e}")
+            return None
+    except Exception as e:
+        logger.warning(f"arXiv source extraction failed for {arxiv_id}: {e}")
+        return None
+
+    if not full_tex.strip():
+        return None
+
+    return _split_latex_sections(full_tex)
