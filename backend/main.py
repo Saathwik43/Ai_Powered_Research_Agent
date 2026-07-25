@@ -35,7 +35,7 @@ from integrations.github_knowledge import (
     find_papers_by_category, search_github_knowledge
 )
 
-from database import db, ping_db, ensure_indexes , pdf_bucket
+from database import db, ping_db, ensure_indexes, get_pdf_bucket
 from auth import signup_user, login_user, get_current_user, seed_admin, verify_google_token, google_auth_user
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", filename="backend.log")
@@ -448,7 +448,7 @@ async def extract_pdf_endpoint(request: Request, file: UploadFile = File(...), c
         extract_pdf_structure(contents)
     )
 
-    file_id = await pdf_bucket.upload_from_stream(
+    file_id = await get_pdf_bucket().upload_from_stream(
         file.filename,
         contents,
         metadata={"user_id": str(current_user["user_id"]), "content_type": "application/pdf"}
@@ -465,7 +465,7 @@ async def get_pdf(request: Request, file_id: str, current_user: dict = Depends(g
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid file_id")
 
-    grid_out = await pdf_bucket.open_download_stream(oid)
+    grid_out = await get_pdf_bucket().open_download_stream(oid)
     if grid_out.metadata.get("user_id") != str(current_user["user_id"]):
         raise HTTPException(status_code=403, detail="Not your file")
 

@@ -12,7 +12,9 @@ client = AsyncIOMotorClient(MONGO_URI)
 db = client.research_agent_db
 
 from motor.motor_asyncio import AsyncIOMotorGridFSBucket
-pdf_bucket = AsyncIOMotorGridFSBucket(db,bucket_name="pdfs")
+
+def get_pdf_bucket():
+    return AsyncIOMotorGridFSBucket(db, bucket_name="pdfs")
 
 async def ping_db():
     try:
