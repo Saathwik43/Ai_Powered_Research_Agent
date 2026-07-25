@@ -176,9 +176,9 @@ def _format_chicago(paper: dict) -> str:
     url = _clean_str(paper.get("url", ""))
     if doi:
         doi_str = doi if doi.startswith("http") else f"https://doi.org/{doi}"
-        parts.append(f" {doi_str}")
+        parts.append(f" {doi_str}.")
     elif url:
-        parts.append(f" {url}")
+        parts.append(f" {url}.")
 
     return "".join(parts)
 
@@ -225,7 +225,7 @@ _FORMATTERS = {
     "ieee": _format_ieee,
     "apa": _format_apa,
     "chicago": _format_chicago,
-    "oxford": _format_oxford,
+    "oxford": _format_chicago,
 }
 
 
