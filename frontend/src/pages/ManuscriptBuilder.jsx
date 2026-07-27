@@ -181,6 +181,20 @@ export default function ManuscriptBuilder() {
     return processed;
   };
 
+  const formatPaperTitle = (text) => {
+    if (!text) return 'Untitled Research Paper';
+    let cleaned = text.trim();
+    // Strip common prompt action prefixes
+    cleaned = cleaned.replace(/^(investigate|analyze|study|develop|research|explore|evaluate|assess|design)\s+(the\s+)?(development\s+of\s+a\s+|use\s+of\s+a\s+|application\s+of\s+a\s+)?/i, '');
+    cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+    
+    const words = cleaned.split(/\s+/);
+    if (words.length > 10) {
+      return words.slice(0, 9).join(' ') + '...';
+    }
+    return cleaned;
+  };
+
   const done = STEPS.filter(s => content[s.id]?.trim()).map(s => s.id);
 
   const generate = async () => {
@@ -1089,7 +1103,7 @@ export default function ManuscriptBuilder() {
                   <div className={`paper-preview format-${citationStyle} paper-preview-screen`}>
                     <div className="paper-header">
                       <div className="paper-section-label">{currentStep?.label}</div>
-                      <h1 className="paper-title">{topic || 'Untitled Paper'}</h1>
+                       <h1 className="paper-title" title={topic}>{formatPaperTitle(topic)}</h1>
                     </div>
                     <div className="paper-body">
                       {content[active] ? (
@@ -1135,7 +1149,7 @@ export default function ManuscriptBuilder() {
                   {/* Print Version: Full Paper (Hidden on screen, visible when printing) */}
                   <div className={`paper-preview format-${citationStyle} paper-preview-print`}>
                     <div className="paper-header">
-                      <h1 className="paper-title">{topic || 'Untitled Paper'}</h1>
+                      <h1 className="paper-title" title={topic}>{formatPaperTitle(topic)}</h1>
                     </div>
                     <div className="paper-body">
                       {STEPS.map(step => content[step.id] ? (
