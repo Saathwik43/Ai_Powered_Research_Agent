@@ -580,15 +580,20 @@ export default function ManuscriptBuilder() {
   };
 
   useEffect(() => {
-    if (printPending && viewMode === 'paper') {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => { 
-          window.print(); 
-          setPrintPending(false); 
-        });
-      });
-    }
-  }, [printPending, viewMode]);
+  if (printPending && viewMode === 'paper') {
+    const waitForCharts = () => {
+      const nodes = document.querySelectorAll('.paper-preview-print .mermaid-chart');
+      const allReady = Array.from(nodes).every(n => n.querySelector('svg'));
+      if (allReady) {
+        window.print();
+        setPrintPending(false);
+      } else {
+        setTimeout(waitForCharts, 100);
+      }
+    };
+    requestAnimationFrame(() => setTimeout(waitForCharts, 50));
+  }
+}, [printPending, viewMode]);
 
   const currentStep = STEPS.find(s => s.id === active);
   const visibleDrafts = drafts.filter(draft =>

@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import mermaid from 'mermaid';
 
+const svgCache = new Map();
+
 mermaid.initialize({
   startOnLoad: false,
   theme: 'base',
@@ -55,7 +57,14 @@ export default function Mermaid({ chart }) {
     let isMounted = true;
 
     if (!chart || !chart.trim()) return;
-
+    
+    const cacheKey = chart.trim();
+    if (svgCache.has(cacheKey)) {
+      lastValidSvgRef.current = svgCache.get(cacheKey);
+      if (containerRef.current) containerRef.current.innerHTML = lastValidSvgRef.current;
+      return; // skip debounce entirely, already rendered before
+    }
+    
     // Clean up wrapping markdown codeblock ticks if present
     let cleanChart = chart.replace(/^```(mermaid|xychart-beta|graph)?\n?/, '').replace(/\n?```$/, '').trim();
     if (!cleanChart) return;
@@ -86,6 +95,7 @@ export default function Mermaid({ chart }) {
         const { svg } = await mermaid.render(id, cleanChart);
         if (isMounted && containerRef.current) {
           lastValidSvgRef.current = svg;
+          svgCache.set(cacheKey, svg);
           containerRef.current.innerHTML = svg;
           setError(null);
         }
