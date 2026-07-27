@@ -223,21 +223,21 @@ class TestProviderCascadeOrder(unittest.IsolatedAsyncioTestCase):
     @patch('ai.llm_provider._generate_openrouter', new_callable=AsyncMock)
     @patch('ai.llm_provider._generate_huggingface', new_callable=AsyncMock)
     @patch('ai.llm_provider._generate_gemini', new_callable=AsyncMock)
-    async def test_auto_cascade_order_groq_first(self, mock_gemini, mock_hf, mock_or, mock_groq):
+    async def test_auto_cascade_order_gemini_first(self, mock_gemini, mock_hf, mock_or, mock_groq):
         """
-        REGRESSION: In auto mode, Groq must be first. If Groq succeeds,
-        OpenRouter and HuggingFace should not be called.
+        In auto mode, Gemini (after OpenAI) is tried first for quality priority.
+        If Gemini succeeds, Groq/OpenRouter/HuggingFace should not be called.
         """
         from ai.llm_provider import generate_completion
-        mock_groq.return_value = ("Groq result", 100)
+        mock_gemini.return_value = ("Gemini result", 100)
 
         result = await generate_completion("system", "user", max_tokens=100)
 
-        self.assertEqual(result, "Groq result")
-        mock_groq.assert_called()
+        self.assertEqual(result, "Gemini result")
+        mock_gemini.assert_called()
+        mock_groq.assert_not_called()
         mock_or.assert_not_called()
         mock_hf.assert_not_called()
-        mock_gemini.assert_not_called()
 
 
 if __name__ == '__main__':

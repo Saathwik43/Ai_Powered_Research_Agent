@@ -645,7 +645,7 @@ export default function ManuscriptBuilder() {
           />
 
           {/* Configuration Block */}
-          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1rem', boxShadow: 'none' }}>
+          <div className="manuscript-config-block" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1rem', boxShadow: 'none' }}>
             
             {/* Topic Input - Always Visible */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
@@ -736,7 +736,7 @@ export default function ManuscriptBuilder() {
         </div>
 
         {/* Editor */}
-        <div style={{ flex: 1, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 'var(--space-5)', minWidth: 0 }}>
+        <div className="manuscript-editor-panel" style={{ flex: 1, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 'var(--space-5)', minWidth: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
             <h2 style={{ margin: 0, fontSize: 'var(--fs-md)' }}>{currentStep?.label}</h2>
             <div className="responsive-actions" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
@@ -809,7 +809,7 @@ export default function ManuscriptBuilder() {
 
           {/* Gap Analysis Panel */}
           {gapAnalysis && (
-            <div style={{ marginBottom: 'var(--space-5)', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 'var(--space-5)' }}>
+            <div className="manuscript-gap-panel" style={{ marginBottom: 'var(--space-5)', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 'var(--space-5)' }}>
               <button onClick={() => setGapPanelOpen(o => !o)} style={{display:'flex', alignItems:'center', gap:'var(--space-2)', width:'100%', background:'none', border:'none', cursor:'pointer', fontSize:'var(--fs-md)', fontWeight:600}}>
                 <Search size={16} color="var(--primary)" /> Research Gaps Analysis
                 <span style={{fontSize:'var(--fs-sm)', color:'var(--text-subtle)', fontWeight:400}}>

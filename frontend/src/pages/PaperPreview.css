@@ -38,11 +38,12 @@
 }
 
 .paper-preview .paper-title {
-  font-size: 1.3rem;
+  font-size: 1.15rem;
   font-weight: 700;
-  line-height: 1.3;
-  margin: 0 0 0.25rem;
+  line-height: 1.35;
+  margin: 0 0 0.4rem;
   color: #111;
+  text-align: center;
 }
 
 .paper-preview .paper-section-label {
@@ -282,7 +283,18 @@
 @media print {
   .manuscript-outline-panel, .manuscript-toolbar, .manuscript-revise-panel,
   .sidebar, .mobile-header, .mobile-overlay, button,
-  .manuscript-references-panel, .page-header { display: none !important; }
+  .manuscript-references-panel, .page-header,
+  .manuscript-config-block, .manuscript-gap-panel,
+  .manuscript-sidebar-column { display: none !important; }
+
+  .manuscript-editor-panel {
+    border: none !important;
+    background: transparent !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+  }
+
+  .manuscript-editor-panel > div:first-child { display: none !important; } /* section-name header row above the preview */
 
   .paper-preview-print { display: block !important; position: static !important; width: 100% !important; box-shadow: none !important; border-radius: 0 !important; padding: 0 !important; margin: 0 !important; }
   .paper-preview-screen { display: none !important; }
