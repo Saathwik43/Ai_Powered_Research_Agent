@@ -277,9 +277,12 @@
 
 /* ─── Print Styles (for PDF export via browser print) ──────────────── */
 .paper-preview-print {
-  display: none;
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  width: 800px;
+  visibility: hidden;
 }
-
 @media print {
   .manuscript-outline-panel, .manuscript-toolbar, .manuscript-revise-panel,
   .sidebar, .mobile-header, .mobile-overlay, button,
@@ -296,7 +299,7 @@
 
   .manuscript-editor-panel > div:first-child { display: none !important; } /* section-name header row above the preview */
 
-  .paper-preview-print { display: block !important; position: static !important; width: 100% !important; box-shadow: none !important; border-radius: 0 !important; padding: 0 !important; margin: 0 !important; }
+  .paper-preview-print { position: static !important; left: auto !important; visibility: visible !important; width: 100% !important; box-shadow: none !important; border-radius: 0 !important; padding: 0 !important; margin: 0 !important; }
   .paper-preview-screen { display: none !important; }
 
   body, .main-content { margin: 0 !important; padding: 0 !important; max-width: 100% !important; }
