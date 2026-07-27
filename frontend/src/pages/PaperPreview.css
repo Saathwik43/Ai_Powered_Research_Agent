@@ -329,7 +329,7 @@
 
 
 /* ─── Responsive: single column on small screens ───────────────────── */
-@media (max-width: 768px) {
+@media screen and (max-width: 768px) {
   .paper-preview.format-ieee .paper-body {
     column-count: 1;
   }
