@@ -47,7 +47,7 @@ def create_access_token(user_id: str, email: str) -> str:
 
 RESET_TOKEN_EXPIRE_MINUTES = 30
 
-def create_reset_token(user_id: str, email: str) -> str:
+def create_reset_token(user_id: str, email: str , version: int = 0) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=RESET_TOKEN_EXPIRE_MINUTES)
     payload = {"sub": user_id, "email": email, "purpose": "reset", "exp": expire}
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
@@ -144,6 +144,7 @@ async def request_password_reset(email: str):
     collection = db["users"]
     user = await collection.find_one({"email": email})
     if user:  # Always return success even if not found — don't leak which emails exist
+        version = user.get("reset_token_version", 0)
         token = create_reset_token(str(user["_id"]), email)
         send_reset_email(email, token)
     return {"message": "If that email exists, a reset link has been sent."}
@@ -152,9 +153,12 @@ async def request_password_reset(email: str):
 async def reset_password_with_token(token: str, new_password: str):
     payload = decode_reset_token(token)
     collection = db["users"]
+    user = await collection.find_one({"_id": ObjectId(payload["sub"])})
+    if not user or user.get("reset_token_version", 0) != payload.get("v", -1):
+        raise HTTPException(status_code=400, detail="This reset link has already been used or is invalid.")
     await collection.update_one(
         {"_id": ObjectId(payload["sub"])},
-        {"$set": {"password": hash_password(new_password)}}
+        {"$set": {"password": hash_password(new_password)}, "$inc": {"reset_token_version": 1}}
     )
     return {"message": "Password updated. Please log in."}
 
