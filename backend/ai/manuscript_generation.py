@@ -138,28 +138,6 @@ async def _prepare_generation(topic: str, section: str, context: str, citation_s
         logger.info(f"No valid cache for '{cache_key}', running full research pipeline.")
         papers = await search_all(topic, limit_per_source=15) or []
         
-        try:
-            import usage_tracker
-            user_id = usage_tracker.current_user_id.get()
-            query = {"topic": topic}
-            if user_id:
-                query["user_id"] = user_id
-            user_sources = await db["sources"].find(query).to_list(50)
-            for s in user_sources:
-                papers.append({
-                    "title": s.get("filename", "User Source"),
-                    "authors": ["User-provided"],
-                    "year": "",
-                    "evidence": {
-                        "results": s.get("raw_text", "")[:4000],
-                        "dataset": s.get("raw_text", "")[:2000],
-                        "objective": "", "method": "", "limitations": "", "future_work": ""
-                    },
-                    "evidence_source": "user_upload",
-                })
-        except Exception as e:
-            logger.warning(f"Failed to fetch user sources: {e}")
-
         if papers:
             papers = await _filter_relevant_papers(topic, papers)
             papers = papers[:15]
@@ -174,7 +152,29 @@ async def _prepare_generation(topic: str, section: str, context: str, citation_s
                 
             await asyncio.gather(*(fetch_evidence_throttled(p) for p in papers), return_exceptions=True)
             _research_cache[cache_key] = (papers, now)
-
+    
+    try:
+            import usage_tracker
+            user_id = usage_tracker.current_user_id.get()
+            if not user_id:
+                user_sources = []
+            else:
+                user_sources = await db["sources"].find({"topic": topic, "user_id": user_id}).to_list(50)   
+            for s in user_sources:
+                papers.append({
+                    "title": s.get("filename", "User Source"),
+                    "authors": ["User-provided"],
+                    "year": "",
+                    "evidence": {
+                        "results": s.get("raw_text", "")[:4000],
+                        "dataset": s.get("raw_text", "")[:2000],
+                        "objective": "", "method": "", "limitations": "", "future_work": ""
+                    },
+                    "evidence_source": "user_upload",
+                })
+    except Exception as e:
+        logger.warning(f"Failed to fetch user sources: {e}")
+    
     references_mapping = {}
     if len(papers) >= 2:
         ref_text = "\n\nNumbered Reference List:\n"
