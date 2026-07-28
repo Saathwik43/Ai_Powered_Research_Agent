@@ -49,7 +49,7 @@ RESET_TOKEN_EXPIRE_MINUTES = 30
 
 def create_reset_token(user_id: str, email: str , version: int = 0) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=RESET_TOKEN_EXPIRE_MINUTES)
-    payload = {"sub": user_id, "email": email, "purpose": "reset", "exp": expire}
+    payload = {"sub": user_id, "email": email, "purpose": "reset", "v": version, "exp": expire}
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 def decode_reset_token(token: str) -> dict:
@@ -145,7 +145,7 @@ async def request_password_reset(email: str):
     user = await collection.find_one({"email": email})
     if user:  # Always return success even if not found — don't leak which emails exist
         version = user.get("reset_token_version", 0)
-        token = create_reset_token(str(user["_id"]), email)
+        token = create_reset_token(str(user["_id"]), email, version)
         send_reset_email(email, token)
     return {"message": "If that email exists, a reset link has been sent."}
 
