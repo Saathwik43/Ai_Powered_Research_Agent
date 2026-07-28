@@ -163,8 +163,9 @@ async def _prepare_generation(topic: str, section: str, context: str, citation_s
             for s in user_sources:
                 papers.append({
                     "title": s.get("filename", "User Source"),
-                    "authors": ["User-provided"],
+                    "authors": "User-provided",
                     "year": "",
+                    "abstract": s.get("raw_text", "")[:4000],
                     "evidence": {
                         "results": s.get("raw_text", "")[:4000],
                         "dataset": s.get("raw_text", "")[:2000],
