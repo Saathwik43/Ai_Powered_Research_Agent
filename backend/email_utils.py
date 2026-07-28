@@ -24,7 +24,7 @@ async def send_reset_email(to_email: str, token: str) -> None:
         logger.error("Brevo config missing: BREVO_API_KEY/BREVO_SENDER_EMAIL not set.")
         raise EmailSendError("config_missing", "BREVO_API_KEY or BREVO_SENDER_EMAIL not set in env")
 
-    link = f"{FRONTEND_URL}/reset-password?token={token}"
+    link = f"{FRONTEND_URL.rstrip('/')}/reset-password?token={token}"
     payload = {
         "sender": {"name": BREVO_SENDER_NAME, "email": BREVO_SENDER_EMAIL},
         "to": [{"email": to_email}],
