@@ -27,6 +27,7 @@ from ai.gap_analysis import analyze_gaps
 from ai.venue_recommendation import recommend_venues
 from ai.guideline_alignment import align_guidelines
 from ai.pdf_analysis import extract_pdf_text, extract_pdf_structure, analyze_uploaded_paper
+from ai.source_ingestion import extract_source_text
 from integrations.paper_search import search_all
 from ai.relevance import _filter_relevant_papers
 from integrations.arxiv import fetch_category_feed, fetch_multiple_feeds, CATEGORY_MAP
@@ -461,7 +462,74 @@ async def extract_pdf_endpoint(request: Request, file: UploadFile = File(...), c
 
     return {"text": text, "structure": structure, "file_id": str(file_id)}
 
+@app.post("/api/sources/upload")
+async def upload_source(
+    file: Optional[UploadFile] = File(None),
+    url: Optional[str] = Form(None),
+    topic: str = Form(...),
+    current_user: dict = Depends(get_current_user)
+):
+    user_id = current_user["user_id"]
+    if url and url.strip():
+        url_str = url.strip()
+        try:
+            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+                resp = await client.get(url_str)
+                resp.raise_for_status()
+                html_text = resp.text
+            try:
+                import importlib
+                trafilatura = importlib.import_module("trafilatura")
+                extracted = trafilatura.extract(html_text)
+                text = extracted if extracted else html_text
+            except Exception:
+                import re
+                text = re.sub(r'<[^>]+>', ' ', html_text)
+                text = ' '.join(text.split())
+            filename = url_str.split("//")[-1].split("/")[0] or url_str
+            content_type = "url"
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to fetch content from URL: {e}")
+    elif file:
+        raw = await file.read()
+        text = await extract_source_text(raw, file.content_type, file.filename)
+        filename = file.filename
+        content_type = file.content_type
+    else:
+        raise HTTPException(status_code=400, detail="Either file or url must be provided")
 
+    doc = {
+        "user_id": user_id,
+        "topic": topic,
+        "filename": filename,
+        "type": content_type,
+        "raw_text": text,
+        "created_at": datetime.now(timezone.utc)
+    }
+    result = await db["sources"].insert_one(doc)
+    return {"id": str(result.inserted_id), "filename": filename, "type": content_type}
+
+@app.get("/api/sources")
+async def list_sources(topic: str, current_user: dict = Depends(get_current_user)):
+    user_id = current_user["user_id"]
+    cursor = db["sources"].find({"user_id": user_id, "topic": topic})
+    sources = []
+    async for s in cursor:
+        s["_id"] = str(s["_id"])
+        s["id"] = str(s["_id"])
+        sources.append(s)
+    return sources
+
+@app.delete("/api/sources/{source_id}")
+async def delete_source(source_id: str, current_user: dict = Depends(get_current_user)):
+    user_id = current_user["user_id"]
+    try:
+        await db["sources"].delete_one({"_id": ObjectId(source_id), "user_id": user_id})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid source_id")
+    return {"ok": True}
+
+    
 @app.get("/api/manuscript/pdf/{file_id}")
 @limiter.limit("30/minute")
 async def get_pdf(request: Request, file_id: str, current_user: dict = Depends(get_current_user)):

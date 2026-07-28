@@ -14,6 +14,7 @@ from fastapi import HTTPException
 from ai.numerical_validator import validate_numerical_claims
 from ai.evidence_extraction import extract_evidence_for_paper
 from ai.citation_grounding import check_citation_grounding
+from database import db
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +137,29 @@ async def _prepare_generation(topic: str, section: str, context: str, citation_s
     else:
         logger.info(f"No valid cache for '{cache_key}', running full research pipeline.")
         papers = await search_all(topic, limit_per_source=15) or []
+        
+        try:
+            import usage_tracker
+            user_id = usage_tracker.current_user_id.get()
+            query = {"topic": topic}
+            if user_id:
+                query["user_id"] = user_id
+            user_sources = await db["sources"].find(query).to_list(50)
+            for s in user_sources:
+                papers.append({
+                    "title": s.get("filename", "User Source"),
+                    "authors": ["User-provided"],
+                    "year": "",
+                    "evidence": {
+                        "results": s.get("raw_text", "")[:4000],
+                        "dataset": s.get("raw_text", "")[:2000],
+                        "objective": "", "method": "", "limitations": "", "future_work": ""
+                    },
+                    "evidence_source": "user_upload",
+                })
+        except Exception as e:
+            logger.warning(f"Failed to fetch user sources: {e}")
+
         if papers:
             papers = await _filter_relevant_papers(topic, papers)
             papers = papers[:15]
@@ -143,6 +167,8 @@ async def _prepare_generation(topic: str, section: str, context: str, citation_s
             sem = asyncio.Semaphore(3)
             async def fetch_evidence_throttled(p):
                 async with sem:
+                    if p.get("evidence_source") == "user_upload":
+                        return p
                     p["evidence"], p["evidence_source"] = await extract_evidence_for_paper(p)
                     return p
                 
@@ -205,6 +231,7 @@ async def _prepare_generation(topic: str, section: str, context: str, citation_s
             logger.warning(f"Internal gap analysis failed during lit_review generation: {e}")
 
     system_prompt = "You write rigorous, concise academic manuscript sections."
+    system_prompt += "\nSources marked evidence_source='user_upload' are ground truth from the user's own experiments. Prefer their exact numbers over any inferred/generated figures. Never invent results not present in any source."
     
     cached_content = None
     if provider == "gemini" and context:

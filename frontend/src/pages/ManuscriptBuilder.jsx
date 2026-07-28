@@ -16,6 +16,7 @@ import 'katex/dist/katex.min.css';
 import { MODELS } from '../constants/models';
 import { diffWords } from 'diff';
 import Mermaid from '../components/Mermaid';
+import SourcesPanel from '../components/SourcesPanel';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
 function extractText(node) {
@@ -998,21 +999,21 @@ export default function ManuscriptBuilder() {
             <div className="manuscript-editor-surface" key={active}>
               <div className="manuscript-toolbar">
                 <div style={{ display: 'flex', gap: 'var(--space-4)', alignItems: 'center' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', position: 'relative' }}>
-                    {['write', 'preview', 'paper'].map(mode => (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', position: 'relative' }}>
+                    {['write', 'preview', 'paper', 'sources'].map(mode => (
                       <button
                         key={mode}
                         onClick={() => setViewMode(mode)}
                         style={{ background: 'none', border: 'none', padding: 'var(--space-1) var(--space-2)', color: viewMode === mode ? 'var(--primary)' : 'var(--text-subtle)', fontWeight: viewMode === mode ? 600 : 400, cursor: 'pointer', transition: 'color var(--transition)', fontSize: 'var(--fs-sm)', textAlign: 'center' }}
                       >
-                        {mode === 'write' ? 'Write' : mode === 'preview' ? 'Preview' : 'Paper Preview'}
+                        {mode === 'write' ? 'Write' : mode === 'preview' ? 'Preview' : mode === 'paper' ? 'Paper Preview' : 'Sources'}
                       </button>
                     ))}
                     <div style={{
                       position: 'absolute', bottom: 0, height: '2px', background: 'var(--primary)',
                       transition: 'transform var(--transition)',
-                      width: 'calc(100% / 3)',
-                      transform: `translateX(${['write', 'preview', 'paper'].indexOf(viewMode) * 100}%)`
+                      width: 'calc(100% / 4)',
+                      transform: `translateX(${['write', 'preview', 'paper', 'sources'].indexOf(viewMode) * 100}%)`
                     }} />
                   </div>
                   
@@ -1101,7 +1102,7 @@ export default function ManuscriptBuilder() {
                     <p style={{ color: 'var(--text-subtle)', fontStyle: 'italic', margin: 0 }}>Nothing to preview.</p>
                   )}
                 </div>
-              ) : (
+              ) : viewMode === 'paper' ? (
                 /* ─── Paper Preview Mode ─── */
                 <>
                   {/* Screen Version: Only Active Section */}
@@ -1200,6 +1201,8 @@ export default function ManuscriptBuilder() {
                     </div>
                   </div>
                 </>
+              ) : (
+                <SourcesPanel topic={topic} />
               )}
 
               {content[active] && !generating && (
