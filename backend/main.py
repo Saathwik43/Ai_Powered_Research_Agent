@@ -39,7 +39,7 @@ from integrations.github_knowledge import (
 )
 
 from database import db, ping_db, ensure_indexes, get_pdf_bucket
-from auth import signup_user, login_user, get_current_user, seed_admin, verify_google_token, google_auth_user
+from auth import signup_user, login_user, get_current_user, seed_admin, verify_google_token, google_auth_user, request_password_reset, reset_password_with_token
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", filename="backend.log")
 logger = logging.getLogger(__name__)
@@ -111,6 +111,13 @@ class LoginPayload(BaseModel):
 
 class GoogleAuthPayload(BaseModel):
     token: str = Field(..., min_length=1)
+
+class ForgotPasswordPayload(BaseModel):
+    email: str = Field(..., min_length=1)
+
+class ResetPasswordPayload(BaseModel):
+    token: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=6)
 
 class ManuscriptPayload(BaseModel):
     topic: str
@@ -197,6 +204,16 @@ async def google_auth(request: Request, payload: GoogleAuthPayload):
     if not email:
         raise HTTPException(status_code=400, detail="Google token does not contain an email.")
     return await google_auth_user(email.lower(), name, picture)
+
+@app.post("/api/auth/forgot-password")
+@limiter.limit("5/minute")
+async def forgot_password(request: Request, payload: ForgotPasswordPayload):
+    return await request_password_reset(payload.email.strip().lower())
+
+@app.post("/api/auth/reset-password")
+@limiter.limit("5/minute")
+async def reset_password(request: Request, payload: ResetPasswordPayload):
+    return await reset_password_with_token(payload.token, payload.new_password)
 
 
 @app.get("/api/auth/me")

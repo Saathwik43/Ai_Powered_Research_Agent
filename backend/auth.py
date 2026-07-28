@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from google.oauth2 import id_token
 from google.auth.transport import requests
 import usage_tracker
+from bson import ObjectId
 
 load_dotenv()
 
@@ -44,7 +45,21 @@ def create_access_token(user_id: str, email: str) -> str:
     payload = {"sub": user_id, "email": email, "exp": expire}
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
+RESET_TOKEN_EXPIRE_MINUTES = 30
 
+def create_reset_token(user_id: str, email: str) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(minutes=RESET_TOKEN_EXPIRE_MINUTES)
+    payload = {"sub": user_id, "email": email, "purpose": "reset", "exp": expire}
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+def decode_reset_token(token: str) -> dict:
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("purpose") != "reset":
+            raise JWTError("wrong token type")
+        return payload
+    except JWTError:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link")
 def decode_access_token(token: str) -> dict:
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -77,7 +92,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(b
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Your account has been suspended by an administrator."
         )
-
+    
     role = user.get("role", "user") if user else "user"
     name = user.get("name", "") if user else ""
     picture = user.get("picture") if user else None
@@ -120,6 +135,29 @@ async def login_user(email: str, password: str) -> dict:
     user_id = str(user["_id"])
     token = create_access_token(user_id, email)
     return {"token": token, "user": {"id": user_id, "email": email, "name": user.get("name", ""), "role": user.get("role", "user")}}
+
+
+# ─── Password Reset ────────────────────────────────────────────────────────────
+
+async def request_password_reset(email: str):
+    from email_utils import send_reset_email
+    collection = db["users"]
+    user = await collection.find_one({"email": email})
+    if user:  # Always return success even if not found — don't leak which emails exist
+        token = create_reset_token(str(user["_id"]), email)
+        send_reset_email(email, token)
+    return {"message": "If that email exists, a reset link has been sent."}
+
+
+async def reset_password_with_token(token: str, new_password: str):
+    payload = decode_reset_token(token)
+    collection = db["users"]
+    await collection.update_one(
+        {"_id": ObjectId(payload["sub"])},
+        {"$set": {"password": hash_password(new_password)}}
+    )
+    return {"message": "Password updated. Please log in."}
+
 
 # ─── Google Auth ───────────────────────────────────────────────────────────────
 

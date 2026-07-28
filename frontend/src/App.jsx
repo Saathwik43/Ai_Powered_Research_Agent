@@ -11,7 +11,7 @@ import VenueRecommendations from './pages/VenueRecommendations';
 import PdfAnalysis from './pages/PdfAnalysis';
 import LandingPage from './pages/LandingPage';
 import AdminDashboard from './pages/AdminDashboard';
-import { Login, Signup } from './pages/AuthPages';
+import { Login, Signup, ForgotPassword, ResetPassword } from './pages/AuthPages';
 import './App.css';
 
 const ProtectedLayout = () => {
@@ -90,6 +90,8 @@ function AppRoutes() {
         <Route path="/" element={<PublicRoute><LandingPage /></PublicRoute>} />
         <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
         <Route path="/signup" element={<PublicRoute><Signup /></PublicRoute>} />
+        <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
+        <Route path="/reset-password" element={<PublicRoute><ResetPassword /></PublicRoute>} />
         <Route path="/*" element={<ProtectedLayout />} />
       </Routes>
     </div>
