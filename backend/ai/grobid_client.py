@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 _GROBID_BASE_URL = "https://lfoppiano-grobid.hf.space"
 _TEI_NS = {"tei": "http://www.tei-c.org/ns/1.0"}
-_TIMEOUT = 20.0
+_TIMEOUT = 3.0
 
 # section-key hygiene: reject figure-caption-style headings if GROBID ever
 # mis-segments (rare, but keep the same guard the heuristic tier uses)
