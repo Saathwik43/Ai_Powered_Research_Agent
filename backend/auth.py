@@ -140,13 +140,16 @@ async def login_user(email: str, password: str) -> dict:
 # ─── Password Reset ────────────────────────────────────────────────────────────
 
 async def request_password_reset(email: str):
-    from email_utils import send_reset_email
+    from email_utils import send_reset_email, EmailSendError
     collection = db["users"]
     user = await collection.find_one({"email": email})
-    if user:  # Always return success even if not found — don't leak which emails exist
+    if user:
         version = user.get("reset_token_version", 0)
         token = create_reset_token(str(user["_id"]), email, version)
-        send_reset_email(email, token)
+        try:
+            await send_reset_email(email, token)
+        except EmailSendError as e:
+            logger.error(f"Password reset email failed for {email}: reason={e.reason} detail={e.detail}")
     return {"message": "If that email exists, a reset link has been sent."}
 
 
