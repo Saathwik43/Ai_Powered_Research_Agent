@@ -484,7 +484,9 @@ async def extract_pdf_endpoint(request: Request, file: UploadFile = File(...), c
     return {"text": text, "structure": structure, "file_id": str(file_id)}
 
 @app.post("/api/sources/upload")
+@limiter.limit("10/minute")
 async def upload_source(
+    request: Request,
     file: Optional[UploadFile] = File(None),
     url: Optional[str] = Form(None),
     topic: str = Form(...),
@@ -531,9 +533,10 @@ async def upload_source(
     return {"id": str(result.inserted_id), "filename": filename, "type": content_type}
 
 @app.get("/api/sources")
-async def list_sources(topic: str, current_user: dict = Depends(get_current_user)):
+@limiter.limit("30/minute")
+async def list_sources(request: Request, topic: str, current_user: dict = Depends(get_current_user)):
     user_id = current_user["user_id"]
-    cursor = db["sources"].find({"user_id": user_id, "topic": topic})
+    cursor = db["sources"].find({"user_id": user_id, "topic": topic}, {"raw_text": 0})
     sources = []
     async for s in cursor:
         s["_id"] = str(s["_id"])
@@ -542,7 +545,8 @@ async def list_sources(topic: str, current_user: dict = Depends(get_current_user
     return sources
 
 @app.delete("/api/sources/{source_id}")
-async def delete_source(source_id: str, current_user: dict = Depends(get_current_user)):
+@limiter.limit("20/minute")
+async def delete_source(request: Request, source_id: str, current_user: dict = Depends(get_current_user)):
     user_id = current_user["user_id"]
     try:
         await db["sources"].delete_one({"_id": ObjectId(source_id), "user_id": user_id})

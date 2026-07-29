@@ -76,7 +76,7 @@ SELECT THE DIAGRAM TYPE BASED ON CONTEXT:
 CRITICAL RULES for xychart-beta:
 - ONLY use simple numerical arrays (e.g. [15.2, 21.0, 29.5, 33.1]).
 - Keep `x-axis` string labels short (1-2 words maximum per label like ["Baseline", "SVM", "RF", "CNN-BLSTM", "Ensemble"]) so they remain clear without overlapping.
-- If data includes error margins (like $\pm 0.02$), simplify to mean values in arrays and explain deviations in text.
+- If data includes error margins (like $\\pm 0.02$), simplify to mean values in arrays and explain deviations in text.
 Example Bar & Line chart:
 ```mermaid
 xychart-beta
