@@ -15,9 +15,22 @@ frontend 'low-confidence' flag or server-side fail-closed option.
 
 import logging
 import time
-from ai.llm_provider import generate_completion
+import re
+
+_STOPWORDS = {"the", "a", "an", "of", "in", "on", "for", "and", "to", "with", "is", "are", "using", "based"}
+
+def _keyword_relevance_score(topic: str, title: str, abstract: str) -> bool:
+    """Local, LLM-free relevance check: what fraction of the topic's
+    significant words appear in the paper's title/abstract."""
+    topic_words = {w for w in re.sub(r"[^a-z0-9 ]", " ", topic.lower()).split() if w not in _STOPWORDS and len(w) > 2}
+    if not topic_words:
+        return True  # nothing meaningful to check against, don't filter
+    text = (title + " " + abstract).lower()
+    matched = sum(1 for w in topic_words if w in text)
+    return (matched / len(topic_words)) >= 0.5  # at least half the topic's keywords present
 
 logger = logging.getLogger(__name__)
+
 
 __all__ = ["_filter_relevant_papers"]
 
@@ -90,33 +103,16 @@ async def _filter_relevant_papers(topic: str, papers: list) -> list:
             else:
                 del _relevance_cache[ck]  # expired
 
-        # LLM-path: single-call relevance classification
+        # Local keyword-overlap relevance check — no LLM, no network call
         title = paper.get("title", "")
         abstract = (paper.get("abstract", "") or "")[:300]
-        try:
-            answer = await generate_completion(
-                system_prompt="You are a research relevance classifier. Answer only 'yes' or 'no'.",
-                user_prompt=(
-                    f'Is the following paper relevant to the research topic "{topic}"?\n'
-                    f'Paper title: "{title}"\n'
-                    f'Paper abstract: "{abstract}"\n'
-                    'Answer with exactly "yes" or "no".'
-                ),
-                max_tokens=5,
-                temperature=0.0,
-            )
-            is_relevant = answer.strip().lower().startswith("yes")
-            _relevance_cache[ck] = (is_relevant, now)
-            if is_relevant:
-                return paper
-            else:
-                logger.info(f"Filtered out irrelevant paper: {title}")
-                return None
-        except Exception as e:
-            logger.warning(
-                f"Relevance check failed for '{title}', including by default: {e}"
-            )
-            return paper  # fail-open: include if classification fails
+        is_relevant = _keyword_relevance_score(topic, title, abstract)
+        _relevance_cache[ck] = (is_relevant, now)
+        if is_relevant:
+            return paper
+        else:
+            logger.info(f"Filtered out irrelevant paper: {title}")
+            return None
 
     from ai.llm_provider import global_llm_sem
     async def _throttled(p):

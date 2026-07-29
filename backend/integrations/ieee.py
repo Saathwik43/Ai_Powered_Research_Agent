@@ -4,7 +4,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-IEEE_API_URL = "http://ieeexploreapi.ieee.org/api/v1/search/articles"
+IEEE_API_URL = "https://ieeexploreapi.ieee.org/api/v1/search/articles"
 
 async def search_papers(query: str, limit: int = 15) -> list:
     api_key = os.getenv("IEEE_API_KEY")

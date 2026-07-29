@@ -21,7 +21,7 @@ async def search_papers(query: str, limit: int = 15) -> list:
     }
     
     try:
-        async with httpx.AsyncClient(timeout=15.0, headers=headers) as client:
+        async with httpx.AsyncClient(timeout=15.0, headers=headers, follow_redirects=True) as client:
             resp = await client.get(CORE_API_URL, params=params)
             resp.raise_for_status()
             data = resp.json()
