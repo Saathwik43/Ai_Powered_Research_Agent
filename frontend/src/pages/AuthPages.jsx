@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState , useEffect } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { GoogleLogin } from '@react-oauth/google';
@@ -263,6 +263,16 @@ const ResetPassword = () => {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
+  
+  const [tokenStatus, setTokenStatus] = useState('checking'); // 'checking' | 'valid' | 'invalid'
+
+  useEffect(() => {
+    if (!token) { setTokenStatus('invalid'); return; }
+    fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/auth/validate-reset-token?token=${token}`)
+      .then(res => res.json())
+      .then(data => setTokenStatus(data.valid ? 'valid' : 'invalid'))
+      .catch(() => setTokenStatus('invalid'));
+  }, [token]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -295,6 +305,29 @@ const ResetPassword = () => {
       setLoading(false);
     }
   };
+
+  if (tokenStatus === 'checking') {
+    return (
+      <AuthLayout eyebrow="Security" title="Checking link..." subtitle="One moment.">
+        <div />
+      </AuthLayout>
+    );
+  }
+
+  if (tokenStatus === 'invalid') {
+    return (
+      <AuthLayout
+        eyebrow="Security"
+        title="Link expired"
+        subtitle="This reset link has already been used or has expired."
+        footer={<>Back to <Link to="/login">Sign in</Link></>}
+      >
+        <Link to="/forgot-password" className="btn btn-primary w-full auth-submit">
+          Request a new link
+        </Link>
+      </AuthLayout>
+    );
+  }
 
   return (
     <AuthLayout

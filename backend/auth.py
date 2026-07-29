@@ -152,7 +152,16 @@ async def request_password_reset(email: str):
             logger.error(f"Password reset email failed for {email}: reason={e.reason} detail={e.detail}")
     return {"message": "If that email exists, a reset link has been sent."}
 
-
+async def is_reset_token_valid(token: str) -> bool:
+    try:
+        payload = decode_reset_token(token)
+    except HTTPException:
+        return False
+    user = await db["users"].find_one({"_id": ObjectId(payload["sub"])})
+    if not user or user.get("reset_token_version", 0) != payload.get("v", -1):
+        return False
+    return True
+    
 async def reset_password_with_token(token: str, new_password: str):
     payload = decode_reset_token(token)
     collection = db["users"]
@@ -164,6 +173,7 @@ async def reset_password_with_token(token: str, new_password: str):
         {"$set": {"password": hash_password(new_password)}, "$inc": {"reset_token_version": 1}}
     )
     return {"message": "Password updated. Please log in."}
+
 
 
 # ─── Google Auth ───────────────────────────────────────────────────────────────

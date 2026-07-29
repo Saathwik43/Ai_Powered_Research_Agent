@@ -18,7 +18,7 @@ import traceback
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-from auth import decode_access_token
+from auth import decode_access_token , is_reset_token_valid
 from fastapi import Request
 
 from ai.topic_discovery import discover_topics
@@ -215,6 +215,10 @@ async def forgot_password(request: Request, payload: ForgotPasswordPayload):
 async def reset_password(request: Request, payload: ResetPasswordPayload):
     return await reset_password_with_token(payload.token, payload.new_password)
 
+@app.get("/api/auth/validate-reset-token")
+@limiter.limit("20/minute")
+async def validate_reset_token(request: Request, token: str):
+    return {"valid": await is_reset_token_valid(token)}
 
 @app.get("/api/auth/me")
 async def get_me(current_user: dict = Depends(get_current_user)):
