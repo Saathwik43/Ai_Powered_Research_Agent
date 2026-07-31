@@ -36,7 +36,7 @@ const Sidebar = ({ open, onClose, collapsed, onToggleCollapse }) => {
     if (!user) return;
     const fetchUsage = async () => {
       try {
-        const res = await authFetch('http://localhost:8000/api/user/usage');
+        const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/user/usage`);
         if (res.ok) {
           const data = await res.json();
           setUsage(data);

@@ -153,20 +153,28 @@ const ChartTooltip = ({ active, payload }) => {
 
 export default function Dashboard() {
   const { authFetch } = useAuth();
-  const [topic, setTopic]           = useState('');
+  const [topic, setTopic]           = useState(() => sessionStorage.getItem('dash_topic') || '');
   const [suggestions, setSuggestions] = useState([]);
+  const discoverControllerRef = useRef(null);
   const [showSug, setShowSug]       = useState(false);
-  const [results, setResults]       = useState([]);
-  const [relatedPapers, setRelatedPapers] = useState([]);
+  const [results, setResults]       = useState(() => {try { return JSON.parse(sessionStorage.getItem('dash_results') || '[]'); } catch { return []; }});
+  const [relatedPapers, setRelatedPapers] = useState(() => {try { return JSON.parse(sessionStorage.getItem('dash_relatedPapers') || '[]'); } catch { return []; }});
   const [loading, setLoading]       = useState(false);
   const [papersLoading, setPapersLoading] = useState(false);
   const [activeCategory, setActiveCategory] = useState(null);
   const [categoryPapers, setCategoryPapers] = useState([]);
   const [catLoading, setCatLoading] = useState(false);
   const [error, setError] = useState('');
-  const [hasSearched, setHasSearched] = useState(false);
+  const [hasSearched, setHasSearched] = useState(() => sessionStorage.getItem('dash_hasSearched') === 'true');
   const [recentSurveys, setRecentSurveys] = useState([]);
   const [loadingRecent, setLoadingRecent] = useState(false);
+  useEffect(() => {
+    sessionStorage.setItem('dash_topic', topic);
+    sessionStorage.setItem('dash_results', JSON.stringify(results));
+    sessionStorage.setItem('dash_relatedPapers', JSON.stringify(relatedPapers));
+    sessionStorage.setItem('dash_hasSearched', String(hasSearched));
+  }, [topic, results, relatedPapers, hasSearched]);
+  
   const debounce = useRef(null);
   const inputWrap = useRef(null);
   const navigate = useNavigate();

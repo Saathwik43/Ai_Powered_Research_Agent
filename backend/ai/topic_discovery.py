@@ -3,7 +3,8 @@ from fastapi import HTTPException
 from ai.guardrails import validate_input_layers_a_b
 from ai.keyword_extractor import extract_top_topics
 from integrations.paper_search import search_all
-
+from ai.keyword_extractor import extract_top_topics
+from ai.relevance import _filter_relevant_papers
 logger = logging.getLogger(__name__)
 
 
@@ -34,6 +35,8 @@ async def discover_topics(intent: str):
             semantic_rerank=False,     # skip the AI-based reranking step
         )
 
+        papers = await _filter_relevant_papers(intent, papers)
+        
         if not papers:
             logger.warning(f"No papers found for intent '{intent}', using fallback topics.")
             return {"data": _fallback_topics(intent), "source": "fallback"}
