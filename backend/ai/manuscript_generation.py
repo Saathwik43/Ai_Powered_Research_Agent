@@ -159,7 +159,7 @@ async def _prepare_generation(topic: str, section: str, context: str, citation_s
             if not user_id:
                 user_sources = []
             else:
-                user_sources = await db["sources"].find({"topic": topic, "user_id": user_id}).to_list(50)   
+                user_sources = await db["sources"].find({"topic": cache_key, "user_id": user_id}).to_list(50)   
             for s in user_sources:
                 papers.append({
                     "title": s.get("filename", "User Source"),

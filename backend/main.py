@@ -523,7 +523,7 @@ async def upload_source(
 
     doc = {
         "user_id": user_id,
-        "topic": topic,
+        "topic": topic.strip().lower(),
         "filename": filename,
         "type": content_type,
         "raw_text": text,
@@ -536,7 +536,7 @@ async def upload_source(
 @limiter.limit("30/minute")
 async def list_sources(request: Request, topic: str, current_user: dict = Depends(get_current_user)):
     user_id = current_user["user_id"]
-    cursor = db["sources"].find({"user_id": user_id, "topic": topic}, {"raw_text": 0})
+    cursor = db["sources"].find({"user_id": user_id, "topic": topic.strip().lower()}, {"raw_text": 0})
     sources = []
     async for s in cursor:
         s["_id"] = str(s["_id"])
