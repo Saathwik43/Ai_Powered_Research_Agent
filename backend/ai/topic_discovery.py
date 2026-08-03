@@ -1,9 +1,7 @@
 import logging
-from fastapi import HTTPException
 from ai.guardrails import validate_input_layers_a_b
 from ai.keyword_extractor import extract_top_topics
 from integrations.paper_search import search_all
-from ai.keyword_extractor import extract_top_topics
 from ai.relevance import _filter_relevant_papers
 logger = logging.getLogger(__name__)
 
@@ -31,8 +29,8 @@ async def discover_topics(intent: str):
         # ── 1. Fetch papers from ALL sources (fast, AI-free) ─────────
         papers = await search_all(
             intent,
-            limit_per_source=3,       # small batch per source keeps it fast
-            semantic_rerank=False,     # skip the AI-based reranking step
+            limit_per_source=10,      # bigger sample = corpus actually reflects the query
+            semantic_rerank=True,      # rank by relevance to intent, not just recency
         )
 
         papers = await _filter_relevant_papers(intent, papers)
@@ -41,20 +39,19 @@ async def discover_topics(intent: str):
             logger.warning(f"No papers found for intent '{intent}', using fallback topics.")
             return {"data": _fallback_topics(intent), "source": "fallback"}
 
-        # ── 2. Concatenate titles + abstracts into one text corpus ────
-        corpus_parts = []
+        # ── 2. Keep each paper as its own document (needed for TF-IDF) ────
+        docs = []
         for p in papers:
             title = p.get("title", "")
             abstract = p.get("abstract", "")
-            if title:
-                corpus_parts.append(title)
-            if abstract and abstract != "No abstract available" and abstract != "No abstract available.":
-                corpus_parts.append(abstract)
+            if abstract in ("No abstract available", "No abstract available."):
+                abstract = ""
+            doc = f"{title} {abstract}".strip()
+            if doc:
+                docs.append(doc)
 
-        corpus = " ".join(corpus_parts)
-
-        # ── 3. Extract top 3 topics via keyword frequency analysis ───
-        topics = extract_top_topics(corpus, query=intent, top_n=3)
+        # ── 3. Extract top 3 topics via TF-IDF across the paper set ──
+        topics = extract_top_topics(docs, query=intent, top_n=3)
 
         if not topics:
             logger.warning(f"Keyword extraction returned nothing for '{intent}', using fallback.")

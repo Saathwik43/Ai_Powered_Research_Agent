@@ -1,4 +1,5 @@
 import re
+import math
 from collections import Counter
 import logging
 
@@ -27,46 +28,89 @@ STOP_WORDS = {
 }
 
 
-def extract_top_topics(text: str, query: str = "", top_n: int = 3) -> list[dict]:
-    """
-    Extracts the top N topics from aggregated paper titles/abstracts
-    using bigram and unigram frequency analysis. No AI/LLM required.
-    """
-    try:
-        text = text.lower()
-        query_words = set(re.findall(r'\b\w+\b', query.lower()))
+def _tokenize(text: str) -> list[str]:
+    text = text.lower()
+    cleaned = re.sub(r"[^a-z0-9\s]", " ", text)
+    return cleaned.split()
 
-        # Keep only alphanumeric and spaces
-        cleaned = re.sub(r'[^a-z0-9\s]', ' ', text)
-        words = cleaned.split()
 
-        def _valid(w: str) -> bool:
-            return len(w) > 2 and w not in STOP_WORDS and w not in query_words and not w.isdigit()
+def _valid(w: str) -> bool:
+    return len(w) > 2 and w not in STOP_WORDS and not w.isdigit()
 
-        # --- Bigrams (scored higher — they make better topic names) ---
-        bigram_counts: Counter = Counter()
-        for i in range(len(words) - 1):
+
+def _ngrams_for_doc(words: list[str]) -> tuple[Counter, Counter]:
+    """Return (bigram_counts, unigram_counts) for a single document's word list."""
+    bigrams: Counter = Counter()
+    unigrams: Counter = Counter()
+    for i, w in enumerate(words):
+        if _valid(w):
+            unigrams[w] += 1
+        if i < len(words) - 1:
             w1, w2 = words[i], words[i + 1]
             if _valid(w1) and _valid(w2):
-                bigram_counts[f"{w1} {w2}"] += 1
+                bigrams[f"{w1} {w2}"] += 1
+    return bigrams, unigrams
 
-        # --- Unigrams ---
-        unigram_counts: Counter = Counter()
-        for w in words:
-            if _valid(w):
-                unigram_counts[w] += 1
 
-        # --- Scoring: bigrams get a 2.5× multiplier ---
+def extract_top_topics(docs: list[str], query: str = "", top_n: int = 3) -> list[dict]:
+    """
+    Extracts the top N topics using TF-IDF across the individual papers
+    (not one merged blob). A term that shows up in every paper (e.g.
+    "machine learning") is domain-boilerplate and gets penalized by IDF
+    automatically. A term concentrated in a few papers but repeated there
+    is query-specific and scores high. No AI/LLM required, no hardcoded
+    buzzword list, no need to ban the query's own words.
+
+    docs: list of per-paper text blobs (title + abstract), one per paper.
+    """
+    try:
+        docs = [d for d in (docs or []) if d and d.strip()]
+        n_docs = len(docs)
+        if n_docs == 0:
+            return []
+
+        total_bigram_counts: Counter = Counter()
+        total_unigram_counts: Counter = Counter()
+        bigram_doc_freq: Counter = Counter()
+        unigram_doc_freq: Counter = Counter()
+
+        for doc in docs:
+            words = _tokenize(doc)
+            bigrams, unigrams = _ngrams_for_doc(words)
+            total_bigram_counts.update(bigrams)
+            total_unigram_counts.update(unigrams)
+            for term in bigrams:
+                bigram_doc_freq[term] += 1
+            for term in unigrams:
+                unigram_doc_freq[term] += 1
+
+        def _tfidf(term_freq: int, doc_freq: int) -> float:
+            idf = math.log((n_docs + 1) / (doc_freq + 1)) + 1  # smoothed, always positive
+            return term_freq * idf
+
+        # max_df cutoff: a term sitting in >50% of the papers is corpus-wide
+        # boilerplate (e.g. "machine learning" across an ML-adjacent paper
+        # set), not a distinguishing topic — drop it outright rather than
+        # just downweight it. Skip the cutoff when the sample is too small
+        # (<4 papers) to trust the ratio.
+        MAX_DF_RATIO = 0.5
+        apply_cutoff = n_docs >= 4
+
+        def _too_common(doc_freq: int) -> bool:
+            return apply_cutoff and (doc_freq / n_docs) >= MAX_DF_RATIO
+
         scores: dict[str, float] = {}
-        for bg, count in bigram_counts.items():
-            scores[bg] = count * 2.5
+        for bg, count in total_bigram_counts.items():
+            if _too_common(bigram_doc_freq[bg]):
+                continue
+            scores[bg] = _tfidf(count, bigram_doc_freq[bg]) * 2.5  # bigrams read better as topic names
 
-        for ug, count in unigram_counts.items():
-            # Suppress unigrams that already appear inside a popular bigram
-            part_of_bigram = any(ug in bg for bg in bigram_counts if bigram_counts[bg] > 1)
-            scores[ug] = count * (0.5 if part_of_bigram else 1.0)
+        for ug, count in total_unigram_counts.items():
+            if _too_common(unigram_doc_freq[ug]):
+                continue
+            part_of_bigram = any(ug in bg for bg in total_bigram_counts if total_bigram_counts[bg] > 1)
+            scores[ug] = _tfidf(count, unigram_doc_freq[ug]) * (0.5 if part_of_bigram else 1.0)
 
-        # --- Pick top N, preferring bigrams for readability ---
         ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
 
         topics = []

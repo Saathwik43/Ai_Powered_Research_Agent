@@ -20,6 +20,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from auth import decode_access_token , is_reset_token_valid
 from fastapi import Request
+from ssrf_guard import assert_public_url
 
 from ai.topic_discovery import discover_topics
 from ai.manuscript_generation import generate_section, edit_section
@@ -93,6 +94,16 @@ app.add_middleware(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
+    return response
+
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
     logger.error(f"Unhandled: {exc}\n{traceback.format_exc()}")
@@ -102,7 +113,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 class SignupPayload(BaseModel):
     email: str = Field(..., min_length=1)
-    password: str = Field(..., min_length=6)
+    password: str = Field(..., min_length=8)
     name: str = Field(..., min_length=1)
 
 class LoginPayload(BaseModel):
@@ -117,7 +128,7 @@ class ForgotPasswordPayload(BaseModel):
 
 class ResetPasswordPayload(BaseModel):
     token: str = Field(..., min_length=1)
-    new_password: str = Field(..., min_length=6)
+    new_password: str = Field(..., min_length=8)
 
 class ManuscriptPayload(BaseModel):
     topic: str
@@ -495,8 +506,9 @@ async def upload_source(
     user_id = current_user["user_id"]
     if url and url.strip():
         url_str = url.strip()
+        assert_public_url(url_str)
         try:
-            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            async with httpx.AsyncClient(timeout=10.0, follow_redirects=False, max_redirects=0) as client:
                 resp = await client.get(url_str)
                 resp.raise_for_status()
                 html_text = resp.text

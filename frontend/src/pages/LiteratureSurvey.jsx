@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { BookOpen, CheckCircle2, ChevronRight, Copy, Download, ExternalLink, FileText, Filter, List, RefreshCw, Save, Search, Sparkles, User, X, Loader2, Bookmark, Unlock, ChevronDown, Trash2 } from 'lucide-react';
 import { InteractiveHoverButton } from '@/components/ui/interactive-hover-button';
 import './LiteratureSurvey.css';
@@ -51,6 +52,22 @@ export default function LiteratureSurvey() {
       fetchSavedSurveys();
     }
   }, [activeTab]);
+
+  // Auto-run search when navigated here from Dashboard (saved survey card /
+  // direction card / "Open Literature Survey" button) with a query in state.
+  const location = useLocation();
+  const navigate = useNavigate();
+  useEffect(() => {
+    const incomingQuery = location.state?.query;
+    if (incomingQuery && incomingQuery.trim()) {
+      setActiveTab('search');
+      setQuery(incomingQuery);
+      search(incomingQuery);
+      // Clear the nav state so refreshing/back-nav doesn't re-trigger the search.
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
 
   const search = async (q = query, newSearch = true) => {
     if (!q.trim()) return;

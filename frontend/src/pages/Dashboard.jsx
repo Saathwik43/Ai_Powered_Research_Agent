@@ -285,7 +285,7 @@ export default function Dashboard() {
                     <button
                       type="button"
                       className="dashboard-rail-survey-main"
-                      onClick={() => navigate('/literature-survey')}
+                      onClick={() => navigate('/literature-survey', { state: { query: survey.query } })}
                     >
                       <span className="dashboard-rail-survey-query">{survey.query}</span>
                       <span className="dashboard-rail-survey-meta">
@@ -400,11 +400,11 @@ export default function Dashboard() {
                           className={`dashboard-direction${i === 0 ? ' is-lead' : ''}`}
                           role="button"
                           tabIndex={0}
-                          onClick={() => navigate('/literature-survey')}
+                          onClick={() => navigate('/literature-survey', { state: { query: t.title } })}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' || e.key === ' ') {
                               e.preventDefault();
-                              navigate('/literature-survey');
+                              navigate('/literature-survey', { state: { query: t.title } });
                             }
                           }}
                         >
@@ -452,7 +452,7 @@ export default function Dashboard() {
                   <h2 className="dashboard-stream-title">
                     <FileText size={15} /> Related papers
                   </h2>
-                  <button type="button" className="dashboard-text-btn" onClick={() => navigate('/literature-survey')}>
+                  <button type="button" className="dashboard-text-btn" onClick={() => navigate('/literature-survey', { state: { query: topic } })}>
                     Literature survey <ArrowUpRight size={13} />
                   </button>
                 </div>
