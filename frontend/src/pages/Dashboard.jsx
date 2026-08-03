@@ -1,10 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { 
-  Search, TrendingUp, ArrowUpRight, ExternalLink, FileText, X, Sparkles, Trash2, ArrowRight,
-  Brain, Shield, Cpu, Database, Atom, Eye, BookOpen, Layers, Award
+import {
+  Search, TrendingUp, ArrowUpRight, ExternalLink, FileText, X, Trash2, ArrowRight,
+  Brain, Shield, Cpu, Database, Atom, Eye, BookOpen, Layers
 } from 'lucide-react';
-import { InteractiveHoverButton } from '@/components/ui/interactive-hover-button';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { useAuth } from '../context/AuthContext';
 import { Spinner, SkeletonList } from '../components/Loader';
 import { useNavigate } from 'react-router-dom';
@@ -19,101 +17,31 @@ const SUGGESTIONS = [
 ];
 
 const CATEGORIES = [
-  { title: 'Artificial Intelligence', subtitle: 'LLMs, agents & reasoning',    arxiv: 'cs.AI',    query: 'artificial intelligence', Icon: Brain,    patternId: 'ai' },
-  { title: 'Cybersecurity',           subtitle: 'Threat detection & privacy',   arxiv: 'cs.CR',    query: 'cybersecurity',           Icon: Shield,   patternId: 'security' },
-  { title: 'Machine Learning',        subtitle: 'Models, training & evaluation', arxiv: 'cs.LG',   query: 'machine learning',        Icon: Cpu,      patternId: 'ml' },
-  { title: 'Data Science',            subtitle: 'Analytics & big data',          arxiv: 'cs.DS',   query: 'data science',            Icon: Database, patternId: 'data' },
-  { title: 'Quantum Computing',       subtitle: 'Qubits & algorithms',           arxiv: 'quant-ph', query: 'quantum computing',       Icon: Atom,     patternId: 'quantum' },
-  { title: 'Computer Vision',         subtitle: 'Images, video & perception',    arxiv: 'cs.CV',   query: 'computer vision',         Icon: Eye,      patternId: 'vision' },
+  { title: 'Artificial Intelligence', subtitle: 'LLMs, agents & reasoning', arxiv: 'cs.AI', query: 'artificial intelligence', Icon: Brain },
+  { title: 'Cybersecurity', subtitle: 'Threat detection & privacy', arxiv: 'cs.CR', query: 'cybersecurity', Icon: Shield },
+  { title: 'Machine Learning', subtitle: 'Models, training & evaluation', arxiv: 'cs.LG', query: 'machine learning', Icon: Cpu },
+  { title: 'Data Science', subtitle: 'Analytics & big data', arxiv: 'cs.DS', query: 'data science', Icon: Database },
+  { title: 'Quantum Computing', subtitle: 'Qubits & algorithms', arxiv: 'quant-ph', query: 'quantum computing', Icon: Atom },
+  { title: 'Computer Vision', subtitle: 'Images, video & perception', arxiv: 'cs.CV', query: 'computer vision', Icon: Eye },
+];
+
+const TRENDING = [
+  { title: 'Machine Learning in Healthcare', field: 'cs.LG / q-bio', delta: '+12%' },
+  { title: 'Quantum Computing Algorithms', field: 'quant-ph / cs.CC', delta: '+8%' },
+  { title: 'LLM Alignment and Safety', field: 'cs.AI / cs.CL', delta: '+24%' },
+  { title: 'CRISPR Gene Editing', field: 'q-bio.GN', delta: '+18%' },
 ];
 
 const impactScore = (i) => ({ 'Very High': 4, 'High': 3, 'Medium': 2, 'Low': 1 }[i] || 1);
-const impactColor = (i) => ({ 
-  'Very High': 'var(--primary)', 
-  'High': 'var(--accent)', 
-  'Medium': 'var(--success)', 
-  'Low': 'var(--text-subtle)' 
-}[i] || 'var(--primary)');
+const impactHint = (i) => ({
+  'Very High': 'Top-priority signal — strong survey candidate.',
+  'High': 'Strong signal across recent papers.',
+  'Medium': 'Emerging theme — validate with related work.',
+  'Low': 'Niche angle for a narrower question.',
+}[i] || 'Open a survey to dig deeper.');
+const RELATED_PAGE_SIZE = 5;
 
-function CategoryPattern({ id }) {
-  if (id === 'ai') {
-    return (
-      <svg className="category-svg-pattern" viewBox="0 0 320 110" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
-        <circle cx="160" cy="55" r="90" fill="none" stroke="var(--primary)" strokeWidth="1" opacity="0.12" />
-        <circle cx="160" cy="55" r="60" fill="none" stroke="var(--primary)" strokeWidth="1.5" strokeDasharray="4 4" opacity="0.2" />
-        <circle cx="160" cy="55" r="30" fill="none" stroke="var(--text)" strokeWidth="1" opacity="0.15" />
-        <line x1="40" y1="55" x2="280" y2="55" stroke="var(--primary)" strokeWidth="1" opacity="0.15" />
-        <line x1="160" y1="10" x2="160" y2="100" stroke="var(--primary)" strokeWidth="1" opacity="0.15" />
-        <circle cx="100" cy="55" r="4" fill="var(--primary)" opacity="0.4" />
-        <circle cx="220" cy="55" r="4" fill="var(--primary)" opacity="0.4" />
-        <circle cx="160" cy="25" r="4" fill="var(--accent)" opacity="0.4" />
-        <circle cx="160" cy="85" r="4" fill="var(--accent)" opacity="0.4" />
-      </svg>
-    );
-  }
-  if (id === 'security') {
-    return (
-      <svg className="category-svg-pattern" viewBox="0 0 320 110" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
-        <polygon points="60,20 100,20 120,55 100,90 60,90 40,55" fill="none" stroke="var(--accent)" strokeWidth="1.2" opacity="0.25" />
-        <polygon points="160,20 200,20 220,55 200,90 160,90 140,55" fill="none" stroke="var(--text-subtle)" strokeWidth="1.2" opacity="0.3" />
-        <polygon points="260,20 300,20 320,55 300,90 260,90 240,55" fill="none" stroke="var(--accent)" strokeWidth="1.2" opacity="0.18" />
-        <path d="M 40 55 L 280 55" stroke="var(--accent)" strokeWidth="1" strokeDasharray="3 3" opacity="0.2" />
-        <circle cx="160" cy="55" r="5" fill="var(--accent)" opacity="0.4" />
-      </svg>
-    );
-  }
-  if (id === 'ml') {
-    return (
-      <svg className="category-svg-pattern" viewBox="0 0 320 110" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M 30 20 L 120 55 L 210 20 L 290 55" fill="none" stroke="var(--primary)" strokeWidth="1.5" opacity="0.25" />
-        <path d="M 30 90 L 120 55 L 210 90 L 290 55" fill="none" stroke="var(--success)" strokeWidth="1.5" opacity="0.25" />
-        <circle cx="30" cy="20" r="4" fill="var(--primary)" opacity="0.4" />
-        <circle cx="30" cy="90" r="4" fill="var(--success)" opacity="0.4" />
-        <circle cx="120" cy="55" r="6" fill="var(--primary)" opacity="0.5" />
-        <circle cx="210" cy="20" r="4" fill="var(--success)" opacity="0.4" />
-        <circle cx="210" cy="90" r="4" fill="var(--primary)" opacity="0.4" />
-        <circle cx="290" cy="55" r="5" fill="var(--accent)" opacity="0.5" />
-      </svg>
-    );
-  }
-  if (id === 'data') {
-    return (
-      <svg className="category-svg-pattern" viewBox="0 0 320 110" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
-        <rect x="40" y="45" width="20" height="45" fill="var(--success)" opacity="0.2" rx="2" />
-        <rect x="80" y="25" width="20" height="65" fill="var(--success)" opacity="0.3" rx="2" />
-        <rect x="120" y="55" width="20" height="35" fill="var(--text-subtle)" opacity="0.25" rx="2" />
-        <rect x="160" y="15" width="20" height="75" fill="var(--success)" opacity="0.35" rx="2" />
-        <rect x="200" y="35" width="20" height="55" fill="var(--primary)" opacity="0.25" rx="2" />
-        <rect x="240" y="50" width="20" height="40" fill="var(--text-subtle)" opacity="0.2" rx="2" />
-        <path d="M 30 90 L 270 90" stroke="var(--border)" strokeWidth="1.5" />
-      </svg>
-    );
-  }
-  if (id === 'quantum') {
-    return (
-      <svg className="category-svg-pattern" viewBox="0 0 320 110" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
-        <ellipse cx="160" cy="55" rx="100" ry="30" fill="none" stroke="var(--accent)" strokeWidth="1.5" opacity="0.25" transform="rotate(-15 160 55)" />
-        <ellipse cx="160" cy="55" rx="100" ry="30" fill="none" stroke="var(--primary)" strokeWidth="1.5" opacity="0.25" transform="rotate(15 160 55)" />
-        <circle cx="160" cy="55" r="8" fill="var(--accent)" opacity="0.5" />
-        <circle cx="110" cy="35" r="4" fill="var(--primary)" opacity="0.6" />
-        <circle cx="210" cy="75" r="4" fill="var(--primary)" opacity="0.6" />
-      </svg>
-    );
-  }
-  return (
-    <svg className="category-svg-pattern" viewBox="0 0 320 110" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="160" cy="55" r="45" fill="none" stroke="var(--text)" strokeWidth="1.5" opacity="0.2" />
-      <circle cx="160" cy="55" r="25" fill="none" stroke="var(--success)" strokeWidth="1.2" strokeDasharray="3 3" opacity="0.35" />
-      <circle cx="160" cy="55" r="6" fill="var(--success)" opacity="0.5" />
-      <path d="M 120 20 L 135 20 M 120 20 L 120 35" stroke="var(--text)" strokeWidth="1.5" opacity="0.4" />
-      <path d="M 200 20 L 185 20 M 200 20 L 200 35" stroke="var(--text)" strokeWidth="1.5" opacity="0.4" />
-      <path d="M 120 90 L 135 90 M 120 90 L 120 75" stroke="var(--text)" strokeWidth="1.5" opacity="0.4" />
-      <path d="M 200 90 L 185 90 M 200 90 L 200 75" stroke="var(--text)" strokeWidth="1.5" opacity="0.4" />
-    </svg>
-  );
-}
-
-function AnimatedNumber({ value, duration = 1200, prefix = '', suffix = '' }) {
+function AnimatedNumber({ value, duration = 900, prefix = '', suffix = '' }) {
   const [displayValue, setDisplayValue] = useState(0);
 
   useEffect(() => {
@@ -125,13 +53,9 @@ function AnimatedNumber({ value, duration = 1200, prefix = '', suffix = '' }) {
       if (!startTime) startTime = timestamp;
       const progress = Math.min((timestamp - startTime) / duration, 1);
       const ease = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
-      const current = Math.floor(ease * target);
-      setDisplayValue(current);
-      if (progress < 1) {
-        frameId = requestAnimationFrame(step);
-      } else {
-        setDisplayValue(target);
-      }
+      setDisplayValue(Math.floor(ease * target));
+      if (progress < 1) frameId = requestAnimationFrame(step);
+      else setDisplayValue(target);
     };
 
     frameId = requestAnimationFrame(step);
@@ -141,25 +65,19 @@ function AnimatedNumber({ value, duration = 1200, prefix = '', suffix = '' }) {
   return <span>{prefix}{displayValue.toLocaleString()}{suffix}</span>;
 }
 
-const ChartTooltip = ({ active, payload }) => {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="chart-tooltip">
-      <div className="chart-tooltip-title">{payload[0].payload.title}</div>
-      <div className="chart-tooltip-impact">{payload[0].payload.impact} impact</div>
-    </div>
-  );
-};
-
 export default function Dashboard() {
   const { authFetch } = useAuth();
-  const [topic, setTopic]           = useState(() => sessionStorage.getItem('dash_topic') || '');
+  const [topic, setTopic] = useState(() => sessionStorage.getItem('dash_topic') || '');
   const [suggestions, setSuggestions] = useState([]);
-  const discoverControllerRef = useRef(null);
-  const [showSug, setShowSug]       = useState(false);
-  const [results, setResults]       = useState(() => {try { return JSON.parse(sessionStorage.getItem('dash_results') || '[]'); } catch { return []; }});
-  const [relatedPapers, setRelatedPapers] = useState(() => {try { return JSON.parse(sessionStorage.getItem('dash_relatedPapers') || '[]'); } catch { return []; }});
-  const [loading, setLoading]       = useState(false);
+  const [showSug, setShowSug] = useState(false);
+  const [results, setResults] = useState(() => {
+    try { return JSON.parse(sessionStorage.getItem('dash_results') || '[]'); } catch { return []; }
+  });
+  const [relatedPapers, setRelatedPapers] = useState(() => {
+    try { return JSON.parse(sessionStorage.getItem('dash_relatedPapers') || '[]'); } catch { return []; }
+  });
+  const [visibleRelatedCount, setVisibleRelatedCount] = useState(RELATED_PAGE_SIZE);
+  const [loading, setLoading] = useState(false);
   const [papersLoading, setPapersLoading] = useState(false);
   const [activeCategory, setActiveCategory] = useState(null);
   const [categoryPapers, setCategoryPapers] = useState([]);
@@ -168,13 +86,18 @@ export default function Dashboard() {
   const [hasSearched, setHasSearched] = useState(() => sessionStorage.getItem('dash_hasSearched') === 'true');
   const [recentSurveys, setRecentSurveys] = useState([]);
   const [loadingRecent, setLoadingRecent] = useState(false);
+
   useEffect(() => {
     sessionStorage.setItem('dash_topic', topic);
     sessionStorage.setItem('dash_results', JSON.stringify(results));
     sessionStorage.setItem('dash_relatedPapers', JSON.stringify(relatedPapers));
     sessionStorage.setItem('dash_hasSearched', String(hasSearched));
   }, [topic, results, relatedPapers, hasSearched]);
-  
+
+  useEffect(() => {
+    setVisibleRelatedCount(RELATED_PAGE_SIZE);
+  }, [relatedPapers]);
+
   const debounce = useRef(null);
   const inputWrap = useRef(null);
   const navigate = useNavigate();
@@ -192,37 +115,31 @@ export default function Dashboard() {
 
   const discover = async (q = topic) => {
     if (!q.trim()) return;
-    setTopic(q); setShowSug(false); setLoading(true); setPapersLoading(true); setRelatedPapers([]); setError(''); setHasSearched(true);
+    setTopic(q);
+    setShowSug(false);
+    setLoading(true);
+    setPapersLoading(true);
+    setRelatedPapers([]);
+    setError('');
+    setHasSearched(true);
     try {
       const [topicRes, paperRes] = await Promise.all([
         authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/topics?intent=${encodeURIComponent(q)}`),
         authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature?query=${encodeURIComponent(q)}&limit=6`),
       ]);
-      
+
       if (topicRes.status === 429 || paperRes.status === 429 || topicRes.status === 503 || paperRes.status === 503) {
-        if (topicRes.status === 503) {
+        if (topicRes.status === 503 || paperRes.status === 503) {
           try {
-            const data = await topicRes.json();
+            const data = await (topicRes.status === 503 ? topicRes : paperRes).json();
             if (data?.detail?.verification_unavailable) {
               setError('Verification temporarily unavailable, please try again shortly.');
               setResults([]);
               setRelatedPapers([]);
               return;
             }
-          } catch(e) {}
+          } catch (e) {}
         }
-        if (paperRes.status === 503) {
-          try {
-            const data = await paperRes.json();
-            if (data?.detail?.verification_unavailable) {
-              setError('Verification temporarily unavailable, please try again shortly.');
-              setResults([]);
-              setRelatedPapers([]);
-              return;
-            }
-          } catch(e) {}
-        }
-        
         setError('Rate limit exceeded. Please wait a minute before trying again.');
         return;
       }
@@ -237,7 +154,6 @@ export default function Dashboard() {
       }
 
       const topicData = await topicRes.json();
-      
       if (topicData.coherence_check === 'failed') {
         setError(`"${q}" doesn't look like a research topic. Try a specific field or subject area.`);
         setResults([]);
@@ -251,19 +167,26 @@ export default function Dashboard() {
     } catch (e) {
       console.error(e);
       setError('Network error. Please try again.');
+    } finally {
+      setLoading(false);
+      setPapersLoading(false);
     }
-    finally { setLoading(false); setPapersLoading(false); }
   };
 
   const openCategory = async (cat) => {
-    setActiveCategory(cat); setCategoryPapers([]); setCatLoading(true);
+    setActiveCategory(cat);
+    setCategoryPapers([]);
+    setCatLoading(true);
     discover(cat.query);
     try {
       const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/arxiv/feed?category=${cat.arxiv}&limit=9`);
       const data = await res.json();
       setCategoryPapers(data.data || []);
-    } catch (e) { console.error(e); }
-    finally { setCatLoading(false); }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setCatLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -281,7 +204,7 @@ export default function Dashboard() {
           const data = await res.json();
           setRecentSurveys((data.data || []).slice(0, 3));
         }
-      } catch(e) {}
+      } catch (e) {}
       setLoadingRecent(false);
     };
     fetchRecentSurveys();
@@ -292,331 +215,355 @@ export default function Dashboard() {
     if (!window.confirm(`Are you sure you want to delete the survey "${query}"?`)) return;
     try {
       const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature/delete/${encodeURIComponent(query)}`, {
-        method: 'DELETE'
+        method: 'DELETE',
       });
-      if (res.ok) {
-        setRecentSurveys(prev => prev.filter(s => s.query !== query));
-      }
+      if (res.ok) setRecentSurveys(prev => prev.filter(s => s.query !== query));
     } catch (err) {}
   };
 
-  const chartData = results.map(t => ({ ...t, score: impactScore(t.impact) }));
+  const showWelcome = !loading && results.length === 0 && !error && !activeCategory;
+  const showResults = !loading && results.length > 0;
 
   return (
-    <div className="animate-fade-in">
-      {/* Header */}
-      <div className="dashboard-header">
+    <div className="dashboard-page">
+      <header className="dashboard-masthead">
+        <p className="dashboard-kicker">Literature desk</p>
         <h1 className="dashboard-title">Research Discovery</h1>
-        <p className="dashboard-subtitle">Explore trending research areas and discover high-impact topics.</p>
-      </div>
-
-      {/* Stat Metrics Summary Bar */}
-      <div className="dashboard-stats-bar animate-fade-in">
-        <div className="dashboard-stat-card">
-          <span className="dashboard-stat-label"><BookOpen size={13} /> Indexed Topics</span>
-          <span className="dashboard-stat-value"><AnimatedNumber value={14280} suffix="+" /></span>
-          <span className="dashboard-stat-desc">Curated across arXiv domains</span>
+        <p className="dashboard-subtitle">
+          Browse fields on the left. Search and read on the right.
+        </p>
+        <div className="dashboard-inline-metrics">
+          <span><BookOpen size={12} /> <AnimatedNumber value={14280} suffix="+" /> topics</span>
+          <span className="dashboard-metric-dot" aria-hidden="true" />
+          <span><Layers size={12} /> {CATEGORIES.length} fields</span>
+          <span className="dashboard-metric-dot" aria-hidden="true" />
+          <span><FileText size={12} /> {recentSurveys.length} surveys</span>
         </div>
-        <div className="dashboard-stat-card">
-          <span className="dashboard-stat-label"><Layers size={13} /> Active Fields</span>
-          <span className="dashboard-stat-value"><AnimatedNumber value={6} /></span>
-          <span className="dashboard-stat-desc">Live research categories</span>
-        </div>
-        <div className="dashboard-stat-card">
-          <span className="dashboard-stat-label"><FileText size={13} /> Surveys Saved</span>
-          <span className="dashboard-stat-value"><AnimatedNumber value={recentSurveys.length || 3} /></span>
-          <span className="dashboard-stat-desc">Personal literature surveys</span>
-        </div>
-        <div className="dashboard-stat-card">
-          <span className="dashboard-stat-label"><Award size={13} /> Max Impact</span>
-          <span className="dashboard-stat-value"><AnimatedNumber value={4} suffix=".0" /></span>
-          <span className="dashboard-stat-desc">High-priority impact score</span>
-        </div>
-      </div>
+      </header>
 
-      {/* Search Bar */}
-      <div className="dashboard-search-card">
-        <div className="dashboard-search-row">
-          <div ref={inputWrap} className="dashboard-search-input-wrap">
-            <Search size={15} className="dashboard-search-icon" />
-            <input
-              className="dashboard-search-input"
-              placeholder="e.g. machine learning in healthcare..."
-              value={topic}
-              onChange={e => handleInputChange(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') discover(); if (e.key === 'Escape') setShowSug(false); }}
-              onFocus={() => suggestions.length && setShowSug(true)}
-            />
-            {showSug && (
-              <div className="dashboard-suggestions-menu">
-                {suggestions.map((s, i) => (
-                  <div key={i} onMouseDown={() => discover(s)} className="dashboard-suggestion-item">
-                    <Search size={12} />
-                    {s}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          <InteractiveHoverButton 
-            text={loading ? "Discovering" : "Discover"}
-            loading={loading}
-            onClick={() => discover()} 
-            disabled={loading} 
-          />
-        </div>
-        {error && (
-          <div className="dashboard-error-banner">
-            <X size={15} /> {error}
-          </div>
-        )}
-      </div>
+      <div className="dashboard-split">
+        {/* ── Left rail: browse ── */}
+        <aside className="dashboard-rail">
+          <section className="dashboard-rail-section">
+            <h2 className="dashboard-rail-heading">Fields</h2>
+            <nav className="dashboard-rail-nav" aria-label="Research fields">
+              {CATEGORIES.map((cat) => {
+                const active = activeCategory?.arxiv === cat.arxiv;
+                return (
+                  <button
+                    key={cat.arxiv}
+                    type="button"
+                    className={`dashboard-rail-item${active ? ' is-active' : ''}`}
+                    onClick={() => openCategory(cat)}
+                  >
+                    <cat.Icon size={15} className="dashboard-rail-icon" />
+                    <span className="dashboard-rail-item-body">
+                      <span className="dashboard-rail-item-title">{cat.title}</span>
+                      <span className="dashboard-rail-item-meta">{cat.arxiv}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </nav>
+          </section>
 
-      {loading && (
-        <div className="dashboard-loading-container">
-          <h2 className="dashboard-loading-title">
-            <Sparkles size={18} className="dashboard-loading-icon" /> Finding relevant literature...
-          </h2>
-          <SkeletonList count={4} />
-        </div>
-      )}
-
-      {/* Welcome / Empty State */}
-      {!loading && results.length === 0 && !error && !activeCategory && (
-        <div className="dashboard-welcome-container animate-fade-in">
-          <div className="dashboard-welcome-grid">
-            
-            {/* Trending Research Domains */}
-            <div>
-              <h3 className="dashboard-section-title">
-                <TrendingUp size={16} className="dashboard-title-icon primary" /> Trending Research Domains
-              </h3>
-              <div className="dashboard-item-list">
-                {[
-                  { title: "Machine Learning in Healthcare", tag: "AI/Medical", trend: "+12%" },
-                  { title: "Quantum Computing Algorithms", tag: "Physics/CS", trend: "+8%" },
-                  { title: "LLM Alignment and Safety", tag: "AI/Ethics", trend: "+24%" },
-                  { title: "CRISPR Gene Editing", tag: "Bio/Genetics", trend: "+18%" }
-                ].map((item) => (
-                  <div key={item.title} onClick={() => discover(item.title)} className="dashboard-trending-card animate-card-in">
-                    <div>
-                      <div className="dashboard-trending-title">{item.title}</div>
-                      <div className="dashboard-trending-tag">{item.tag}</div>
-                    </div>
-                    <span className="dashboard-trending-badge">{item.trend}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Recent Surveys */}
-            <div>
-              <h3 className="dashboard-section-title">
-                <FileText size={16} className="dashboard-title-icon accent" /> Recent Surveys
-              </h3>
-              <div className="dashboard-item-list">
-                {loadingRecent ? (
-                  <SkeletonList count={3} />
-                ) : recentSurveys.length === 0 ? (
-                  <div className="dashboard-empty-surveys">
-                    No recent surveys found.
-                  </div>
-                ) : (
-                  recentSurveys.map((survey, i) => (
-                    <div key={i} className="dashboard-survey-card animate-card-in">
-                      <div className="dashboard-survey-header">
-                        <span className="dashboard-survey-label">Literature Survey</span>
-                        <button 
-                          className="btn btn-icon dashboard-delete-btn"
-                          onClick={(e) => deleteRecentSurvey(survey.query, e)}
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                      <div className="dashboard-survey-query">{survey.query}</div>
-                      <div className="dashboard-survey-meta">{survey.papers?.length || 0} papers saved</div>
-                      <button 
-                        className="btn btn-ghost dashboard-survey-link" 
-                        onClick={() => navigate('/literature-survey')}
-                      >
-                        View in Surveys <ArrowRight size={12} />
-                      </button>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-
-          </div>
-        </div>
-      )}
-
-      {/* AI Discovery Results */}
-      {!loading && results.length > 0 && (
-        <div className="dashboard-results-container">
-          <div className="dashboard-results-banner">
-            Topic suggestions are ready. Related research papers are shown below so you can continue from discovery into reading.
-          </div>
-          <div className="dashboard-results-grid">
-            {results.map((t, i) => (
-              <div key={i} className="dashboard-topic-card animate-slide-up" onClick={() => navigate('/literature-survey')}>
-                <div className="dashboard-topic-header">
-                  <span className="dashboard-topic-num">#{i + 1}</span>
-                  <span className="dashboard-topic-badge">{t.impact}</span>
-                </div>
-                <p className="dashboard-topic-title">{t.title}</p>
-                <a href={`https://scholar.google.com/scholar?q=${encodeURIComponent(t.title)}`} target="_blank" rel="noreferrer" className="dashboard-topic-link">
-                  Explore <ExternalLink size={11} />
-                </a>
-              </div>
-            ))}
-          </div>
-
-          <div className="dashboard-related-box">
-            <div className="dashboard-related-header">
-              <div className="dashboard-related-title-wrap">
-                <FileText size={17} className="dashboard-title-icon accent" />
-                <span>Papers related to "{topic}"</span>
-              </div>
-              <button className="btn btn-ghost" onClick={() => window.location.href = '/literature-survey'}>
-                Open Literature Survey <ArrowUpRight size={14} />
+          <section className="dashboard-rail-section">
+            <div className="dashboard-rail-heading-row">
+              <h2 className="dashboard-rail-heading">Surveys</h2>
+              <button type="button" className="dashboard-text-btn" onClick={() => navigate('/literature-survey')}>
+                All
               </button>
             </div>
-            {papersLoading && <p className="text-muted"><Spinner size={16} /> Loading related papers...</p>}
-            {!papersLoading && relatedPapers.length === 0 && (
-              <p className="text-muted">No related papers were found for this search.</p>
-            )}
-            {!papersLoading && relatedPapers.length > 0 && (
-              <div className="dashboard-papers-list">
-                {relatedPapers.map((paper, i) => (
-                  <a
-                    key={paper.id || `${paper.title}-${i}`}
-                    href={paper.url || `https://scholar.google.com/scholar?q=${encodeURIComponent(paper.title)}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="dashboard-paper-item animate-slide-up"
-                  >
-                    <span>
-                      <strong className="dashboard-paper-title">{paper.title}</strong>
-                      <span className="dashboard-paper-authors">{paper.authors || paper.year || 'Research paper'}</span>
-                    </span>
-                    <ExternalLink size={14} className="text-subtle" />
-                  </a>
+            {loadingRecent ? (
+              <SkeletonList count={2} />
+            ) : recentSurveys.length === 0 ? (
+              <p className="dashboard-rail-empty">No surveys yet. Discover a topic to start one.</p>
+            ) : (
+              <ul className="dashboard-rail-list">
+                {recentSurveys.map((survey, i) => (
+                  <li key={i} className="dashboard-rail-survey">
+                    <button
+                      type="button"
+                      className="dashboard-rail-survey-main"
+                      onClick={() => navigate('/literature-survey')}
+                    >
+                      <span className="dashboard-rail-survey-query">{survey.query}</span>
+                      <span className="dashboard-rail-survey-meta">
+                        {survey.papers?.length || 0} papers
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="dashboard-rail-survey-delete"
+                      onClick={(e) => deleteRecentSurvey(survey.query, e)}
+                      aria-label="Delete survey"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
-          </div>
+          </section>
+        </aside>
 
-          <div className="dashboard-analytics-grid">
-            <div className="dashboard-analytics-card">
-              <div className="dashboard-section-title">
-                <TrendingUp size={16} className="dashboard-title-icon primary" /> Impact Overview
-              </div>
-              <ResponsiveContainer width="100%" height={180}>
-                <BarChart data={chartData} barCategoryGap="35%">
-                  <XAxis dataKey="title" tick={{ fontSize: 9.5, fill: 'var(--text-subtle)' }} tickLine={false} axisLine={false} interval={0} angle={-12} textAnchor="end" height={55} />
-                  <YAxis tick={{ fontSize: 9.5, fill: 'var(--text-subtle)' }} tickLine={false} axisLine={false} domain={[0, 4]} ticks={[1,2,3,4]} width={20} />
-                  <Tooltip content={<ChartTooltip />} cursor={{ fill: 'rgba(43,94,168,0.06)' }} />
-                  <Bar dataKey="score" radius={[5,5,0,0]}>
-                    {chartData.map((e, i) => <Cell key={i} fill={impactColor(e.impact)} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-
-            <div className="dashboard-analytics-card">
-              <div className="dashboard-section-title">
-                <TrendingUp size={16} className="dashboard-title-icon accent" /> Suggested Fields
-              </div>
-              {results.map((t, i) => (
-                <a key={i} href={`https://scholar.google.com/scholar?q=${encodeURIComponent(t.title)}`} target="_blank" rel="noreferrer" className="dashboard-suggested-item">
-                  <div className="dashboard-suggested-left">
-                    <div className="dashboard-impact-dot" style={{ background: impactColor(t.impact) }} />
-                    <span className="dashboard-suggested-title">{t.title}</span>
-                  </div>
-                  <ArrowUpRight size={13} className="text-subtle" />
-                </a>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Category Grid Section */}
-      <div className="dashboard-categories-section">
-        <h2 className="dashboard-section-heading">Browse by Field</h2>
-        <div className="dashboard-category-grid">
-          {CATEGORIES.map((cat) => (
-            <div key={cat.arxiv} className="dashboard-category-card" onClick={() => openCategory(cat)}>
-              <div className="dashboard-category-pattern-wrap">
-                <CategoryPattern id={cat.patternId} />
-                <div className="dashboard-category-icon-badge">
-                  <cat.Icon size={18} />
+        {/* ── Right workspace: search + stream ── */}
+        <main className="dashboard-workspace">
+          <div className="dashboard-query">
+            <div ref={inputWrap} className="dashboard-query-field">
+              <Search size={16} className="dashboard-query-icon" />
+              <input
+                className="dashboard-query-input"
+                placeholder="Search a field, method, or research question…"
+                value={topic}
+                onChange={e => handleInputChange(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') discover();
+                  if (e.key === 'Escape') setShowSug(false);
+                }}
+                onFocus={() => suggestions.length && setShowSug(true)}
+              />
+              {showSug && (
+                <div className="dashboard-suggestions">
+                  {suggestions.map((s, i) => (
+                    <button key={i} type="button" onMouseDown={() => discover(s)} className="dashboard-suggestion">
+                      <Search size={12} /> {s}
+                    </button>
+                  ))}
                 </div>
-              </div>
-              <div className="dashboard-category-body">
-                <div className="dashboard-category-header-row">
-                  <h3 className="dashboard-category-title">{cat.title}</h3>
-                  <span className="dashboard-category-code">{cat.arxiv}</span>
-                </div>
-                <p className="dashboard-category-subtitle">{cat.subtitle}</p>
-              </div>
+              )}
             </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Category Paper Drawer */}
-      {activeCategory && (
-        <div className="dashboard-drawer animate-fade-in">
-          <div className="dashboard-drawer-header">
-            <div className="dashboard-drawer-title-wrap">
-              <div className="dashboard-drawer-dot" />
-              <h2 className="dashboard-drawer-title">Latest in {activeCategory.title}</h2>
-            </div>
-            <button className="btn btn-ghost" onClick={() => { setActiveCategory(null); setCategoryPapers([]); }}>
-              <X size={14} /> Close
+            <button
+              type="button"
+              className="dashboard-query-btn"
+              onClick={() => discover()}
+              disabled={loading}
+            >
+              {loading ? 'Searching…' : 'Discover'}
+              {!loading && <ArrowRight size={14} />}
             </button>
           </div>
 
-          {catLoading && (
-            <div className="dashboard-drawer-loading">
-              <Spinner size={20} /> Loading papers...
+          {error && (
+            <div className="dashboard-error" role="alert">
+              <X size={14} /> {error}
             </div>
           )}
 
-          {!catLoading && categoryPapers.length === 0 && (
-            <div className="empty-state">
-              No recent papers found for this category at the moment.
+          {loading && (
+            <div className="dashboard-stream-block">
+              <p className="dashboard-stream-status"><Spinner size={15} /> Scanning literature…</p>
+              <SkeletonList count={4} />
             </div>
           )}
 
-          <div className="dashboard-drawer-grid">
-            {categoryPapers.map((p, i) => (
-              <div key={i} className="dashboard-drawer-card animate-slide-up">
-                <p className="dashboard-drawer-paper-title">{p.title}</p>
-                <p className="dashboard-drawer-paper-authors">{p.authors}</p>
-                <p className="dashboard-drawer-paper-abstract">
-                  {p.abstract ? p.abstract.substring(0, 150) + '...' : ''}
-                </p>
-                <div className="dashboard-drawer-actions">
-                  {p.url && <a href={p.url} target="_blank" rel="noreferrer" className="btn btn-ghost text-xs"><ExternalLink size={12} /> Abstract</a>}
-                  {p.pdf_url && <a href={p.pdf_url} target="_blank" rel="noreferrer" className="btn btn-ghost text-xs"><FileText size={12} /> PDF</a>}
-                  <a href={`https://scholar.google.com/scholar?q=${encodeURIComponent(p.title)}`} target="_blank" rel="noreferrer" className="btn btn-ghost text-xs"><Search size={12} /> Scholar</a>
-                </div>
+          {showWelcome && (
+            <section className="dashboard-stream-block">
+              <div className="dashboard-stream-head">
+                <h2 className="dashboard-stream-title">
+                  <TrendingUp size={15} /> Trending domains
+                </h2>
+                <span className="dashboard-stream-tag">Start here</span>
               </div>
-            ))}
-          </div>
-        </div>
-      )}
+              <ol className="dashboard-stream-list">
+                {TRENDING.map((item, idx) => (
+                  <li key={item.title}>
+                    <button type="button" className="dashboard-stream-row" onClick={() => discover(item.title)}>
+                      <span className="dashboard-stream-idx">{String(idx + 1).padStart(2, '0')}</span>
+                      <span className="dashboard-stream-main">
+                        <span className="dashboard-stream-row-title">{item.title}</span>
+                        <span className="dashboard-stream-row-meta">{item.field}</span>
+                      </span>
+                      <span className="dashboard-stream-delta">{item.delta}</span>
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          )}
 
-      {!results.length && !loading && !activeCategory && hasSearched && !error && (
-        <div className="dashboard-no-results">
-          <Search size={32} className="dashboard-no-results-icon" />
-          <h3 className="dashboard-no-results-title">No results found for "{topic}"</h3>
-          <p className="dashboard-no-results-desc">Try a different search term or select a category below.</p>
-        </div>
-      )}
+          {showResults && (
+            <>
+              <section className="dashboard-stream-block">
+                <div className="dashboard-stream-head">
+                  <h2 className="dashboard-stream-title">
+                    Directions for <em>{topic}</em>
+                  </h2>
+                  <span className="dashboard-stream-tag">{results.length} ranked</span>
+                </div>
+                <ol className="dashboard-stream-list">
+                  {results.map((t, i) => {
+                    const score = impactScore(t.impact);
+                    return (
+                      <li key={i}>
+                        <div
+                          className={`dashboard-direction${i === 0 ? ' is-lead' : ''}`}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => navigate('/literature-survey')}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              navigate('/literature-survey');
+                            }
+                          }}
+                        >
+                          <span className="dashboard-stream-idx">{String(i + 1).padStart(2, '0')}</span>
+                          <div className="dashboard-direction-body">
+                            <div className="dashboard-direction-top">
+                              <span className="dashboard-direction-label">
+                                {i === 0 ? 'Lead direction' : `Direction ${i + 1}`}
+                              </span>
+                              <span className={`dashboard-impact impact-${(t.impact || 'medium').toLowerCase().replace(/\s+/g, '-')}`}>
+                                {t.impact}
+                              </span>
+                            </div>
+                            <h3 className="dashboard-direction-title">{t.title}</h3>
+                            <div className="dashboard-meter" aria-hidden="true">
+                              {[1, 2, 3, 4].map((level) => (
+                                <span key={level} className={`dashboard-meter-seg${level <= score ? ' is-on' : ''}`} />
+                              ))}
+                            </div>
+                            <p className="dashboard-direction-hint">{impactHint(t.impact)}</p>
+                            <div className="dashboard-direction-actions">
+                              <span className="dashboard-action-primary">
+                                Start survey <ArrowRight size={12} />
+                              </span>
+                              <a
+                                href={`https://scholar.google.com/scholar?q=${encodeURIComponent(t.title)}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="dashboard-action-link"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                Scholar <ExternalLink size={11} />
+                              </a>
+                            </div>
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </section>
+
+              <section className="dashboard-stream-block">
+                <div className="dashboard-stream-head">
+                  <h2 className="dashboard-stream-title">
+                    <FileText size={15} /> Related papers
+                  </h2>
+                  <button type="button" className="dashboard-text-btn" onClick={() => navigate('/literature-survey')}>
+                    Literature survey <ArrowUpRight size={13} />
+                  </button>
+                </div>
+                {papersLoading && (
+                  <p className="dashboard-stream-status"><Spinner size={15} /> Loading papers…</p>
+                )}
+                {!papersLoading && relatedPapers.length === 0 && (
+                  <p className="dashboard-stream-status">No related papers found for this query.</p>
+                )}
+                {!papersLoading && relatedPapers.length > 0 && (
+                  <>
+                    <div className="dashboard-cite-list">
+                      {relatedPapers.slice(0, visibleRelatedCount).map((paper, i) => (
+                        <a
+                          key={paper.id || `${paper.title}-${i}`}
+                          href={paper.url || `https://scholar.google.com/scholar?q=${encodeURIComponent(paper.title)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="dashboard-cite-row"
+                        >
+                          <span className="dashboard-cite-num">[{i + 1}]</span>
+                          <span className="dashboard-cite-body">
+                            <span className="dashboard-cite-title">{paper.title}</span>
+                            <span className="dashboard-cite-meta">
+                              {paper.authors || 'Authors unavailable'}
+                              {paper.year ? ` · ${paper.year}` : ''}
+                            </span>
+                          </span>
+                          <ExternalLink size={13} className="dashboard-cite-ext" />
+                        </a>
+                      ))}
+                    </div>
+                    {visibleRelatedCount < relatedPapers.length && (
+                      <button
+                        type="button"
+                        className="dashboard-load-more"
+                        onClick={() => setVisibleRelatedCount((n) => Math.min(n + RELATED_PAGE_SIZE, relatedPapers.length))}
+                      >
+                        Load more · {visibleRelatedCount}/{relatedPapers.length}
+                      </button>
+                    )}
+                  </>
+                )}
+              </section>
+            </>
+          )}
+
+          {activeCategory && (
+            <section className="dashboard-stream-block">
+              <div className="dashboard-stream-head">
+                <h2 className="dashboard-stream-title">
+                  <span className="dashboard-arxiv-code">{activeCategory.arxiv}</span>
+                  Latest in {activeCategory.title}
+                </h2>
+                <button
+                  type="button"
+                  className="dashboard-text-btn"
+                  onClick={() => { setActiveCategory(null); setCategoryPapers([]); }}
+                >
+                  <X size={13} /> Close feed
+                </button>
+              </div>
+              {catLoading && (
+                <p className="dashboard-stream-status"><Spinner size={15} /> Loading archive…</p>
+              )}
+              {!catLoading && categoryPapers.length === 0 && (
+                <p className="dashboard-stream-status">No recent papers in this category.</p>
+              )}
+              {!catLoading && categoryPapers.length > 0 && (
+                <div className="dashboard-cite-list">
+                  {categoryPapers.map((p, i) => (
+                    <article key={i} className="dashboard-feed-item">
+                      <span className="dashboard-cite-num">[{String(i + 1).padStart(2, '0')}]</span>
+                      <div className="dashboard-feed-body">
+                        <h3 className="dashboard-cite-title">{p.title}</h3>
+                        <p className="dashboard-cite-meta">{p.authors}</p>
+                        {p.abstract && (
+                          <p className="dashboard-feed-abstract">{p.abstract.substring(0, 160)}…</p>
+                        )}
+                        <div className="dashboard-feed-links">
+                          {p.url && (
+                            <a href={p.url} target="_blank" rel="noreferrer">Abstract</a>
+                          )}
+                          {p.pdf_url && (
+                            <a href={p.pdf_url} target="_blank" rel="noreferrer">PDF</a>
+                          )}
+                          <a
+                            href={`https://scholar.google.com/scholar?q=${encodeURIComponent(p.title)}`}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Scholar
+                          </a>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+
+          {!results.length && !loading && !activeCategory && hasSearched && !error && (
+            <div className="dashboard-empty-search">
+              <Search size={22} />
+              <h3>No results for “{topic}”</h3>
+              <p>Try a more specific field, or pick one from the left rail.</p>
+            </div>
+          )}
+        </main>
+      </div>
     </div>
   );
 }
