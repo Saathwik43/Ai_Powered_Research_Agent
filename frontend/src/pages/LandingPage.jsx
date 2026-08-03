@@ -52,10 +52,12 @@ const LandingPage = () => {
           </span>
         </button>
         <div className="landing-nav-actions">
-          <button className="nav-signin" onClick={() => navigate('/login')}>Sign in</button>
-          <button className="nav-start-btn" onClick={() => navigate('/signup')}>
-            <span className="nav-start-dot" />
+          <button type="button" className="nav-signin" onClick={() => navigate('/login')}>
+            Sign in
+          </button>
+          <button type="button" className="nav-start-btn" onClick={() => navigate('/signup')}>
             Start now
+            <ArrowRight size={15} className="nav-start-arrow" aria-hidden="true" />
           </button>
         </div>
       </nav>
