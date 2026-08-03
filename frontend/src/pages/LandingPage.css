@@ -688,20 +688,73 @@
   .landing-hero {
     grid-template-columns: 1fr;
     text-align: center;
+    gap: 2rem;
   }
   .hero-copy {
     align-items: center;
   }
+  .hero-copy h1 {
+    font-size: clamp(2.25rem, 8vw, 3.5rem);
+  }
   .hero-actions {
     justify-content: center;
+    flex-wrap: wrap;
   }
   .trust-row {
     justify-content: center;
+    flex-wrap: wrap;
   }
   .preview-sidebar {
     display: none;
   }
   .preview-grid {
+    grid-template-columns: 1fr;
+  }
+  .preview-grid-3 {
+    grid-template-columns: 1fr;
+  }
+  .preview-split-pane {
+    grid-template-columns: 1fr;
+  }
+  .preview-split-left {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .landing-nav {
+    padding: 0.75rem 1rem;
+    gap: 0.75rem;
+  }
+
+  .landing-nav-actions {
+    gap: 0.5rem;
+  }
+
+  .nav-signin {
+    padding: 0.45rem 0.35rem;
+    font-size: 0.85rem;
+  }
+
+  .nav-start-btn {
+    padding: 0.5rem 0.85rem;
+    font-size: 0.85rem;
+  }
+
+  .landing-hero {
+    padding: 5.5rem 1rem 2.5rem;
+  }
+
+  .hero-actions {
+    width: 100%;
+  }
+
+  .hero-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .feature-grid {
     grid-template-columns: 1fr;
   }
 }

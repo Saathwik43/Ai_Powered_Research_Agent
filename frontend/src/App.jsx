@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Menu, Sparkles } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -20,6 +20,19 @@ const ProtectedLayout = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     return localStorage.getItem('sidebarCollapsed') === 'true';
   });
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(max-width: 768px)').matches : false
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)');
+    const onChange = (e) => {
+      setIsMobile(e.matches);
+      if (e.matches) setSidebarOpen(false);
+    };
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
 
   const toggleCollapse = () => {
     const val = !sidebarCollapsed;
@@ -29,6 +42,8 @@ const ProtectedLayout = () => {
 
   if (loading) return <AppLoader />;
   if (!user) return <Navigate to="/" replace />;
+
+  const collapsed = isMobile ? false : sidebarCollapsed;
 
   return (
     <>
@@ -45,16 +60,16 @@ const ProtectedLayout = () => {
           <img src="/9672704.webp" alt="Logo" style={{ width: 32, height: 32, borderRadius: '6px', objectFit: 'cover' }} />
           <span style={{ fontWeight: 700, fontSize: 'var(--fs-base)', color: 'var(--text)' }}>Research Agent</span>
         </div>
-        <div style={{ width: 30 }} />
+        <div style={{ width: 40 }} />
       </div>
 
       <Sidebar 
         open={sidebarOpen} 
         onClose={() => setSidebarOpen(false)} 
-        collapsed={sidebarCollapsed}
+        collapsed={collapsed}
         onToggleCollapse={toggleCollapse}
       />
-      <main className={`main-content ${sidebarCollapsed ? 'collapsed' : ''}`}>
+      <main className={`main-content ${collapsed ? 'collapsed' : ''}`}>
         <Routes>
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/literature-survey" element={<LiteratureSurvey />} />

@@ -1,153 +1,266 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useId, useRef, useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import mermaid from 'mermaid';
+import { Maximize2, X, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
+import {
+  sanitizeMermaidChart,
+  normalizeMermaidSvg,
+} from '../utils/mermaidChart';
 
 const svgCache = new Map();
+let initialized = false;
+let renderChain = Promise.resolve();
 
-mermaid.initialize({
-  startOnLoad: false,
-  theme: 'base',
-  themeVariables: {
-    fontFamily: "'Inter', system-ui, -apple-system, sans-serif",
-    fontSize: '13px',
-    primaryColor: '#2B5EA8',
-    primaryTextColor: '#0F1115',
-    primaryBorderColor: '#1F4A87',
-    lineColor: '#2B5EA8',
-    secondaryColor: '#C9622A',
-    tertiaryColor: '#4F8F6B',
-    mainBkg: '#FFFFFF',
-    nodeBorder: '#2B5EA8',
-    clusterBkg: '#FAFAF8',
-    titleColor: '#0F1115',
-    edgeLabelBackground: '#FFFFFF',
-    
-    // Distinct vibrant color palette for Pie Charts & Nodes
-    pie1: '#2B5EA8',
-    pie2: '#C9622A',
-    pie3: '#2E7D32',
-    pie4: '#D97706',
-    pie5: '#6D28D9',
-    pie6: '#0284C7',
-    pie7: '#DC2626',
-
-    // Sharp high-contrast multi-color palette for XY Charts (Bar & Line)
-    xyChart: {
-      backgroundColor: '#FFFFFF',
+function ensureMermaidInit() {
+  if (initialized) return;
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: 'loose',
+    suppressErrorRendering: true,
+    flowchart: {
+      htmlLabels: false,
+      curve: 'basis',
+      padding: 16,
+      nodeSpacing: 50,
+      rankSpacing: 55,
+      useMaxWidth: false,
+    },
+    sequence: { useMaxWidth: false, actorMargin: 50 },
+    gantt: { useMaxWidth: false },
+    pie: { useMaxWidth: false, textPosition: 0.75 },
+    class: { useMaxWidth: false },
+    state: { useMaxWidth: false },
+    er: { useMaxWidth: false },
+    journey: { useMaxWidth: false },
+    timeline: { useMaxWidth: false },
+    mindmap: { useMaxWidth: false },
+    quadrantChart: { useMaxWidth: false },
+    xyChart: { useMaxWidth: false },
+    theme: 'base',
+    themeVariables: {
+      fontFamily: "'IBM Plex Sans', 'Source Serif 4', Georgia, sans-serif",
+      fontSize: '14px',
+      primaryColor: '#E8F0FA',
+      primaryTextColor: '#0F1115',
+      primaryBorderColor: '#2B5EA8',
+      secondaryColor: '#F7E8DE',
+      secondaryTextColor: '#0F1115',
+      secondaryBorderColor: '#C9622A',
+      tertiaryColor: '#E4F0E9',
+      tertiaryTextColor: '#0F1115',
+      tertiaryBorderColor: '#4F8F6B',
+      lineColor: '#374151',
+      textColor: '#0F1115',
+      mainBkg: '#FFFFFF',
+      nodeBorder: '#2B5EA8',
+      clusterBkg: '#FAFAF8',
+      clusterBorder: '#C9C4B8',
       titleColor: '#0F1115',
-      xAxisTitleColor: '#0F1115',
-      xAxisLabelColor: '#0F1115',
-      xAxisLineColor: '#0F1115',
-      yAxisTitleColor: '#0F1115',
-      yAxisLabelColor: '#0F1115',
-      yAxisLineColor: '#0F1115',
-      plotColorPalette: '#2B5EA8, #C9622A, #2E7D32, #D97706, #6D28D9, #0284C7, #DC2626'
-    }
-  },
-  securityLevel: 'loose',
-  suppressErrorRendering: true,
-});
+      edgeLabelBackground: '#FFFFFF',
+      pie1: '#2B5EA8',
+      pie2: '#C9622A',
+      pie3: '#2E7D32',
+      pie4: '#D97706',
+      pie5: '#6D28D9',
+      pie6: '#0284C7',
+      pie7: '#DC2626',
+      xyChart: {
+        backgroundColor: '#FFFFFF',
+        titleColor: '#0F1115',
+        xAxisTitleColor: '#0F1115',
+        xAxisLabelColor: '#0F1115',
+        xAxisLineColor: '#0F1115',
+        yAxisTitleColor: '#0F1115',
+        yAxisLabelColor: '#0F1115',
+        yAxisLineColor: '#0F1115',
+        plotColorPalette: '#2B5EA8, #C9622A, #2E7D32, #D97706, #6D28D9, #0284C7, #DC2626',
+      },
+    },
+  });
+  initialized = true;
+}
+
+function enqueueRender(task) {
+  const next = renderChain.then(task, task);
+  renderChain = next.catch(() => {});
+  return next;
+}
+
+function cleanupStrayMermaid(id) {
+  document.querySelectorAll(`[id^="${id}"]`).forEach((el) => el.remove());
+}
+
+ensureMermaidInit();
+
+function DiagramLightbox({ svgHtml, onClose }) {
+  const [zoom, setZoom] = useState(1);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose();
+      if (e.key === '+' || e.key === '=') setZoom((z) => Math.min(3, z + 0.2));
+      if (e.key === '-') setZoom((z) => Math.max(0.4, z - 0.2));
+    };
+    document.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose]);
+
+  return createPortal(
+    <div className="mermaid-lightbox" role="dialog" aria-modal="true" aria-label="Diagram preview">
+      <button type="button" className="mermaid-lightbox-backdrop" onClick={onClose} aria-label="Close preview" />
+      <div className="mermaid-lightbox-panel">
+        <header className="mermaid-lightbox-toolbar">
+          <span className="mermaid-lightbox-title">Diagram preview</span>
+          <div className="mermaid-lightbox-actions">
+            <button type="button" className="mermaid-lightbox-btn" onClick={() => setZoom((z) => Math.max(0.4, z - 0.2))} title="Zoom out">
+              <ZoomOut size={16} />
+            </button>
+            <span className="mermaid-lightbox-zoom">{Math.round(zoom * 100)}%</span>
+            <button type="button" className="mermaid-lightbox-btn" onClick={() => setZoom((z) => Math.min(3, z + 0.2))} title="Zoom in">
+              <ZoomIn size={16} />
+            </button>
+            <button type="button" className="mermaid-lightbox-btn" onClick={() => setZoom(1)} title="Reset zoom">
+              <RotateCcw size={15} />
+            </button>
+            <button type="button" className="mermaid-lightbox-btn" onClick={onClose} title="Close">
+              <X size={16} />
+            </button>
+          </div>
+        </header>
+        <div className="mermaid-lightbox-canvas">
+          <div
+            className="mermaid-lightbox-svg"
+            style={{ transform: `scale(${zoom})`, transformOrigin: 'top center' }}
+            dangerouslySetInnerHTML={{ __html: svgHtml }}
+          />
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
 
 export default function Mermaid({ chart }) {
+  const reactId = useId().replace(/:/g, '');
   const containerRef = useRef(null);
   const [error, setError] = useState(null);
+  const [ready, setReady] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [svgHtml, setSvgHtml] = useState('');
   const lastValidSvgRef = useRef('');
   const renderTimeoutRef = useRef(null);
 
+  const openPreview = useCallback(() => {
+    if (lastValidSvgRef.current) setPreviewOpen(true);
+  }, []);
+
   useEffect(() => {
     let isMounted = true;
+    ensureMermaidInit();
 
-    if (!chart || !chart.trim()) return;
-    
-    const cacheKey = chart.trim();
+    const cleanChart = sanitizeMermaidChart(chart);
+    if (!cleanChart) return undefined;
+
+    const cacheKey = cleanChart;
     if (svgCache.has(cacheKey)) {
-      lastValidSvgRef.current = svgCache.get(cacheKey);
-      if (containerRef.current) containerRef.current.innerHTML = lastValidSvgRef.current;
-      return; // skip debounce entirely, already rendered before
-    }
-    
-    // Clean up wrapping markdown codeblock ticks if present
-    let cleanChart = chart.replace(/^```(mermaid|xychart-beta|graph)?\n?/, '').replace(/\n?```$/, '').trim();
-    if (!cleanChart) return;
-
-    // If it doesn't start with a known mermaid keyword but starts with xychart-beta, ensure keyword
-    if (!cleanChart.startsWith('xychart-beta') && !cleanChart.startsWith('graph') && !cleanChart.startsWith('pie') && !cleanChart.startsWith('sequenceDiagram') && !cleanChart.startsWith('gantt') && !cleanChart.startsWith('classDiagram')) {
-      if (cleanChart.includes('x-axis') || cleanChart.includes('y-axis')) {
-        cleanChart = 'xychart-beta\n' + cleanChart;
+      const cached = svgCache.get(cacheKey);
+      lastValidSvgRef.current = cached;
+      setSvgHtml(cached);
+      if (containerRef.current) {
+        containerRef.current.innerHTML = cached;
+        setReady(true);
+        setError(null);
       }
+      return undefined;
     }
 
     if (renderTimeoutRef.current) clearTimeout(renderTimeoutRef.current);
 
-    // Debounce to allow streaming token buffer to stabilize (250ms)
-    renderTimeoutRef.current = setTimeout(async () => {
-      if (!isMounted || !containerRef.current) return;
+    renderTimeoutRef.current = setTimeout(() => {
+      enqueueRender(async () => {
+        if (!isMounted || !containerRef.current) return;
+        const id = `mmd-${reactId}-${Math.random().toString(36).slice(2, 9)}`;
 
-      const id = `mermaid-${Math.random().toString(36).substring(2, 9)}`;
-      
-      try {
-        // Attempt parse check first
-        const isValid = await mermaid.parse(cleanChart).catch(() => false);
-        if (!isValid) {
-          // Incomplete syntax while streaming — silently keep last valid SVG or wait for next tokens
+        try {
+          await mermaid.parse(cleanChart);
+        } catch {
           return;
         }
 
-        const { svg } = await mermaid.render(id, cleanChart);
-        if (isMounted && containerRef.current) {
-          lastValidSvgRef.current = svg;
-          svgCache.set(cacheKey, svg);
-          containerRef.current.innerHTML = svg;
-          setError(null);
-        }
-      } catch (e) {
-        // Clean up any stray error SVGs mermaid may have injected into <body>
-        document.querySelectorAll(`[id="${id}"]`).forEach(el => el.remove());
-        document.querySelectorAll('.error-icon, .mermaid-error').forEach(el => {
-          if (!containerRef.current?.contains(el)) el.remove();
-        });
+        try {
+          const { svg } = await mermaid.render(id, cleanChart);
+          const fixed = normalizeMermaidSvg(svg);
+          if (!fixed || fixed.length < 40) throw new Error('Empty diagram SVG');
 
-        // Do NOT flash error box if we already rendered a valid SVG or syntax is still streaming
-        if (isMounted && !lastValidSvgRef.current) {
-          // Only log, avoid flashing error state during live stream
-          console.debug('Mermaid incomplete syntax during stream');
+          if (isMounted && containerRef.current) {
+            lastValidSvgRef.current = fixed;
+            svgCache.set(cacheKey, fixed);
+            setSvgHtml(fixed);
+            containerRef.current.innerHTML = fixed;
+            setReady(true);
+            setError(null);
+          }
+        } catch (e) {
+          cleanupStrayMermaid(id);
+          if (isMounted && !lastValidSvgRef.current) {
+            setError(e?.str || e?.message || 'Diagram could not be rendered');
+            setReady(false);
+          }
         }
-      }
-    }, 250);
+      });
+    }, 180);
 
     return () => {
       isMounted = false;
       if (renderTimeoutRef.current) clearTimeout(renderTimeoutRef.current);
     };
-  }, [chart]);
+  }, [chart, reactId]);
 
-  if (error && !lastValidSvgRef.current) {
+  if (error && !ready && !lastValidSvgRef.current) {
     return (
-      <details style={{
-        margin: '1rem 0', padding: '0.75rem 1rem',
-        background: 'rgba(229,28,35,0.06)', border: '1px solid rgba(229,28,35,0.2)',
-        borderRadius: 'var(--radius-md)', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)',
-      }}>
-        <summary style={{ cursor: 'pointer', fontWeight: 500, color: 'var(--danger)' }}>
-          ⚠ Diagram could not be rendered
-        </summary>
-        <pre style={{ marginTop: '0.5rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)' }}>
-          {error}
-        </pre>
+      <details className="mermaid-error-box">
+        <summary>Diagram could not be rendered</summary>
+        <pre>{error}</pre>
+        <pre className="mermaid-error-source">{sanitizeMermaidChart(chart)}</pre>
       </details>
     );
   }
 
   return (
-    <div
-      ref={containerRef}
-      className="mermaid-chart"
-      style={{
-        display: 'flex',
-        justifyContent: 'center',
-        margin: '1rem 0',
-        minHeight: lastValidSvgRef.current ? 'auto' : '40px',
-        alignItems: 'center'
-      }}
-    />
+    <>
+      <figure className={`mermaid-figure${ready || lastValidSvgRef.current ? ' is-ready' : ''}`}>
+        <div
+          className="mermaid-chart-scroll"
+          onClick={openPreview}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              openPreview();
+            }
+          }}
+          role="button"
+          tabIndex={0}
+          aria-label="Open diagram preview"
+          title="Click to enlarge"
+        >
+          <div ref={containerRef} className="mermaid-chart" />
+        </div>
+        {(ready || lastValidSvgRef.current) && (
+          <button type="button" className="mermaid-expand-btn" onClick={openPreview} title="Enlarge diagram">
+            <Maximize2 size={14} />
+            <span>Expand</span>
+          </button>
+        )}
+      </figure>
+
+      {previewOpen && svgHtml && (
+        <DiagramLightbox svgHtml={svgHtml} onClose={() => setPreviewOpen(false)} />
+      )}
+    </>
   );
 }

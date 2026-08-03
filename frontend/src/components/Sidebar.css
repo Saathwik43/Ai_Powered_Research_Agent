@@ -35,13 +35,13 @@
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 50%;
-  width: 24px;
-  height: 24px;
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
   position: absolute;
-  right: -12px;
+  right: -18px;
   top: 50%;
   transform: translateY(-50%);
   cursor: pointer;
@@ -49,6 +49,26 @@
   box-shadow: var(--shadow-sm);
   z-index: 10;
   transition: var(--transition);
+}
+
+.sidebar-close-btn {
+  display: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.sidebar-close-btn:hover {
+  background: var(--bg-elevated);
+  color: var(--text);
 }
 .sidebar-toggle-btn:hover {
   background: var(--primary-light);
@@ -149,7 +169,19 @@
 }
 
 .hide-desktop { display: none; }
-@media (max-width: 768px) { .hide-desktop { display: flex !important; } }
+@media (max-width: 768px) {
+  .hide-desktop { display: flex !important; }
+
+  .sidebar-toggle-btn.hide-mobile {
+    display: none !important;
+  }
+
+  .sidebar-close-btn {
+    display: flex;
+    position: static;
+    transform: none;
+  }
+}
 
 /* Sidebar Usage Card */
 .sidebar-usage-card {
@@ -330,4 +362,55 @@
 .sidebar.collapsed .logout-btn {
   justify-content: center;
   padding: 0.65rem 0;
+}
+
+@media (max-width: 768px) {
+  .sidebar,
+  .sidebar.collapsed {
+    width: min(272px, 88vw) !important;
+  }
+
+  .sidebar.collapsed .sidebar-header {
+    padding: 1.35rem 1.2rem;
+    justify-content: flex-start;
+  }
+
+  .sidebar.collapsed .sidebar-header img {
+    margin: 0;
+  }
+
+  .sidebar.collapsed .sidebar-brand-text,
+  .sidebar.collapsed .nav-section-label,
+  .sidebar.collapsed .nav-link-text,
+  .sidebar.collapsed .user-details,
+  .sidebar.collapsed .logout-text {
+    display: block;
+  }
+
+  .sidebar.collapsed .sidebar-brand-text {
+    opacity: 1;
+  }
+
+  .sidebar.collapsed .nav-link {
+    justify-content: flex-start;
+    padding: 0.72rem 0.85rem;
+  }
+
+  .sidebar.collapsed .nav-link::before {
+    left: -0.76rem;
+  }
+
+  .sidebar.collapsed .user-info {
+    padding: 0.75rem;
+    justify-content: flex-start;
+  }
+
+  .sidebar.collapsed .logout-btn {
+    justify-content: flex-start;
+    padding: 0.65rem 0.85rem;
+  }
+
+  .sidebar.collapsed .sidebar-usage-card {
+    display: flex;
+  }
 }

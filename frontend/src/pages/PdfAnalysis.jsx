@@ -1,9 +1,9 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
-  UploadCloud, FileText, Send, Sparkles, AlertCircle,
+  UploadCloud, FileText, Send, AlertCircle,
   ChevronLeft, ChevronRight, Bot, User, Paperclip, X,
-  CheckCircle, AlertTriangle, ArrowRight, Zap, BookOpen, History,
-  Minus, Plus
+  CheckCircle, AlertTriangle, ArrowRight, History,
+  Minus, Plus, BookOpen, MessageSquare, Layers, Search
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Spinner, TypingDots } from '../components/Loader';
@@ -14,6 +14,12 @@ import rehypeKatex from 'rehype-katex';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { ghcolors } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import Mermaid from '../components/Mermaid';
+import {
+  isMermaidBlock,
+  extractMermaidCharts,
+  parseCodeLanguage,
+  codeChildrenToText,
+} from '../utils/mermaidChart';
 import 'katex/dist/katex.min.css';
 import './PdfAnalysis.css';
 import { Document, Page, pdfjs } from 'react-pdf';
@@ -23,68 +29,110 @@ import 'react-pdf/dist/Page/TextLayer.css';
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 const SUGGESTIONS = [
-  { label: "Main Contribution", prompt: "What's the main contribution of this paper?", icon: "🎯" },
-  { label: "Limitations", prompt: "What are the key limitations and weaknesses?", icon: "⚠️" },
-  { label: "Research Gaps", prompt: "Identify research gaps and future directions.", icon: "🔬" },
-  { label: "Methodology", prompt: "Explain the methodology used in this paper.", icon: "📐" },
-  { label: "Key Findings", prompt: "Summarize the key findings and results.", icon: "📊" },
-  { label: "Follow-up Work", prompt: "Suggest potential follow-up research directions.", icon: "🚀" },
+  { label: 'Main contribution', prompt: "What's the main contribution of this paper?" },
+  { label: 'Limitations', prompt: 'What are the key limitations and weaknesses?' },
+  { label: 'Research gaps', prompt: 'Identify research gaps and future directions.' },
+  { label: 'Methodology', prompt: 'Explain the methodology used in this paper.' },
+  { label: 'Key findings', prompt: 'Summarize the key findings and results.' },
+  { label: 'Follow-up work', prompt: 'Suggest potential follow-up research directions.' },
 ];
+
+const MODES = [
+  { id: 'read', label: 'Read', Icon: BookOpen },
+  { id: 'ask', label: 'Ask', Icon: MessageSquare },
+  { id: 'findings', label: 'Findings', Icon: Layers },
+];
+
+function isGapMessage(msg) {
+  return (
+    !msg.isLoading &&
+    !msg.error &&
+    msg.data &&
+    (msg.type === 'structured' || msg.type === 'gap_analysis')
+  );
+}
+
+function historyPayload(messages) {
+  return messages
+    .filter((m) => !m.isLoading && !m.error)
+    .map((m) => {
+      if (isGapMessage(m)) {
+        const gaps = (m.data.gaps || []).join('; ');
+        const covered = (m.data.well_covered || []).join('; ');
+        const direction = m.data.suggested_direction || '';
+        return {
+          role: m.role,
+          content: `[Gap analysis]\nWell covered: ${covered}\nGaps: ${gaps}\nSuggested: ${direction}`,
+        };
+      }
+      return { role: m.role, content: m.content || '' };
+    })
+    .filter((m) => m.content.trim());
+}
 
 function TypingIndicator() {
   return (
-    <div style={{ padding: 'var(--space-1) 0' }}>
+    <div className="pdf-typing">
       <TypingDots />
     </div>
   );
 }
 
-function MessageBubble({ msg }) {
+function GapPanel({ data }) {
+  if (!data) return null;
+  return (
+    <div className="pdf-gap-result">
+      {data.well_covered?.length > 0 && (
+        <div className="pdf-gap-section">
+          <div className="pdf-gap-section-label success">
+            <CheckCircle size={13} /> Well covered
+          </div>
+          <ul>
+            {data.well_covered.map((item, i) => (
+              <li key={i}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {data.gaps?.length > 0 && (
+        <div className="pdf-gap-section">
+          <div className="pdf-gap-section-label danger">
+            <AlertTriangle size={13} /> Identified gaps
+          </div>
+          <ul>
+            {data.gaps.map((item, i) => (
+              <li key={i}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {data.suggested_direction && (
+        <div className="pdf-gap-direction">
+          <div className="pdf-gap-section-label accent">
+            <ArrowRight size={13} /> Suggested direction
+          </div>
+          <p>{data.suggested_direction}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MessageBubble({ msg, onPageJump }) {
   const isUser = msg.role === 'user';
 
   const renderContent = () => {
     if (msg.isLoading) return <TypingIndicator />;
     if (msg.error) {
       return (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', color: 'var(--danger)' }}>
+        <div className="pdf-error-inline">
           <AlertCircle size={14} />
           {msg.content}
         </div>
       );
     }
-    if (msg.type === 'gap_analysis' && msg.data) {
-      return (
-        <div className="pdf-gap-result">
-          {msg.data.well_covered?.length > 0 && (
-            <div className="pdf-gap-section">
-              <div className="pdf-gap-section-label success">
-                <CheckCircle size={13} /> Well Covered
-              </div>
-              <ul>
-                {msg.data.well_covered.map((item, i) => <li key={i}>{item}</li>)}
-              </ul>
-            </div>
-          )}
-          {msg.data.gaps?.length > 0 && (
-            <div className="pdf-gap-section">
-              <div className="pdf-gap-section-label danger">
-                <AlertTriangle size={13} /> Identified Gaps
-              </div>
-              <ul>
-                {msg.data.gaps.map((item, i) => <li key={i}>{item}</li>)}
-              </ul>
-            </div>
-          )}
-          {msg.data.suggested_direction && (
-            <div className="pdf-gap-direction">
-              <div className="pdf-gap-section-label accent">
-                <ArrowRight size={13} /> Suggested Direction
-              </div>
-              <p>{msg.data.suggested_direction}</p>
-            </div>
-          )}
-        </div>
-      );
+    if (isGapMessage(msg)) {
+      return <GapPanel data={msg.data} />;
     }
     return (
       <div className="pdf-markdown-body">
@@ -92,33 +140,43 @@ function MessageBubble({ msg }) {
           remarkPlugins={[remarkGfm, remarkMath]}
           rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false, errorColor: 'inherit' }]]}
           components={{
-            a: ({ node, href, children, ...props }) => {
+            a: ({ href, children, ...props }) => {
               if (href?.startsWith('#page-')) {
-                const pageNum = href.replace('#page-', '');
+                const pageNum = Number(href.replace('#page-', ''));
                 return (
-                  <a href={href} className="citation-pill" data-ref={`p.${pageNum}`} {...props}>
+                  <button
+                    type="button"
+                    className="citation-pill"
+                    data-ref={`p.${pageNum}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      if (!Number.isNaN(pageNum)) onPageJump?.(pageNum);
+                    }}
+                  >
                     {children}
-                  </a>
+                  </button>
                 );
               }
-              return <a href={href} {...props}>{children}</a>;
+              return (
+                <a href={href} target="_blank" rel="noreferrer" {...props}>
+                  {children}
+                </a>
+              );
             },
-            code({ node, inline, className, children, ...props }) {
-              const match = /language-(\w+)/.exec(className || '');
-              const language = match ? match[1].toLowerCase() : '';
-              const contentStr = String(children).replace(/\n$/, '');
-              
-              const mermaidLangs = ['mermaid', 'graph', 'xychart-beta', 'gantt', 'classDiagram', 'pie', 'sequenceDiagram'];
-              if (!inline && (mermaidLangs.includes(language) || contentStr.trim().startsWith('graph ') || contentStr.trim().startsWith('pie ') || contentStr.trim().startsWith('sequenceDiagram') || contentStr.trim().startsWith('xychart-beta') || contentStr.trim().startsWith('gantt') || contentStr.trim().startsWith('classDiagram'))) {
-                return <Mermaid chart={contentStr} />;
+            code({ className, children, ...props }) {
+              const language = parseCodeLanguage(className);
+              const contentStr = codeChildrenToText(children);
+              const isBlock = Boolean(className) || contentStr.includes('\n');
+
+              if (isBlock && isMermaidBlock(language, contentStr)) {
+                return (
+                  <div className="pdf-figure-block">
+                    <Mermaid chart={contentStr} />
+                  </div>
+                );
               }
-              return !inline && match ? (
-                <SyntaxHighlighter
-                  style={ghcolors}
-                  language={match[1]}
-                  PreTag="div"
-                  {...props}
-                >
+              return isBlock && language ? (
+                <SyntaxHighlighter style={ghcolors} language={language} PreTag="div" {...props}>
                   {contentStr}
                 </SyntaxHighlighter>
               ) : (
@@ -126,16 +184,15 @@ function MessageBubble({ msg }) {
                   {children}
                 </code>
               );
-            }
+            },
           }}
         >
-          {msg.content.replace(/\[?(?:Page|Pg\.?)\s*(\d+)\]?/gi, '[Page $1](#page-$1)')}
+          {(msg.content || '').replace(/\[?(?:Page|Pg\.?)\s*(\d+)\]?/gi, '[Page $1](#page-$1)')}
         </ReactMarkdown>
       </div>
     );
   };
 
-  // TODO: Add citation-click-to-page-jump hook here in the future
   return (
     <div className={`pdf-message ${isUser ? 'user' : 'assistant'}`}>
       {!isUser && (
@@ -143,9 +200,7 @@ function MessageBubble({ msg }) {
           <Bot size={15} />
         </div>
       )}
-      <div className="pdf-bubble">
-        {renderContent()}
-      </div>
+      <div className="pdf-bubble">{renderContent()}</div>
       {isUser && (
         <div className="pdf-avatar user-avatar">
           <User size={15} />
@@ -169,15 +224,43 @@ export default function PdfAnalysis() {
   const [isDragging, setIsDragging] = useState(false);
   const [fileId, setFileId] = useState(null);
   const [pdfBlobUrl, setPdfBlobUrl] = useState(null);
-
   const [numPages, setNumPages] = useState(null);
+  const [pageNumber, setPageNumber] = useState(1);
+  const [zoom, setZoom] = useState(1.2);
+  const [mode, setMode] = useState('ask');
+  const [chatList, setChatList] = useState([]);
+  const [activeChatId, setActiveChatId] = useState(null);
+  const [historyCollapsed, setHistoryCollapsed] = useState(true);
+  const [loadingChats, setLoadingChats] = useState(false);
+
+  const chatEndRef = useRef(null);
+  const inputRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const viewerScrollRef = useRef(null);
+
+  const hasPaper = Boolean(file || extractedText);
+
+  const findings = useMemo(() => {
+    const gaps = messages.filter(isGapMessage);
+    const diagrams = [];
+    messages.forEach((m) => {
+      if (m.role === 'assistant' && m.content && !m.isLoading) {
+        extractMermaidCharts(m.content).forEach((chart, i) => {
+          diagrams.push({ id: `${m.id}-${i}`, chart, fromMessageId: m.id });
+        });
+      }
+    });
+    return { gaps, diagrams };
+  }, [messages]);
 
   useEffect(() => {
     let currentBlobUrl = null;
     if (fileId && (!file || !file?.size)) {
       const loadPdf = async () => {
         try {
-          const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/pdf/${fileId}`);
+          const res = await authFetch(
+            `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/pdf/${fileId}`
+          );
           if (res.ok) {
             const blob = await res.blob();
             const url = URL.createObjectURL(blob);
@@ -185,38 +268,33 @@ export default function PdfAnalysis() {
             setPdfBlobUrl(url);
           }
         } catch (err) {
-          console.error("Failed to load PDF preview", err);
+          console.error('Failed to load PDF preview', err);
         }
       };
       loadPdf();
     } else {
       setPdfBlobUrl(null);
     }
-
     return () => {
       if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
     };
   }, [fileId, file, authFetch]);
-  const [pageNumber, setPageNumber] = useState(1);
-  const [zoom, setZoom] = useState(1.2);
-
-  // Chat History States
-  const [chatList, setChatList] = useState([]);
-  const [activeChatId, setActiveChatId] = useState(null);
-  const [historyCollapsed, setHistoryCollapsed] = useState(false);
-  const [loadingChats, setLoadingChats] = useState(false);
-
-  const chatEndRef = useRef(null);
-  const inputRef = useRef(null);
-  const fileInputRef = useRef(null);
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    if (mode === 'ask') chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, mode]);
 
   useEffect(() => {
     fetchChatList();
   }, []);
+
+  const jumpToPage = (page) => {
+    setPageNumber(page);
+    setMode('read');
+    requestAnimationFrame(() => {
+      viewerScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  };
 
   const fetchChatList = async () => {
     setLoadingChats(true);
@@ -240,42 +318,50 @@ export default function PdfAnalysis() {
         const data = await res.json();
         const chat = data.data;
         setActiveChatId(chat.chat_id);
-        setFile({ name: chat.filename }); // dummy file object for display
+        setFile({ name: chat.filename });
         setFileId(chat.file_id || null);
         setExtractedText(chat.text);
         setStructure(chat.structure);
         setMessages(chat.messages || []);
         setError('');
+        setMode('ask');
+        setHistoryCollapsed(true);
 
         if (chat.file_id) {
           try {
-            const pdfRes = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/pdf/${chat.file_id}`);
+            const pdfRes = await authFetch(
+              `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/pdf/${chat.file_id}`
+            );
             if (pdfRes.ok) {
               const blob = await pdfRes.blob();
-              setPdfBlobUrl(URL.createObjectURL(blob));
+              setPdfBlobUrl((prev) => {
+                if (prev) URL.revokeObjectURL(prev);
+                return URL.createObjectURL(blob);
+              });
             }
           } catch (pdfErr) {
-            console.error("Failed to restore PDF preview", pdfErr);
+            console.error('Failed to restore PDF preview', pdfErr);
           }
         }
       }
     } catch (e) {
-      console.error("Failed to load chat", e);
+      console.error('Failed to load chat', e);
     }
   };
 
   const deleteChat = async (chatId, e) => {
     e.stopPropagation();
     try {
-      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/pdf-chats/${chatId}`, { method: 'DELETE' });
+      const res = await authFetch(
+        `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/pdf-chats/${chatId}`,
+        { method: 'DELETE' }
+      );
       if (res.ok) {
-        if (activeChatId === chatId) {
-          reset();
-        }
+        if (activeChatId === chatId) reset();
         fetchChatList();
       }
     } catch (err) {
-      console.error("Failed to delete chat", err);
+      console.error('Failed to delete chat', err);
     }
   };
 
@@ -284,26 +370,24 @@ export default function PdfAnalysis() {
     try {
       const payload = {
         chat_id: activeChatId,
-        filename: currentFile?.name || "Unknown PDF",
-        text: text,
+        filename: currentFile?.name || 'Unknown PDF',
+        text,
         structure: struct,
         messages: newMessages,
-        file_id: currentFileId
+        file_id: currentFileId,
       };
       const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/pdf-chats/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
       });
       if (res.ok) {
         const data = await res.json();
-        if (!activeChatId) {
-          setActiveChatId(data.chat_id);
-        }
+        if (!activeChatId) setActiveChatId(data.chat_id);
         fetchChatList();
       }
     } catch (e) {
-      console.error("Failed to save chat", e);
+      console.error('Failed to save chat', e);
     }
   };
 
@@ -324,6 +408,7 @@ export default function PdfAnalysis() {
     setCustomPrompt('');
     setIsExtracting(true);
     setActiveChatId(null);
+    setMode('ask');
 
     const formData = new FormData();
     formData.append('file', selected);
@@ -342,12 +427,14 @@ export default function PdfAnalysis() {
       setStructure(data.structure);
       setFileId(data.file_id);
 
-      const initMsgs = [{
-        id: Date.now(),
-        role: 'assistant',
-        type: 'text',
-        content: `✅ **"${selected.name}"** has been uploaded and processed successfully!\n\nI've extracted the text and I'm ready to answer your questions. Try one of the suggestions below, or ask me anything about this paper.`,
-      }];
+      const initMsgs = [
+        {
+          id: Date.now(),
+          role: 'assistant',
+          type: 'text',
+          content: `**"${selected.name}"** is ready.\n\nUse **Ask** for questions, **Read** to browse pages, and **Findings** for gap analyses and diagrams.`,
+        },
+      ];
       setMessages(initMsgs);
       await saveChatState(initMsgs, selected, data.text, data.structure, data.file_id);
     } catch (err) {
@@ -362,23 +449,13 @@ export default function PdfAnalysis() {
     const finalPrompt = promptOverride !== null ? promptOverride : customPrompt;
     if (!extractedText || !finalPrompt.trim()) return;
 
-    const userMsg = {
-      id: Date.now(),
-      role: 'user',
-      type: 'text',
-      content: finalPrompt,
-    };
-    const loadingMsg = {
-      id: Date.now() + 1,
-      role: 'assistant',
-      type: 'text',
-      isLoading: true,
-      content: '',
-    };
+    const userMsg = { id: Date.now(), role: 'user', type: 'text', content: finalPrompt };
+    const loadingMsg = { id: Date.now() + 1, role: 'assistant', type: 'text', isLoading: true, content: '' };
 
-    setMessages(prev => [...prev, userMsg, loadingMsg]);
+    setMessages((prev) => [...prev, userMsg, loadingMsg]);
     if (promptOverride === null) setCustomPrompt('');
     setIsAnalyzing(true);
+    setMode('ask');
 
     try {
       const formData = new FormData();
@@ -386,44 +463,38 @@ export default function PdfAnalysis() {
       if (finalPrompt) formData.append('custom_prompt', finalPrompt);
       if (structure) formData.append('structure', JSON.stringify(structure));
       if (activeChatId) formData.append('chat_id', activeChatId);
-
-      const history = messages
-        .filter(m => m.type === 'text' && !m.isLoading)
-        .map(m => ({ role: m.role, content: m.content }));
-      
-      formData.append('history', JSON.stringify(history));
+      formData.append('history', JSON.stringify(historyPayload(messages)));
 
       const res = await authFetch(
         `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/analyze-pdf`,
-        {
-          method: 'POST',
-          body: formData,
-        }
+        { method: 'POST', body: formData }
       );
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.detail || 'Failed to analyze PDF');
       }
       const data = await res.json();
+      const nextType = data.type === 'structured' ? 'structured' : data.type;
 
-      setMessages(prev => {
-        const updated = prev.map(m =>
+      setMessages((prev) => {
+        const updated = prev.map((m) =>
           m.id === loadingMsg.id
             ? {
                 ...m,
                 isLoading: false,
-                type: data.type,
+                type: nextType,
                 content: data.type === 'custom' ? data.content : '',
-                data: data.type !== 'custom' ? data.data : undefined,
+                data: data.type === 'structured' || data.type === 'gap_analysis' ? data.data : undefined,
               }
             : m
         );
         saveChatState(updated, file, extractedText, structure, fileId);
         return updated;
       });
+      if (data.type === 'structured') setMode('findings');
     } catch (err) {
-      setMessages(prev => {
-        const updated = prev.map(m =>
+      setMessages((prev) => {
+        const updated = prev.map((m) =>
           m.id === loadingMsg.id
             ? { ...m, isLoading: false, error: true, content: err.message || 'Analysis failed. Please try again.' }
             : m
@@ -447,230 +518,58 @@ export default function PdfAnalysis() {
   const reset = () => {
     setFile(null);
     setFileId(null);
-    setPdfBlobUrl(null);
+    setPdfBlobUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
     setExtractedText('');
     setStructure(null);
     setMessages([]);
     setError('');
     setActiveChatId(null);
+    setMode('ask');
+    setPageNumber(1);
+    setNumPages(null);
   };
 
-  const renderContent = () => {
-    return (
-      <div className="pdf-split-view">
-        {/* PDF Viewer Pane */}
-        {(file || extractedText) && (
-          <div className="pdf-viewer-pane">
-            {(file?.size || pdfBlobUrl) ? (
-               <div className="pdf-viewer-scroll">
-                 <Document 
-                    file={file?.size ? file : pdfBlobUrl} 
-                    onLoadSuccess={({ numPages }) => { setNumPages(numPages); setPageNumber(1); }} 
-                    loading={<div style={{padding: 'var(--space-6)', textAlign: 'center'}}><Spinner size={24} /></div>}
-                 >
-                   <div style={{ transform: `scale(${1 / pixelRatio})`, transformOrigin: 'top left', width: `${100 * pixelRatio}%` }}>
-                     <Page 
-                        pageNumber={pageNumber} 
-                        renderTextLayer={true} 
-                        renderAnnotationLayer={true} 
-                        scale={zoom * pixelRatio} 
-                     />
-                   </div>
-                 </Document>
-               </div>
-            ) : (
-               <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 'var(--space-6)', textAlign: 'center', color: 'var(--text-subtle)' }}>
-                 <p>Preview unavailable.<br/>{fileId ? "Loading PDF..." : "(PDF file not stored in browser)"}</p>
-               </div>
-            )}
-            {(file?.size || pdfBlobUrl) && numPages && (
-              <div className="pdf-viewer-controls">
-                <div className="pdf-control-cluster zoom-cluster">
-                  <button className="btn btn-secondary pdf-control-btn" title="Zoom Out" onClick={() => setZoom(z => Math.max(0.5, z - 0.2))}><Minus size={15} /></button>
-                  <span className="pdf-control-label">{Math.round(zoom * 100)}%</span>
-                  <button className="btn btn-secondary pdf-control-btn" title="Zoom In" onClick={() => setZoom(z => Math.min(3.0, z + 0.2))}><Plus size={15} /></button>
-                </div>
-                <div className="pdf-control-divider" />
-                <div className="pdf-control-cluster page-cluster">
-                  <button className="btn btn-secondary pdf-control-btn" disabled={pageNumber <= 1} onClick={() => setPageNumber(p => p - 1)}><ChevronLeft size={15} /></button>
-                  <span className="pdf-control-label">Page {pageNumber} of {numPages}</span>
-                  <button className="btn btn-secondary pdf-control-btn" disabled={pageNumber >= numPages} onClick={() => setPageNumber(p => p + 1)}><ChevronRight size={15} /></button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Chat Pane */}
-        <div className="pdf-chat-container">
-        <div className="pdf-chat-header">
-          <div className="pdf-chat-header-main">
-            <div className="pdf-chat-title">
-              <button 
-                className={`pdf-history-toggle ${!historyCollapsed ? 'desktop-hide' : ''}`}
-                onClick={() => setHistoryCollapsed(false)}
-                title="Open Chat History"
-              >
-                <History size={18} />
-              </button>
-              <Bot size={18} style={{ color: 'var(--primary)', flexShrink: 0 }} />
-              <span className="pdf-chat-title-text">PDF Assistant</span>
-            </div>
-            {file && (
-              <div className="pdf-file-badge">
-                <FileText size={13} />
-                <span className="pdf-file-badge-text">{file.name}</span>
-                <button onClick={() => setFile(null)} className="pdf-file-badge-remove" title="Remove PDF">
-                  <X size={13} />
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="pdf-messages-area">
-          {isExtracting ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-subtle)' }}>
-              <Spinner size={48} />
-              <h2 style={{ marginTop: 'var(--space-5)', fontWeight: 600, color: 'var(--text)' }}>Extracting Document Text...</h2>
-              <p>This may take a few seconds.</p>
-            </div>
-          ) : (!file && !extractedText) ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, width: '100%' }}>
-              <div style={{ textAlign: 'center', marginBottom: 'var(--space-5)' }}>
-                <div style={{ display: 'inline-flex', padding: 'var(--space-3)', background: 'var(--primary-light)', borderRadius: '50%', color: 'var(--primary)', marginBottom: 'var(--space-3)' }}>
-                  <FileText size={32} />
-                </div>
-                <h1 style={{ fontSize: 'var(--fs-lg)', fontWeight: 800, margin: '0 0 var(--space-2)' }}>Chat with your PDF</h1>
-                <p style={{ color: 'var(--text-subtle)', fontSize: 'var(--fs-sm)', maxWidth: '350px', margin: '0 auto' }}>Upload a research paper to extract insights, find gaps, and summarize methodology.</p>
-              </div>
-
-              {error && (
-                <div style={{ color: 'var(--danger)', marginBottom: 'var(--space-4)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-                  <AlertCircle size={16} /> {error}
-                </div>
-              )}
-
-              <div
-                className={`pdf-dropzone ${isDragging ? 'dragging' : ''}`}
-                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-                onDragLeave={() => setIsDragging(false)}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setIsDragging(false);
-                  const files = e.dataTransfer.files;
-                  if (files.length) handleFileChange(files[0]);
-                }}
-                onClick={() => fileInputRef.current?.click()}
-                style={{ maxWidth: '400px', padding: 'var(--space-6) var(--space-5)' }}
-              >
-                <UploadCloud size={32} className="pdf-dropzone-icon" style={{ marginBottom: 'var(--space-3)' }} />
-                <h3 style={{ fontSize: 'var(--fs-md)', fontWeight: 600, margin: '0 0 var(--space-1)' }}>Drop your PDF here</h3>
-                <p style={{ color: 'var(--text-subtle)', fontSize: 'var(--fs-sm)', margin: 0 }}>or click to browse from your computer</p>
-              </div>
-            </div>
-          ) : (
-            <>
-              {messages.map(msg => (
-                <MessageBubble key={msg.id} msg={msg} />
-              ))}
-              
-              {messages.length === 1 && (
-                <div className="pdf-suggestions">
-                  {SUGGESTIONS.map(s => (
-                    <button key={s.label} className="pdf-suggestion-chip" onClick={() => runAnalysis(s.prompt)}>
-                      <span>{s.icon}</span>
-                      <span style={{ fontWeight: 500 }}>{s.label}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-              <div ref={chatEndRef} style={{ height: 10 }} />
-            </>
-          )}
-        </div>
-
-        <div className="pdf-input-container">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="application/pdf"
-            style={{ display: 'none' }}
-            onChange={e => handleFileChange(e.target.files?.[0])}
-          />
-          <div className="pdf-input-wrapper">
-            <button 
-               className="btn btn-icon"
-               style={{ border: 'none', background: 'transparent', color: 'var(--text-subtle)' }}
-               title="Attach PDF"
-               onClick={() => fileInputRef.current?.click()}
-            >
-              <Paperclip size={20} />
-            </button>
-            <textarea 
-              ref={inputRef}
-              className="pdf-textarea"
-              placeholder={(!file && !extractedText) ? "Please upload a PDF first..." : "Ask a question about this paper..."}
-              value={customPrompt}
-              onChange={e => setCustomPrompt(e.target.value)}
-              onKeyDown={handleKeyDown}
-              rows={1}
-              disabled={isAnalyzing || (!file && !extractedText) || isExtracting}
-            />
-            <button 
-              className="pdf-send-btn"
-              onClick={() => runAnalysis()}
-              disabled={!customPrompt.trim() || isAnalyzing || (!file && !extractedText) || isExtracting}
-            >
-              {isAnalyzing ? <Spinner size={16} /> : <Send size={16} />}
-            </button>
-          </div>
-        </div>
-      </div>
-      </div>
-    );
-  };
+  const structureHeadings = structure?.sections || structure?.headings || structure?.toc || [];
 
   return (
-    <div className="animate-fade-in pdf-analysis-layout">
-      {/* Mobile Backdrop Overlay */}
-      <div 
+    <div className="pdf-analysis-layout">
+      <div
         className={`pdf-sidebar-overlay ${!historyCollapsed ? 'visible' : ''}`}
         onClick={() => setHistoryCollapsed(true)}
-      ></div>
+      />
 
-      {/* History Sidebar */}
-      <div className={`pdf-history-sidebar ${historyCollapsed ? 'collapsed' : ''}`}>
+      <aside className={`pdf-history-sidebar ${historyCollapsed ? 'collapsed' : ''}`}>
         <div className="pdf-history-header">
-          <button className="btn btn-primary" onClick={reset} style={{ padding: 'var(--space-2) var(--space-3)', fontSize: 'var(--fs-sm)' }}>
-            + New Chat
+          <button type="button" className="pdf-new-chat-btn" onClick={reset}>
+            + New
           </button>
-          <button 
-            className="pdf-history-toggle" 
-            onClick={() => setHistoryCollapsed(true)}
-          >
-            <ChevronLeft size={18}/>
+          <button type="button" className="pdf-history-toggle" onClick={() => setHistoryCollapsed(true)} title="Close history">
+            <ChevronLeft size={18} />
           </button>
         </div>
-        
         {!historyCollapsed && (
           <div className="pdf-history-list">
             {loadingChats ? (
-              <div style={{ display: 'flex', justifyContent: 'center', padding: 'var(--space-4)' }}><Spinner size={16}/></div>
+              <div className="pdf-history-empty">
+                <Spinner size={16} />
+              </div>
             ) : chatList.length === 0 ? (
-              <div style={{ padding: 'var(--space-4)', textAlign: 'center', color: 'var(--text-subtle)', fontSize: 'var(--fs-sm)' }}>No past chats found.</div>
+              <div className="pdf-history-empty">No past chats.</div>
             ) : (
-              chatList.map(chat => (
-                <div 
-                  key={chat.chat_id} 
+              chatList.map((chat) => (
+                <div
+                  key={chat.chat_id}
                   className={`pdf-history-item ${activeChatId === chat.chat_id ? 'active' : ''}`}
                   onClick={() => loadChat(chat.chat_id)}
                 >
                   <div className="pdf-history-item-content">
-                    <FileText size={14} style={{ color: activeChatId === chat.chat_id ? 'var(--primary)' : 'var(--text-subtle)' }} />
+                    <FileText size={14} />
                     <span className="pdf-history-item-text">{chat.filename}</span>
                   </div>
-                  <button className="pdf-history-item-delete" onClick={(e) => deleteChat(chat.chat_id, e)}>
+                  <button type="button" className="pdf-history-item-delete" onClick={(e) => deleteChat(chat.chat_id, e)}>
                     <X size={14} />
                   </button>
                 </div>
@@ -678,9 +577,295 @@ export default function PdfAnalysis() {
             )}
           </div>
         )}
-      </div>
+      </aside>
 
-      {renderContent()}
+      <div className="pdf-studio">
+        <header className="pdf-studio-bar">
+          <div className="pdf-studio-bar-left">
+            <button
+              type="button"
+              className="pdf-history-toggle"
+              onClick={() => setHistoryCollapsed(false)}
+              title="Chat history"
+            >
+              <History size={17} />
+            </button>
+            <div className="pdf-studio-title">
+              <span>Analysis Studio</span>
+              {file?.name && <span className="pdf-studio-file">{file.name}</span>}
+            </div>
+          </div>
+
+          {hasPaper && (
+            <nav className="pdf-mode-tabs" aria-label="Studio modes">
+              {MODES.map(({ id, label, Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={`pdf-mode-tab ${mode === id ? 'is-active' : ''}`}
+                  onClick={() => setMode(id)}
+                >
+                  <Icon size={14} />
+                  {label}
+                  {id === 'findings' && (findings.gaps.length > 0 || findings.diagrams.length > 0) && (
+                    <span className="pdf-mode-count">{findings.gaps.length + findings.diagrams.length}</span>
+                  )}
+                </button>
+              ))}
+            </nav>
+          )}
+
+          <div className="pdf-studio-bar-right">
+            <button type="button" className="pdf-attach-btn" onClick={() => fileInputRef.current?.click()} title="Upload PDF">
+              <Paperclip size={15} />
+              {hasPaper ? 'Replace' : 'Upload'}
+            </button>
+            {hasPaper && (
+              <button type="button" className="pdf-attach-btn danger" onClick={reset} title="Clear session">
+                <X size={15} />
+              </button>
+            )}
+          </div>
+        </header>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/pdf"
+          style={{ display: 'none' }}
+          onChange={(e) => handleFileChange(e.target.files?.[0])}
+        />
+
+        <div className="pdf-studio-body">
+          {isExtracting ? (
+            <div className="pdf-empty-stage">
+              <Spinner size={40} />
+              <h2>Extracting document…</h2>
+              <p>Parsing text and structure. This may take a few seconds.</p>
+            </div>
+          ) : !hasPaper ? (
+            <div className="pdf-empty-stage">
+              <div className="pdf-empty-icon">
+                <FileText size={28} />
+              </div>
+              <h1>Analysis Studio</h1>
+              <p>Upload a paper, then move between Read, Ask, and Findings.</p>
+              {error && (
+                <div className="pdf-error-banner">
+                  <AlertCircle size={15} /> {error}
+                </div>
+              )}
+              <div
+                className={`pdf-dropzone ${isDragging ? 'dragging' : ''}`}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setIsDragging(true);
+                }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setIsDragging(false);
+                  if (e.dataTransfer.files.length) handleFileChange(e.dataTransfer.files[0]);
+                }}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <UploadCloud size={28} className="pdf-dropzone-icon" />
+                <h3>Drop your PDF here</h3>
+                <p>or click to browse</p>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* READ */}
+              {mode === 'read' && (
+                <section className="pdf-mode-panel pdf-read-panel">
+                  <div className="pdf-read-grid">
+                    <div className="pdf-viewer-pane">
+                      {file?.size || pdfBlobUrl ? (
+                        <div className="pdf-viewer-scroll" ref={viewerScrollRef}>
+                          <Document
+                            file={file?.size ? file : pdfBlobUrl}
+                            onLoadSuccess={({ numPages: n }) => {
+                              setNumPages(n);
+                              setPageNumber((p) => Math.min(p, n));
+                            }}
+                            loading={
+                              <div className="pdf-viewer-loading">
+                                <Spinner size={24} />
+                              </div>
+                            }
+                          >
+                            <div
+                              style={{
+                                transform: `scale(${1 / pixelRatio})`,
+                                transformOrigin: 'top left',
+                                width: `${100 * pixelRatio}%`,
+                              }}
+                            >
+                              <Page
+                                pageNumber={pageNumber}
+                                renderTextLayer
+                                renderAnnotationLayer
+                                scale={zoom * pixelRatio}
+                              />
+                            </div>
+                          </Document>
+                        </div>
+                      ) : (
+                        <div className="pdf-viewer-missing">
+                          <p>Preview unavailable.{fileId ? ' Loading PDF…' : ''}</p>
+                        </div>
+                      )}
+                      {(file?.size || pdfBlobUrl) && numPages && (
+                        <div className="pdf-viewer-controls">
+                          <div className="pdf-control-cluster">
+                            <button type="button" className="pdf-control-btn" onClick={() => setZoom((z) => Math.max(0.5, z - 0.2))}>
+                              <Minus size={15} />
+                            </button>
+                            <span className="pdf-control-label">{Math.round(zoom * 100)}%</span>
+                            <button type="button" className="pdf-control-btn" onClick={() => setZoom((z) => Math.min(3, z + 0.2))}>
+                              <Plus size={15} />
+                            </button>
+                          </div>
+                          <div className="pdf-control-divider" />
+                          <div className="pdf-control-cluster">
+                            <button
+                              type="button"
+                              className="pdf-control-btn"
+                              disabled={pageNumber <= 1}
+                              onClick={() => setPageNumber((p) => p - 1)}
+                            >
+                              <ChevronLeft size={15} />
+                            </button>
+                            <span className="pdf-control-label">
+                              Page {pageNumber} / {numPages}
+                            </span>
+                            <button
+                              type="button"
+                              className="pdf-control-btn"
+                              disabled={pageNumber >= numPages}
+                              onClick={() => setPageNumber((p) => p + 1)}
+                            >
+                              <ChevronRight size={15} />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {Array.isArray(structureHeadings) && structureHeadings.length > 0 && (
+                      <aside className="pdf-toc-rail">
+                        <h3>Structure</h3>
+                        <ul>
+                          {structureHeadings.slice(0, 40).map((s, i) => {
+                            const title = typeof s === 'string' ? s : s.title || s.heading || s.name || `Section ${i + 1}`;
+                            const page = typeof s === 'object' ? s.page || s.page_number : null;
+                            return (
+                              <li key={i}>
+                                <button
+                                  type="button"
+                                  onClick={() => page && jumpToPage(Number(page))}
+                                  disabled={!page}
+                                >
+                                  <span>{title}</span>
+                                  {page && <em>p.{page}</em>}
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </aside>
+                    )}
+                  </div>
+                </section>
+              )}
+
+              {/* ASK */}
+              {mode === 'ask' && (
+                <section className="pdf-mode-panel pdf-ask-panel">
+                  <div className="pdf-messages-area">
+                    {messages.map((msg) => (
+                      <MessageBubble key={msg.id} msg={msg} onPageJump={jumpToPage} />
+                    ))}
+                    {messages.length === 1 && (
+                      <div className="pdf-suggestions">
+                        {SUGGESTIONS.map((s) => (
+                          <button key={s.label} type="button" className="pdf-suggestion-chip" onClick={() => runAnalysis(s.prompt)}>
+                            <Search size={13} />
+                            {s.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <div ref={chatEndRef} />
+                  </div>
+                  <div className="pdf-input-container">
+                    <div className="pdf-input-wrapper">
+                      <textarea
+                        ref={inputRef}
+                        className="pdf-textarea"
+                        placeholder="Ask about methods, gaps, results…"
+                        value={customPrompt}
+                        onChange={(e) => setCustomPrompt(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        rows={1}
+                        disabled={isAnalyzing || isExtracting}
+                      />
+                      <button
+                        type="button"
+                        className="pdf-send-btn"
+                        onClick={() => runAnalysis()}
+                        disabled={!customPrompt.trim() || isAnalyzing || isExtracting}
+                      >
+                        {isAnalyzing ? <Spinner size={16} /> : <Send size={16} />}
+                      </button>
+                    </div>
+                  </div>
+                </section>
+              )}
+
+              {/* FINDINGS */}
+              {mode === 'findings' && (
+                <section className="pdf-mode-panel pdf-findings-panel">
+                  {findings.gaps.length === 0 && findings.diagrams.length === 0 ? (
+                    <div className="pdf-empty-stage compact">
+                      <Layers size={28} />
+                      <h2>No findings yet</h2>
+                      <p>Ask for research gaps or a methodology diagram — results land here.</p>
+                      <button type="button" className="pdf-new-chat-btn" onClick={() => setMode('ask')}>
+                        Go to Ask
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="pdf-findings-stack">
+                      {findings.gaps.map((msg) => (
+                        <article key={msg.id} className="pdf-finding-card">
+                          <header>
+                            <AlertTriangle size={15} />
+                            Gap analysis
+                          </header>
+                          <GapPanel data={msg.data} />
+                        </article>
+                      ))}
+                      {findings.diagrams.map((d) => (
+                        <article key={d.id} className="pdf-finding-card">
+                          <header>
+                            <Layers size={15} />
+                            Diagram
+                          </header>
+                          <div className="pdf-figure-block">
+                            <Mermaid chart={d.chart} />
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              )}
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

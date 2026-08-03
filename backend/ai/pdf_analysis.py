@@ -286,12 +286,40 @@ async def analyze_uploaded_paper(text: str, custom_prompt: str = None, structure
 CRITICAL FORMATTING RULES:
 1. You MUST format your response using Markdown (use bolding, bullet points, and headers to make the text scannable).
 2. For any mathematical equations, variables, or units with exponents (e.g. 10^3, Beff), you MUST wrap them in LaTeX syntax. Use single dollar signs ($x$) for inline math and double dollar signs ($$x$$) for block equations. Do NOT output raw unformatted math.
-3. When presenting metrics, benchmarks, trends, or workflows, use the appropriate Mermaid diagram block (`xychart-beta`, `pie`, or `graph TD`):
-   - Line chart (`xychart-beta` with `line [...]`): For trends over time or scaling.
-   - Bar chart (`xychart-beta` with `bar [...]`): For model/method comparisons or benchmark metrics.
-   - Pie chart (`pie title "..."`): For percentage breakdowns or dataset distributions.
-   - Flowchart (`graph TD`): For pipeline processes or methodology workflows.
-4. If providing code, use standard Markdown code blocks.
+3. When presenting metrics, benchmarks, trends, or workflows, ALWAYS use a fenced Mermaid block starting with ```mermaid.
+
+CHOOSE THE RIGHT DIAGRAM:
+- Line chart — trends over time/epochs → xychart-beta with `line [...]`
+- Bar chart — model/method comparisons → xychart-beta with `bar [...]`
+- Pie — percentage / distribution splits → `pie title "..."`
+- Flowchart — methodology / pipelines → `flowchart TD` (vertical — NEVER LR for complex flows)
+- Sequence — component interactions → `sequenceDiagram`
+
+DIAGRAM QUALITY RULES (STRICT — diagrams must stay readable):
+- Prefer `flowchart TD` (top-down). Do NOT use `flowchart LR` / `graph LR` for methodologies with more than 4 nodes.
+- Keep each diagram focused: ideally 5–10 nodes. Split large ideas into 2 small diagrams rather than one huge wide one.
+- Node labels with spaces, %, commas, colons, or parentheses MUST be double-quoted, e.g. A["Data prep (80%)"].
+- Do NOT put LaTeX ($...$) or Markdown bold inside Mermaid blocks.
+- One clear pathway per flowchart — avoid many disconnected mini-trees side by side.
+- xychart-beta: short x-axis labels (1–2 words), numeric arrays only.
+Example flowchart:
+```mermaid
+flowchart TD
+    A["Input PDF"] --> B["Extract text"]
+    B --> C{"Quality OK?"}
+    C -->|Yes| D["Analyze"]
+    C -->|No| E["Retry"]
+    D --> F["Report"]
+```
+Example bar chart:
+```mermaid
+xychart-beta
+    title "Model Accuracy"
+    x-axis ["Baseline", "SVM", "CNN", "Ours"]
+    y-axis "Accuracy (%)" 0 --> 100
+    bar [62.1, 74.5, 88.0, 91.3]
+```
+4. If providing code, use standard Markdown code blocks with a language tag.
 """
         history_context = ""
         if rolling_summary or recent_turns:
@@ -322,7 +350,7 @@ CRITICAL FORMATTING RULES:
             raw = await generate_completion(
                 system_prompt=system_prompt,
                 user_prompt=prompt,
-                max_tokens=1000,
+                max_tokens=2200,
                 temperature=0.3,
                 cached_content=cached_content
             )

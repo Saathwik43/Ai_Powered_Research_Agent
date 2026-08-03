@@ -16,8 +16,32 @@ import 'katex/dist/katex.min.css';
 import { MODELS } from '../constants/models';
 import { diffWords } from 'diff';
 import Mermaid from '../components/Mermaid';
+import {
+  isMermaidBlock,
+  parseCodeLanguage,
+  codeChildrenToText,
+} from '../utils/mermaidChart';
 import SourcesPanel from '../components/SourcesPanel';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+
+function MarkdownCode({ className, children, ...props }) {
+  const language = parseCodeLanguage(className);
+  const contentStr = codeChildrenToText(children);
+  const isBlock = Boolean(className) || contentStr.includes('\n');
+
+  if (isBlock && isMermaidBlock(language, contentStr)) {
+    return <Mermaid chart={contentStr} />;
+  }
+  return isBlock && language ? (
+    <SyntaxHighlighter style={ghcolors} language={language} PreTag="div" {...props}>
+      {contentStr}
+    </SyntaxHighlighter>
+  ) : (
+    <code className={className} {...props}>
+      {children}
+    </code>
+  );
+}
 
 function extractText(node) {
   if (!node) return '';
@@ -604,7 +628,7 @@ export default function ManuscriptBuilder() {
   return (
     <div className="animate-fade-in">
       {/* Header */}
-      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--space-6)', flexWrap: 'wrap', gap: 'var(--space-4)' }}>
+      <div className="page-header manuscript-page-header">
         <div>
           <h1>Manuscript Builder</h1>
           <p className="text-muted">Write your research paper section by section with AI assistance.</p>
@@ -613,8 +637,8 @@ export default function ManuscriptBuilder() {
             <span><strong>Note:</strong> AI can make mistakes, review before proceeding.</span>
           </div>
         </div>
-        <div className="responsive-actions" style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
-          <div style={{ padding: 'var(--space-2) var(--space-3)', background: 'var(--bg-card-alt)', borderRadius: '6px', fontSize: 'var(--fs-sm)', fontWeight: '500', color: 'var(--text-muted)', border: '1px solid var(--border-color)' }}>
+        <div className="responsive-actions">
+          <div className="manuscript-format-badge">
             {citationStyle.toUpperCase()} Format
           </div>
           <button className="btn btn-secondary" onClick={handleNewPaper}>
@@ -637,10 +661,10 @@ export default function ManuscriptBuilder() {
         </div>
       </div>
 
-      <div className="manuscript-layout" style={{ display: 'flex', gap: 'var(--space-4)', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+      <div className="manuscript-layout">
 
         {/* Sidebar Column */}
-        <div className="manuscript-sidebar-column" style={{ flex: '0 0 240px', minWidth: '240px', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', sticky: 'top', top: '1.5rem' }}>
+        <div className="manuscript-sidebar-column">
           
           <SectionsList 
             sections={STEPS} 
@@ -651,7 +675,7 @@ export default function ManuscriptBuilder() {
           />
 
           {/* Configuration Block */}
-          <div className="manuscript-config-block" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1rem', boxShadow: 'none' }}>
+          <div className="manuscript-config-block">
             
             {/* Topic Input - Always Visible */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
@@ -742,25 +766,23 @@ export default function ManuscriptBuilder() {
         </div>
 
         {/* Editor */}
-        <div className="manuscript-editor-panel" style={{ flex: 1, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 'var(--space-5)', minWidth: 0 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
-            <h2 style={{ margin: 0, fontSize: 'var(--fs-md)' }}>{currentStep?.label}</h2>
-            <div className="responsive-actions" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
-              {autoStatus && <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>{autoStatus}</span>}
-              <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-                {generating ? (
-                  <button className="btn btn-secondary" onClick={stopGeneration} style={{ background: 'var(--danger)', color: 'white', borderColor: 'var(--danger)' }}>
-                    <Spinner size={14} /> Stop
-                  </button>
-                ) : (
-                  <button className="btn btn-secondary" onClick={generate} disabled={!topic.trim() || rateLimitWait > 0}>
-                    <Sparkles size={14} /> {rateLimitWait ? `Wait ${rateLimitWait}s` : 'Generate'}
-                  </button>
-                )}
-                <button className="btn btn-ghost" onClick={save} disabled={!topic || !Object.keys(content).length || saveStatus === 'saving'}>
-                  <Save size={14} /> {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : 'Save'}
+        <div className="manuscript-editor-panel">
+          <div className="manuscript-section-header">
+            <h2>{currentStep?.label}</h2>
+            <div className="manuscript-section-actions responsive-actions">
+              {autoStatus && <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', width: '100%' }}>{autoStatus}</span>}
+              {generating ? (
+                <button className="btn btn-secondary" onClick={stopGeneration} style={{ background: 'var(--danger)', color: 'white', borderColor: 'var(--danger)' }}>
+                  <Spinner size={14} /> Stop
                 </button>
-              </div>
+              ) : (
+                <button className="btn btn-secondary" onClick={generate} disabled={!topic.trim() || rateLimitWait > 0}>
+                  <Sparkles size={14} /> {rateLimitWait ? `Wait ${rateLimitWait}s` : 'Generate'}
+                </button>
+              )}
+              <button className="btn btn-ghost" onClick={save} disabled={!topic || !Object.keys(content).length || saveStatus === 'saving'}>
+                <Save size={14} /> {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : 'Save'}
+              </button>
             </div>
           </div>
 
@@ -815,13 +837,16 @@ export default function ManuscriptBuilder() {
 
           {/* Gap Analysis Panel */}
           {gapAnalysis && (
-            <div className="manuscript-gap-panel" style={{ marginBottom: 'var(--space-5)', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 'var(--space-5)' }}>
-              <button onClick={() => setGapPanelOpen(o => !o)} style={{display:'flex', alignItems:'center', gap:'var(--space-2)', width:'100%', background:'none', border:'none', cursor:'pointer', fontSize:'var(--fs-md)', fontWeight:600}}>
-                <Search size={16} color="var(--primary)" /> Research Gaps Analysis
-                <span style={{fontSize:'var(--fs-sm)', color:'var(--text-subtle)', fontWeight:400}}>
-                  ({gapAnalysis.conflicts?.length || 0} conflicts, {gapAnalysis.gaps?.length || 0} gaps)
+            <div className="manuscript-gap-panel">
+              <button type="button" className="manuscript-gap-toggle" onClick={() => setGapPanelOpen(o => !o)}>
+                <Search size={16} color="var(--primary)" style={{ marginTop: 3, flexShrink: 0 }} />
+                <span className="manuscript-gap-toggle-copy">
+                  <span className="manuscript-gap-toggle-title">Research Gaps Analysis</span>
+                  <span className="manuscript-gap-toggle-meta">
+                    {gapAnalysis.conflicts?.length || 0} conflicts · {gapAnalysis.gaps?.length || 0} gaps
+                  </span>
                 </span>
-                <ChevronDown size={16} style={{marginLeft:'auto', transform: gapPanelOpen ? 'rotate(180deg)' : 'none', transition:'transform 150ms ease'}} />
+                <ChevronDown size={16} style={{ marginTop: 3, flexShrink: 0, transform: gapPanelOpen ? 'rotate(180deg)' : 'none', transition: 'transform 150ms ease' }} />
               </button>
               
               <div className={`gap-panel-body${gapPanelOpen ? ' open' : ''}`}>
@@ -833,7 +858,7 @@ export default function ManuscriptBuilder() {
                     </div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', borderBottom: '1px solid var(--border)', paddingBottom: 'var(--space-2)', position: 'relative' }}>
+                      <div className="manuscript-gap-tabs" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', borderBottom: '1px solid var(--border)', paddingBottom: 'var(--space-2)', position: 'relative' }}>
                         {['consensus', 'conflicts', 'gaps'].map(tab => (
                           <button
                             key={tab}
@@ -996,61 +1021,68 @@ export default function ManuscriptBuilder() {
               </div>
             </div>
           ) : !generating && (
-            <div className="manuscript-editor-surface" key={active}>
+            <div className={`manuscript-editor-surface${viewMode === 'write' || viewMode === 'preview' ? '' : ' is-wide'}`} key={active}>
               <div className="manuscript-toolbar">
-                <div style={{ display: 'flex', gap: 'var(--space-4)', alignItems: 'center' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', position: 'relative' }}>
-                    {['write', 'preview', 'paper', 'sources'].map(mode => (
+                <div className="manuscript-toolbar-top">
+                  <div className="manuscript-mode-tabs" role="tablist" aria-label="Editor modes">
+                    {[
+                      { id: 'write', label: 'Write', short: 'Write' },
+                      { id: 'preview', label: 'Preview', short: 'Preview' },
+                      { id: 'paper', label: 'Paper Preview', short: 'Paper' },
+                      { id: 'sources', label: 'Sources', short: 'Sources' },
+                    ].map((mode) => (
                       <button
-                        key={mode}
-                        onClick={() => setViewMode(mode)}
-                        style={{ background: 'none', border: 'none', padding: 'var(--space-1) var(--space-2)', color: viewMode === mode ? 'var(--primary)' : 'var(--text-subtle)', fontWeight: viewMode === mode ? 600 : 400, cursor: 'pointer', transition: 'color var(--transition)', fontSize: 'var(--fs-sm)', textAlign: 'center' }}
+                        key={mode.id}
+                        type="button"
+                        role="tab"
+                        data-mode={mode.id}
+                        aria-selected={viewMode === mode.id}
+                        className={`manuscript-mode-tab${viewMode === mode.id ? ' is-active' : ''}`}
+                        onClick={() => setViewMode(mode.id)}
                       >
-                        {mode === 'write' ? 'Write' : mode === 'preview' ? 'Preview' : mode === 'paper' ? 'Paper Preview' : 'Sources'}
+                        <span className="mode-label-full">{mode.label}</span>
+                        <span className="mode-label-short">{mode.short}</span>
                       </button>
                     ))}
-                    <div style={{
-                      position: 'absolute', bottom: 0, height: '2px', background: 'var(--primary)',
-                      transition: 'transform var(--transition)',
-                      width: 'calc(100% / 4)',
-                      transform: `translateX(${['write', 'preview', 'paper', 'sources'].indexOf(viewMode) * 100}%)`
-                    }} />
+                    <div
+                      className="manuscript-mode-indicator"
+                      style={{ transform: `translateX(${['write', 'preview', 'paper', 'sources'].indexOf(viewMode) * 100}%)` }}
+                    />
                   </div>
-                  
-                  {/* Rich Text Toolbar (Only in Write Mode) */}
-                  {viewMode === 'write' && (
-                    <div className="manuscript-format-toolbar">
-                      <div className="format-group">
-                        <button className="format-btn" onMouseDown={(e) => handleFormat(e, '# ')} title="Heading 1"><Heading1 size={15} /></button>
-                        <button className="format-btn" onMouseDown={(e) => handleFormat(e, '## ')} title="Heading 2"><Heading2 size={15} /></button>
-                        <button className="format-btn" onMouseDown={(e) => handleFormat(e, '### ')} title="Heading 3"><Heading3 size={15} /></button>
-                      </div>
-                      <div className="format-group">
-                        <button className="format-btn" onMouseDown={(e) => handleFormat(e, '**', '**')} title="Bold"><Bold size={15} /></button>
-                        <button className="format-btn" onMouseDown={(e) => handleFormat(e, '*', '*')} title="Italic"><Italic size={15} /></button>
-                        <button className="format-btn" onMouseDown={(e) => handleFormat(e, '~~', '~~')} title="Strikethrough"><Strikethrough size={15} /></button>
-                        <button className="format-btn" onMouseDown={(e) => handleFormat(e, '[', '](url)')} title="Link"><Link size={15} /></button>
-                      </div>
-                      <div className="format-group">
-                        <button className="format-btn" onMouseDown={(e) => handleFormat(e, '- ')} title="Bulleted List"><List size={15} /></button>
-                        <button className="format-btn" onMouseDown={(e) => handleFormat(e, '1. ')} title="Numbered List"><ListOrdered size={15} /></button>
-                        <button className="format-btn" onMouseDown={(e) => handleFormat(e, '- [ ] ')} title="Checklist"><CheckSquare size={15} /></button>
-                        <button className="format-btn" onMouseDown={(e) => handleFormat(e, '\n| Column 1 | Column 2 |\n| -------- | -------- |\n| Text     | Text     |\n')} title="Table"><Table size={15} /></button>
-                      </div>
-                      <div className="format-group">
-                        <button className="format-btn" onMouseDown={(e) => handleFormat(e, '> ')} title="Blockquote"><Quote size={15} /></button>
-                        <button className="format-btn" onMouseDown={(e) => handleFormat(e, '```\n', '\n```')} title="Code Block"><Code size={15} /></button>
-                      </div>
-                      <div className="format-group">
-                        <button className="format-btn" onMouseDown={handleUndo} title="Undo"><Undo size={15} /></button>
-                        <button className="format-btn" onMouseDown={handleRedo} title="Redo"><Redo size={15} /></button>
-                      </div>
+                  <div className="manuscript-word-count">
+                    {content[active] ? content[active].trim().split(/\s+/).length : 0} words
+                  </div>
+                </div>
+
+                {viewMode === 'write' && (
+                  <div className="manuscript-format-toolbar" aria-label="Formatting">
+                    <div className="format-group">
+                      <button className="format-btn" onMouseDown={(e) => handleFormat(e, '# ')} title="Heading 1"><Heading1 size={15} /></button>
+                      <button className="format-btn" onMouseDown={(e) => handleFormat(e, '## ')} title="Heading 2"><Heading2 size={15} /></button>
+                      <button className="format-btn" onMouseDown={(e) => handleFormat(e, '### ')} title="Heading 3"><Heading3 size={15} /></button>
                     </div>
-                  )}
-                </div>
-                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-subtle)', fontWeight: 500, minWidth: '70px', textAlign: 'right' }}>
-                  {content[active] ? content[active].trim().split(/\s+/).length : 0} words
-                </div>
+                    <div className="format-group">
+                      <button className="format-btn" onMouseDown={(e) => handleFormat(e, '**', '**')} title="Bold"><Bold size={15} /></button>
+                      <button className="format-btn" onMouseDown={(e) => handleFormat(e, '*', '*')} title="Italic"><Italic size={15} /></button>
+                      <button className="format-btn" onMouseDown={(e) => handleFormat(e, '~~', '~~')} title="Strikethrough"><Strikethrough size={15} /></button>
+                      <button className="format-btn" onMouseDown={(e) => handleFormat(e, '[', '](url)')} title="Link"><Link size={15} /></button>
+                    </div>
+                    <div className="format-group">
+                      <button className="format-btn" onMouseDown={(e) => handleFormat(e, '- ')} title="Bulleted List"><List size={15} /></button>
+                      <button className="format-btn" onMouseDown={(e) => handleFormat(e, '1. ')} title="Numbered List"><ListOrdered size={15} /></button>
+                      <button className="format-btn" onMouseDown={(e) => handleFormat(e, '- [ ] ')} title="Checklist"><CheckSquare size={15} /></button>
+                      <button className="format-btn" onMouseDown={(e) => handleFormat(e, '\n| Column 1 | Column 2 |\n| -------- | -------- |\n| Text     | Text     |\n')} title="Table"><Table size={15} /></button>
+                    </div>
+                    <div className="format-group">
+                      <button className="format-btn" onMouseDown={(e) => handleFormat(e, '> ')} title="Blockquote"><Quote size={15} /></button>
+                      <button className="format-btn" onMouseDown={(e) => handleFormat(e, '```\n', '\n```')} title="Code Block"><Code size={15} /></button>
+                    </div>
+                    <div className="format-group">
+                      <button className="format-btn" onMouseDown={handleUndo} title="Undo"><Undo size={15} /></button>
+                      <button className="format-btn" onMouseDown={handleRedo} title="Redo"><Redo size={15} /></button>
+                    </div>
+                  </div>
+                )}
               </div>
               
               {viewMode === 'write' ? (
@@ -1060,12 +1092,9 @@ export default function ManuscriptBuilder() {
                   value={(content[active] || '') + (generating ? '▋' : '')}
                   onChange={e => setContent(prev => ({ ...prev, [active]: e.target.value }))}
                   disabled={generating}
-                  style={{ width: '100%', minHeight: '420px', padding: 'var(--space-4)', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', color: 'var(--text)', fontFamily: 'inherit', fontSize: 'var(--fs-sm)', resize: 'vertical', outline: 'none', lineHeight: 1.75, transition: 'var(--transition)', boxSizing: 'border-box', opacity: generating ? 0.8 : 1 }}
-                  onFocus={e => { e.target.style.borderColor = 'var(--border-focus)'; e.target.style.boxShadow = '0 0 0 3px var(--primary-light)'; }}
-                  onBlur={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.boxShadow = 'none'; }}
                 />
               ) : viewMode === 'preview' ? (
-                <div className="pdf-markdown-body" style={{ width: '100%', minHeight: '420px', padding: 'var(--space-4)', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', color: 'var(--text)', overflowY: 'auto', boxSizing: 'border-box' }}>
+                <div className="pdf-markdown-body">
                   {content[active] ? (
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm, remarkMath]}
@@ -1078,22 +1107,7 @@ export default function ManuscriptBuilder() {
                           }
                           return <a href={href} {...props}>{children}</a>;
                         },
-                        code({ node, inline, className, children, ...props }) {
-                          const match = /language-(\w+)/.exec(className || '');
-                          const language = match ? match[1].toLowerCase() : '';
-                          const contentStr = String(children).replace(/\n$/, '');
-                          
-                          if (!inline && (language === 'mermaid' || language === 'graph' || language === 'xychart-beta' || contentStr.trim().startsWith('graph ') || contentStr.trim().startsWith('pie ') || contentStr.trim().startsWith('sequenceDiagram') || contentStr.trim().startsWith('xychart-beta'))) {
-                            return <Mermaid chart={contentStr} />;
-                          }
-                          return !inline && match ? (
-                            <SyntaxHighlighter style={ghcolors} language={match[1]} PreTag="div" {...props}>
-                              {contentStr}
-                            </SyntaxHighlighter>
-                          ) : (
-                            <code className={className} {...props}>{children}</code>
-                          );
-                        }
+                        code: MarkdownCode
                       }}
                     >
                       {processForUnverified((content[active] || '') + (generating ? ' <span class="write-cursor">▋</span>' : ''))}
@@ -1124,22 +1138,7 @@ export default function ManuscriptBuilder() {
                               }
                               return <a href={href} {...props}>{children}</a>;
                             },
-                            code({ node, inline, className, children, ...props }) {
-                              const match = /language-(\w+)/.exec(className || '');
-                              const language = match ? match[1].toLowerCase() : '';
-                              const contentStr = String(children).replace(/\n$/, '');
-                              
-                              if (!inline && (language === 'mermaid' || language === 'graph' || language === 'xychart-beta' || contentStr.trim().startsWith('graph ') || contentStr.trim().startsWith('pie ') || contentStr.trim().startsWith('sequenceDiagram') || contentStr.trim().startsWith('xychart-beta'))) {
-                                return <Mermaid chart={contentStr} />;
-                              }
-                              return !inline && match ? (
-                                <SyntaxHighlighter style={ghcolors} language={match[1]} PreTag="div" {...props}>
-                                  {contentStr}
-                                </SyntaxHighlighter>
-                              ) : (
-                                <code className={className} {...props}>{children}</code>
-                              );
-                            }
+                            code: MarkdownCode
                           }}
                         >
                           {processForUnverified(content[active])}
@@ -1176,22 +1175,7 @@ export default function ManuscriptBuilder() {
                                 }
                                 return <a href={href} {...props}>{children}</a>;
                               },
-                              code({ node, inline, className, children, ...props }) {
-                                const match = /language-(\w+)/.exec(className || '');
-                                const language = match ? match[1].toLowerCase() : '';
-                                const contentStr = String(children).replace(/\n$/, '');
-                                
-                                if (!inline && (language === 'mermaid' || language === 'graph' || language === 'xychart-beta' || contentStr.trim().startsWith('graph ') || contentStr.trim().startsWith('pie ') || contentStr.trim().startsWith('sequenceDiagram') || contentStr.trim().startsWith('xychart-beta'))) {
-                                  return <Mermaid chart={contentStr} />;
-                                }
-                                return !inline && match ? (
-                                  <SyntaxHighlighter style={ghcolors} language={match[1]} PreTag="div" {...props}>
-                                    {contentStr}
-                                  </SyntaxHighlighter>
-                                ) : (
-                                  <code className={className} {...props}>{children}</code>
-                                );
-                              }
+                              code: MarkdownCode
                             }}
                           >
                             {processForUnverified(content[step.id])}
@@ -1206,20 +1190,20 @@ export default function ManuscriptBuilder() {
               )}
 
               {content[active] && !generating && (
-                <div style={{ position: 'absolute', bottom: '1.5rem', right: '1.5rem', display: 'flex', gap: 'var(--space-3)' }}>
+                <div className="manuscript-editor-footer">
                   {editHistory[active] && editHistory[active].length > 0 && (
-                    <button 
+                    <button
+                      type="button"
                       className="btn btn-secondary"
                       onClick={undoLastEdit}
-                      style={{ borderRadius: '50px', padding: 'var(--space-3) var(--space-4)', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}
                     >
                       <Undo size={16} /> Undo AI Edit
                     </button>
                   )}
-                  <button 
+                  <button
+                    type="button"
                     className="btn btn-primary"
                     onClick={() => setRevisePanelOpen(true)}
-                    style={{ borderRadius: '50px', padding: 'var(--space-3) var(--space-4)', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}
                   >
                     <Sparkles size={16} /> AI Revise
                   </button>
@@ -1230,14 +1214,13 @@ export default function ManuscriptBuilder() {
                 <div className={`manuscript-revise-panel ${revisePanelOpen ? 'open' : ''}`}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)' }}>
                     <p style={{ margin: 0, fontSize: 'var(--fs-sm)', fontWeight: 600, color: 'var(--primary)' }}><Sparkles size={14} style={{ display: 'inline', verticalAlign: 'text-bottom' }}/> Revise Section</p>
-                    <button onClick={() => setRevisePanelOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)' }}><X size={16} /></button>
+                    <button type="button" onClick={() => setRevisePanelOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)' }}><X size={16} /></button>
                   </div>
-                  <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+                  <div className="manuscript-revise-row">
                     <input
                       placeholder="e.g. Make this shorter, add bullet points, fix grammar..."
                       value={editPrompt}
                       onChange={e => setEditPrompt(e.target.value)}
-                      style={{ flex: 1, minWidth: '200px' }}
                       disabled={editing || generating}
                       onKeyDown={e => { if (e.key === 'Enter') applyEdit(); }}
                     />
@@ -1277,12 +1260,11 @@ export default function ManuscriptBuilder() {
                 </div>
               </div>
               
-              {/* Mobile overlay backdrop */}
               {refsOpen && (
-                <div 
-                  style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 35 }} 
+                <div
+                  className="manuscript-refs-overlay"
                   onClick={() => setRefsOpen(false)}
-                  className="mobile-overlay"
+                  aria-hidden="true"
                 />
               )}
             </>

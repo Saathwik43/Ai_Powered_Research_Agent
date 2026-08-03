@@ -302,7 +302,7 @@ export default function SourcesPanel({ topic }) {
           <p style={{ margin: 'var(--space-1) 0 0 0', fontSize: 'var(--fs-xs)', opacity: 0.8 }}>Upload your CSV results or experimental notes above to inject un-paraphrased facts into manuscript generation.</p>
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 'var(--space-3)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))', gap: 'var(--space-3)' }}>
           {sources.map((source) => {
             const sid = source.id || source._id;
             return (

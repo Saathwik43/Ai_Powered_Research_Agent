@@ -1,3 +1,85 @@
+/* Manuscript Builder — layout, toolbar, drawers */
+
+.manuscript-page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.manuscript-page-header .responsive-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.manuscript-format-badge {
+  padding: 0.4rem 0.75rem;
+  background: var(--bg-card-alt, var(--bg-elevated));
+  border-radius: var(--radius-md);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.manuscript-layout {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.manuscript-sidebar-column {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  position: sticky;
+  top: 1.5rem;
+  min-width: 0;
+}
+
+.manuscript-config-block {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1rem;
+}
+
+.manuscript-editor-panel {
+  min-width: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem;
+}
+
+.manuscript-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.manuscript-section-header h2 {
+  margin: 0;
+  font-size: var(--fs-md);
+  min-width: 0;
+}
+
+.manuscript-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .manuscript-editor-surface {
   max-width: 720px;
   margin: 0 auto;
@@ -5,6 +87,16 @@
   line-height: 1.7;
   animation: stepFadeIn 0.15s ease-out;
   position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.manuscript-editor-surface:has(.paper-preview),
+.manuscript-editor-surface:has(.sources-panel-container),
+.manuscript-editor-surface.is-wide {
+  max-width: none;
 }
 
 @keyframes stepFadeIn {
@@ -12,23 +104,219 @@
   to { opacity: 1; }
 }
 
-.manuscript-editor-surface textarea, 
+.manuscript-editor-surface textarea,
 .manuscript-editor-surface .pdf-markdown-body {
   font-size: inherit;
   line-height: inherit;
+  width: 100%;
+  min-height: 420px;
+  padding: 1rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  box-sizing: border-box;
 }
 
+.manuscript-editor-surface textarea {
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  resize: vertical;
+  outline: none;
+  line-height: 1.75;
+  transition: border-color var(--transition), box-shadow var(--transition), opacity var(--transition);
+}
+
+.manuscript-editor-surface textarea:focus {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px var(--primary-light);
+}
+
+.manuscript-editor-surface textarea:disabled {
+  opacity: 0.8;
+}
+
+.manuscript-editor-surface .pdf-markdown-body {
+  overflow-y: auto;
+}
+
+/* Toolbar */
 .manuscript-toolbar {
   position: sticky;
   top: 0;
-  background: var(--bg-card);
   z-index: 5;
-  padding: 0.5rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin: 0 0 0.25rem;
+  padding: 0.5rem 0 0.65rem;
+  background: var(--bg-card);
   border-bottom: 1px solid var(--border);
+}
+
+.manuscript-toolbar-top {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 1rem;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.manuscript-mode-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.manuscript-mode-tab {
+  background: none;
+  border: none;
+  padding: 0.45rem 0.4rem;
+  color: var(--text-subtle);
+  font-weight: 500;
+  cursor: pointer;
+  font-size: var(--fs-sm);
+  text-align: center;
+  white-space: nowrap;
+  font-family: inherit;
+  min-width: 0;
+}
+
+.manuscript-mode-tab.is-active {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.manuscript-mode-indicator {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: var(--primary);
+  width: 25%;
+  transition: transform var(--transition);
+  pointer-events: none;
+}
+
+.manuscript-word-count {
+  font-size: var(--fs-sm);
+  color: var(--text-subtle);
+  font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Format toolbar sits on its OWN row under mode tabs — no side indent */
+.manuscript-format-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.15rem 0 0;
+  border: none;
+  flex-wrap: wrap;
+}
+
+.format-group {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding-right: 0.55rem;
+  border-right: 1px solid var(--border);
+}
+
+.format-group:last-child {
+  border-right: none;
+  padding-right: 0;
+}
+
+.format-btn {
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: var(--text-subtle);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.format-btn:hover {
+  background: var(--bg-input);
+  color: var(--text);
+}
+
+.format-btn:active {
+  background: var(--border);
+}
+
+.mode-label-short {
+  display: none;
+}
+
+/* Editor footer actions (replaces overlapping absolute FABs) */
+.manuscript-editor-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  padding-top: 0.25rem;
+}
+
+.manuscript-editor-footer .btn {
+  border-radius: 999px;
+  padding: 0.65rem 1rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.manuscript-gap-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+  font-family: inherit;
+}
+
+.manuscript-gap-toggle-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.manuscript-gap-toggle-title {
+  font-size: var(--fs-md);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.manuscript-gap-toggle-meta {
+  font-size: var(--fs-sm);
+  color: var(--text-subtle);
+  font-weight: 400;
+}
+
+.manuscript-gap-panel {
+  margin-bottom: 1.25rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem;
 }
 
 /* AI Revise Panel */
@@ -48,15 +336,27 @@
   border-left: 1px solid var(--border);
   border-right: 1px solid var(--border);
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-  box-shadow: 0 -4px 20px rgba(0,0,0,0.08);
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08);
   padding: 1.25rem;
   transform: translateY(100%);
-  transition: transform 0.25s cubic-bezier(0.32,0.72,0,1);
+  transition: transform 0.25s cubic-bezier(0.32, 0.72, 0, 1);
   pointer-events: auto;
 }
 
 .manuscript-revise-panel.open {
   transform: translateY(0);
+}
+
+.manuscript-revise-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.manuscript-revise-row input {
+  flex: 1;
+  min-width: 180px;
 }
 
 /* Diff View */
@@ -82,7 +382,7 @@
 }
 
 .manuscript-diff-view del {
-  background: rgba(229,28,35,0.12);
+  background: rgba(229, 28, 35, 0.12);
   color: var(--danger);
   text-decoration: line-through;
   padding: 0 2px;
@@ -90,7 +390,7 @@
 }
 
 .manuscript-diff-view ins {
-  background: rgba(0,163,108,0.12);
+  background: rgba(0, 163, 108, 0.12);
   color: var(--success);
   text-decoration: none;
   padding: 0 2px;
@@ -106,9 +406,9 @@
   width: 320px;
   background: var(--bg-card);
   border-left: 1px solid var(--border);
-  box-shadow: -4px 0 24px rgba(0,0,0,0.05);
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.05);
   transform: translateX(100%);
-  transition: transform 0.28s cubic-bezier(0.32,0.72,0,1);
+  transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
   z-index: 40;
   display: flex;
   flex-direction: column;
@@ -116,6 +416,10 @@
 
 .manuscript-refs-drawer.open {
   transform: translateX(0);
+}
+
+.manuscript-refs-overlay {
+  display: none;
 }
 
 .manuscript-refs-drawer-header {
@@ -132,7 +436,6 @@
   flex: 1;
 }
 
-/* Toggle for References Drawer */
 .manuscript-refs-toggle {
   position: fixed;
   right: 0;
@@ -143,7 +446,7 @@
   border-right: none;
   border-radius: var(--radius-md) 0 0 var(--radius-md);
   padding: 0.75rem 0.5rem;
-  box-shadow: -2px 0 8px rgba(0,0,0,0.05);
+  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.05);
   z-index: 39;
   cursor: pointer;
   display: flex;
@@ -160,66 +463,12 @@
   background: var(--bg-input);
 }
 
-/* Sidebar Active Step Polish */
 .manuscript-step-active {
   border-left: 3px solid var(--gold) !important;
   padding-left: calc(0.75rem - 3px) !important;
   background: var(--gold-light) !important;
 }
 
-@media (max-width: 1024px) {
-  .manuscript-refs-drawer {
-    z-index: 50;
-  }
-}
-
-/* Markdown Format Toolbar */
-.manuscript-format-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding-left: 1rem;
-  margin-left: 1rem;
-  border-left: 1px solid var(--border);
-  flex-wrap: wrap;
-}
-
-.format-group {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding-right: 0.75rem;
-  border-right: 1px solid var(--border);
-}
-
-.format-group:last-child {
-  border-right: none;
-  padding-right: 0;
-}
-
-.format-btn {
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm);
-  padding: 0.35rem;
-  color: var(--text-subtle);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s;
-}
-
-.format-btn:hover {
-  background: var(--bg-input);
-  color: var(--text);
-}
-
-.format-btn:active {
-  background: var(--border);
-}
-
-/* Unverified Statistics */
 .unverified-stat {
   border-bottom: 2px dotted var(--danger);
   cursor: help;
@@ -231,5 +480,232 @@
 }
 
 .source-card {
-  animation: sourceCardIn 250ms var(--ease-standard, cubic-bezier(0.2,0.8,0.2,1)) backwards;
+  animation: sourceCardIn 250ms var(--ease-standard, cubic-bezier(0.2, 0.8, 0.2, 1)) backwards;
+}
+
+@media (max-width: 1024px) {
+  .manuscript-refs-drawer {
+    z-index: 50;
+    top: var(--mobile-header-height, 0px);
+  }
+}
+
+@media (max-width: 960px) {
+  .manuscript-layout {
+    grid-template-columns: 1fr;
+    gap: 0.85rem;
+  }
+
+  .manuscript-page-header {
+    margin-bottom: 1rem;
+    gap: 0.75rem;
+  }
+
+  .manuscript-page-header h1 {
+    font-size: 1.45rem;
+  }
+
+  .manuscript-page-header .text-muted {
+    font-size: 0.88rem;
+  }
+
+  .manuscript-sidebar-column {
+    position: static;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .manuscript-editor-panel {
+    width: 100%;
+    padding: 0.85rem;
+    border-radius: var(--radius-lg);
+  }
+
+  .manuscript-outline-panel {
+    padding: 0.75rem;
+  }
+
+  /* Sections become a horizontal chip scroller */
+  .manuscript-outline-panel > div:last-child {
+    display: flex !important;
+    flex-direction: row !important;
+    gap: 0.45rem !important;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 0.15rem;
+  }
+
+  .manuscript-outline-panel > div:last-child::-webkit-scrollbar {
+    display: none;
+  }
+
+  .manuscript-outline-panel > div:last-child > div {
+    flex: 0 0 auto !important;
+    white-space: nowrap;
+  }
+
+  .manuscript-config-block {
+    padding: 0.85rem;
+  }
+
+  .manuscript-mode-tabs {
+    display: flex;
+    grid-template-columns: none;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    border-bottom: 1.5px solid var(--border);
+    gap: 0;
+  }
+
+  .manuscript-mode-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .manuscript-mode-tab {
+    flex: 0 0 auto;
+    padding: 0.55rem 0.85rem;
+    font-size: 0.78rem;
+    font-weight: 650;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  .manuscript-mode-indicator {
+    display: none;
+  }
+
+  .manuscript-mode-tab.is-active {
+    color: var(--text);
+    box-shadow: inset 0 -2px 0 var(--primary);
+  }
+
+  .mode-label-full {
+    display: none;
+  }
+
+  .mode-label-short {
+    display: inline;
+  }
+
+  .manuscript-toolbar-top {
+    flex-wrap: wrap;
+  }
+
+  .manuscript-word-count {
+    font-size: 0.72rem;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+  .manuscript-format-toolbar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    gap: 0.35rem;
+    padding-bottom: 0.15rem;
+  }
+
+  .manuscript-format-toolbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .format-group {
+    flex-shrink: 0;
+    padding-right: 0.45rem;
+  }
+
+  .format-btn {
+    width: 36px;
+    height: 36px;
+  }
+
+  .manuscript-gap-tabs {
+    display: flex !important;
+    grid-template-columns: none !important;
+    gap: 0;
+    overflow-x: auto;
+  }
+
+  .manuscript-gap-tabs > button {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .manuscript-gap-panel {
+    padding: 0.85rem;
+  }
+
+  .manuscript-section-actions {
+    width: 100%;
+  }
+
+  .manuscript-section-actions .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+    min-height: 42px;
+  }
+
+  .manuscript-editor-footer {
+    justify-content: stretch;
+  }
+
+  .manuscript-editor-footer .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .manuscript-refs-drawer {
+    width: min(320px, 100vw);
+    top: var(--mobile-header-height, 58px);
+  }
+
+  .manuscript-refs-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    top: var(--mobile-header-height, 58px);
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 45;
+  }
+
+  .manuscript-refs-toggle {
+    top: auto;
+    bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+    right: 0.85rem;
+    transform: none;
+    writing-mode: horizontal-tb;
+    text-orientation: initial;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    padding: 0.65rem 0.85rem;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .manuscript-editor-surface {
+    max-width: none;
+  }
+
+  .manuscript-editor-surface textarea {
+    min-height: 55vh;
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 520px) {
+  .manuscript-refs-drawer {
+    width: 100vw;
+    left: 0;
+    right: 0;
+  }
+
+  .manuscript-page-header .responsive-actions .btn {
+    flex: 1 1 calc(50% - 0.35rem);
+  }
+
+  .manuscript-format-badge {
+    width: 100%;
+    text-align: center;
+  }
 }

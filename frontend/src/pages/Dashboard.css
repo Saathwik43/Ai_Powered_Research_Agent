@@ -1,5 +1,5 @@
 /* Dashboard — Split Desk
-   Left browse rail · right stream · one vertical rule · ink / rust / forest */
+   Left browse rail · right stream · curved surfaces · soft motion */
 
 .dashboard-page {
   --dash-ink: #12141A;
@@ -12,16 +12,41 @@
   --dash-rule: #12141A;
   --dash-paper: #FFFEFA;
   --dash-wash: #F3F0E8;
-  --dash-ease: 120ms ease;
+  --dash-radius: 16px;
+  --dash-radius-sm: 10px;
+  --dash-radius-pill: 999px;
+  --dash-ease: 220ms cubic-bezier(0.22, 1, 0.36, 1);
   color: var(--dash-ink);
   max-width: 1120px;
+  animation: dashRise 0.45s var(--dash-ease) both;
 }
 
-/* ── Masthead (open, no box) ── */
+@keyframes dashRise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes dashSoftIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Masthead ── */
 .dashboard-masthead {
   margin-bottom: 1.75rem;
   padding-bottom: 1.25rem;
-  border-bottom: 2px solid var(--dash-rule);
+  border-bottom: none;
+  position: relative;
+}
+
+.dashboard-masthead::after {
+  content: '';
+  display: block;
+  height: 3px;
+  width: 4.5rem;
+  margin-top: 1.1rem;
+  border-radius: var(--dash-radius-pill);
+  background: linear-gradient(90deg, var(--dash-rust), transparent);
 }
 
 .dashboard-kicker {
@@ -86,11 +111,23 @@
 
 .dashboard-rail {
   padding-right: 1.35rem;
-  border-right: 1.5px solid var(--dash-rule);
+  margin-right: 0.35rem;
+  border-right: none;
   position: sticky;
   top: 1rem;
   max-height: calc(100vh - 2rem);
   overflow-y: auto;
+}
+
+.dashboard-rail::after {
+  content: '';
+  position: absolute;
+  top: 0.5rem;
+  right: 0;
+  bottom: 0.5rem;
+  width: 2px;
+  border-radius: var(--dash-radius-pill);
+  background: linear-gradient(180deg, var(--dash-line), transparent 92%);
 }
 
 .dashboard-workspace {
@@ -140,15 +177,20 @@
   align-items: flex-start;
   gap: 0.55rem;
   width: 100%;
-  padding: 0.55rem 0.35rem 0.55rem 0;
+  padding: 0.6rem 0.65rem;
   border: 0;
-  border-bottom: 1px solid var(--dash-line);
+  border-radius: var(--dash-radius-sm);
   background: transparent;
   text-align: left;
   cursor: pointer;
-  color: inherit;
   font: inherit;
-  transition: color var(--dash-ease), background var(--dash-ease);
+  color: inherit;
+  transition: background var(--dash-ease), transform var(--dash-ease);
+}
+
+.dashboard-rail-item:hover {
+  background: var(--dash-wash);
+  transform: translateX(2px);
 }
 
 .dashboard-rail-item:last-child {
@@ -290,13 +332,24 @@
   text-decoration: underline;
 }
 
-/* ── Query bar (open underline, not a card) ── */
+/* ── Query bar (curved surface) ── */
 .dashboard-query {
   display: flex;
   align-items: stretch;
   gap: 0;
   margin-bottom: 1.5rem;
-  border-bottom: 2px solid var(--dash-rule);
+  border: 1.5px solid var(--dash-line);
+  border-radius: var(--dash-radius);
+  background: var(--dash-paper);
+  box-shadow: 0 1px 0 rgba(18, 20, 26, 0.03);
+  overflow: hidden;
+  transition: border-color var(--dash-ease), box-shadow var(--dash-ease), transform var(--dash-ease);
+}
+
+.dashboard-query:focus-within {
+  border-color: var(--dash-ink);
+  box-shadow: 0 8px 24px rgba(18, 20, 26, 0.06);
+  transform: translateY(-1px);
 }
 
 .dashboard-query-field {
@@ -305,11 +358,12 @@
   min-width: 0;
   display: flex;
   align-items: center;
+  padding-left: 0.85rem;
 }
 
 .dashboard-query-icon {
   position: absolute;
-  left: 0;
+  left: 0.95rem;
   color: var(--dash-mute);
   pointer-events: none;
 }
@@ -319,7 +373,7 @@
   border: 0;
   border-radius: 0;
   background: transparent;
-  padding: 0.85rem 0.75rem 0.85rem 1.75rem;
+  padding: 0.95rem 0.85rem 0.95rem 1.85rem;
   font-size: 1rem;
   color: var(--dash-ink);
   outline: none;
@@ -334,9 +388,11 @@
   align-items: center;
   gap: 0.4rem;
   border: 0;
-  border-left: 1.5px solid var(--dash-rule);
-  background: transparent;
-  padding: 0 0 0 1rem;
+  border-left: 1px solid var(--dash-line);
+  background: var(--dash-wash);
+  padding: 0 1.15rem;
+  margin: 0.35rem;
+  border-radius: var(--dash-radius-sm);
   font-family: 'IBM Plex Mono', monospace;
   font-size: 0.75rem;
   font-weight: 700;
@@ -345,11 +401,13 @@
   color: var(--dash-ink);
   cursor: pointer;
   white-space: nowrap;
-  transition: color var(--dash-ease);
+  transition: background var(--dash-ease), color var(--dash-ease), transform var(--dash-ease);
 }
 
 .dashboard-query-btn:hover:not(:disabled) {
-  color: var(--dash-rust);
+  background: var(--dash-ink);
+  color: #fff;
+  transform: scale(1.02);
 }
 
 .dashboard-query-btn:disabled {
@@ -359,13 +417,16 @@
 
 .dashboard-suggestions {
   position: absolute;
-  top: 100%;
+  top: calc(100% + 0.4rem);
   left: 0;
   right: 0;
   z-index: 40;
   background: var(--dash-paper);
   border: 1px solid var(--dash-line);
-  border-top: none;
+  border-radius: var(--dash-radius);
+  overflow: hidden;
+  box-shadow: 0 12px 32px rgba(18, 20, 26, 0.08);
+  animation: dashSoftIn 0.2s var(--dash-ease) both;
 }
 
 .dashboard-suggestion {
@@ -373,7 +434,7 @@
   align-items: center;
   gap: 0.45rem;
   width: 100%;
-  padding: 0.65rem 0.85rem;
+  padding: 0.7rem 0.95rem;
   border: 0;
   border-bottom: 1px solid var(--dash-line);
   background: transparent;
@@ -381,6 +442,7 @@
   font-size: 0.85rem;
   color: var(--dash-ink-soft);
   cursor: pointer;
+  transition: background var(--dash-ease), padding-left var(--dash-ease);
 }
 
 .dashboard-suggestion:last-child {
@@ -390,6 +452,7 @@
 .dashboard-suggestion:hover {
   background: var(--dash-wash);
   color: var(--dash-ink);
+  padding-left: 1.1rem;
 }
 
 .dashboard-error {
@@ -466,14 +529,24 @@
   gap: 0.85rem;
   align-items: center;
   width: 100%;
-  padding: 0.9rem 0;
-  border: 0;
-  border-bottom: 1px solid var(--dash-line);
+  padding: 0.85rem 0.9rem;
+  margin: 0.35rem 0;
+  border: 1px solid transparent;
+  border-radius: var(--dash-radius-sm);
   background: transparent;
   text-align: left;
   cursor: pointer;
   font: inherit;
   color: inherit;
+  transition: background var(--dash-ease), border-color var(--dash-ease), transform var(--dash-ease), box-shadow var(--dash-ease);
+  animation: dashSoftIn 0.35s var(--dash-ease) both;
+}
+
+.dashboard-stream-row:hover {
+  background: var(--dash-paper);
+  border-color: var(--dash-line);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(18, 20, 26, 0.05);
 }
 
 .dashboard-stream-row:hover .dashboard-stream-row-title {
@@ -519,10 +592,22 @@
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 0.85rem;
-  padding: 1.1rem 0;
-  border-bottom: 1px solid var(--dash-line);
+  padding: 1rem 1rem;
+  margin: 0.45rem 0;
+  border: 1px solid var(--dash-line);
+  border-radius: var(--dash-radius);
+  background: var(--dash-paper);
   cursor: pointer;
   outline: none;
+  transition: border-color var(--dash-ease), transform var(--dash-ease), box-shadow var(--dash-ease);
+  animation: dashSoftIn 0.4s var(--dash-ease) both;
+}
+
+.dashboard-direction:hover,
+.dashboard-direction:focus-visible {
+  border-color: rgba(184, 74, 30, 0.35);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 28px rgba(18, 20, 26, 0.06);
 }
 
 .dashboard-direction:hover .dashboard-direction-title,
@@ -531,7 +616,9 @@
 }
 
 .dashboard-direction.is-lead {
-  padding-top: 1.25rem;
+  padding-top: 1.15rem;
+  border-color: rgba(184, 74, 30, 0.28);
+  background: linear-gradient(180deg, #FFF8F3 0%, var(--dash-paper) 100%);
 }
 
 .dashboard-direction.is-lead .dashboard-direction-title {
@@ -596,7 +683,8 @@
 
 .dashboard-meter-seg {
   flex: 1;
-  height: 3px;
+  height: 4px;
+  border-radius: var(--dash-radius-pill);
   background: var(--dash-line);
 }
 
@@ -813,8 +901,22 @@
     padding-bottom: 1.25rem;
     margin-bottom: 1.25rem;
     border-right: none;
-    border-bottom: 1.5px solid var(--dash-rule);
+    border-bottom: none;
     overflow: visible;
+  }
+
+  .dashboard-rail::after {
+    display: none;
+  }
+
+  .dashboard-rail::before {
+    content: '';
+    display: block;
+    height: 2px;
+    width: 100%;
+    margin-top: 0.5rem;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--dash-line), transparent);
   }
 
   .dashboard-rail-nav {
@@ -835,21 +937,48 @@
 
   .dashboard-query {
     flex-direction: column;
-    border-bottom: none;
-    gap: 0.65rem;
+    border: 1.5px solid var(--dash-line);
+    gap: 0;
   }
 
   .dashboard-query-field {
-    border-bottom: 2px solid var(--dash-rule);
+    border-bottom: none;
   }
 
   .dashboard-query-btn {
     border-left: none;
-    padding: 0.55rem 0;
-    justify-content: flex-start;
+    margin: 0 0.55rem 0.55rem;
+    justify-content: center;
+    padding: 0.7rem 1rem;
+  }
+
+  .dashboard-rail::after {
+    display: none;
   }
 
   .dashboard-direction.is-lead .dashboard-direction-title {
     font-size: 1.05rem;
+  }
+
+  .dashboard-stream-row {
+    grid-template-columns: 1fr;
+    gap: 0.35rem;
+  }
+
+  .dashboard-stream-row-meta {
+    flex-wrap: wrap;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-page,
+  .dashboard-stream-row,
+  .dashboard-direction,
+  .dashboard-suggestions,
+  .dashboard-query,
+  .dashboard-rail-item,
+  .dashboard-query-btn {
+    animation: none !important;
+    transition: none !important;
   }
 }

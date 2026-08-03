@@ -156,7 +156,7 @@ export default function VenueRecommendations() {
         </div>
         <div className="responsive-row" style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'flex-start' }}>
           <textarea placeholder="Paste your abstract for more accurate matching (optional)..." value={abstract} onChange={e => setAbstract(e.target.value)} style={{ flex: 1, minHeight: '88px', resize: 'vertical' }} />
-          <button className="btn btn-primary responsive-fit" onClick={recommend} disabled={loading || !domain.trim()} style={{ minWidth: '130px', height: '88px' }}>
+          <button className="btn btn-primary responsive-fit venue-recommend-btn" onClick={recommend} disabled={loading || !domain.trim()} style={{ minWidth: '130px', height: '88px' }}>
             {loading ? <Spinner size={16} /> : <><Search size={14} /> Find Venues</>}
           </button>
         </div>
@@ -179,7 +179,7 @@ export default function VenueRecommendations() {
 
       {/* Venue grid */}
       {!loading && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 'var(--space-4)' }}>
+        <div className="venue-results-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))', gap: 'var(--space-4)' }}>
           {venues.length === 0 && !hasSearched && (
             <div className="empty-state" style={{ gridColumn: '1 / -1' }}>
               <BookMarked size={38} style={{ margin: '0 auto var(--space-3)', color: 'var(--text-subtle)', display: 'block' }} />

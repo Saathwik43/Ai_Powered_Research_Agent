@@ -285,6 +285,7 @@
 }
 @media print {
   .manuscript-outline-panel, .manuscript-toolbar, .manuscript-revise-panel,
+  .manuscript-editor-footer, .manuscript-refs-toggle, .manuscript-refs-drawer,
   .sidebar, .mobile-header, .mobile-overlay, button,
   .manuscript-references-panel, .page-header,
   .manuscript-config-block, .manuscript-gap-panel,

@@ -192,47 +192,54 @@ export default function LiteratureSurvey() {
   };
 
   return (
-    <div className="animate-fade-in">
-      <div style={{ marginBottom: 'var(--space-6)' }}>
+    <div className="animate-fade-in lit-page">
+      <div className="lit-masthead">
         <h1>Literature Survey</h1>
         <p className="text-muted">Search research papers from multiple academic sources in one place.</p>
       </div>
 
-      <div className="lit-tabs">
-        <button 
-          onClick={() => setActiveTab('search')} 
-          style={{ background: 'none', border: 'none', padding: 'var(--space-3) var(--space-4)', cursor: 'pointer', color: activeTab === 'search' ? 'var(--primary)' : 'var(--text-muted)', fontWeight: activeTab === 'search' ? 600 : 400, display: 'flex', alignItems: 'center', gap: 'var(--space-2)', zIndex: 1 }}
+      <div className="lit-tabs" role="tablist">
+        <div className={`lit-tab-indicator${activeTab === 'saved' ? ' is-saved' : ''}`} aria-hidden="true" />
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'search'}
+          className={`lit-tab${activeTab === 'search' ? ' is-active' : ''}`}
+          onClick={() => setActiveTab('search')}
         >
-          <Search size={16} /> Search
+          <Search size={15} /> Search
         </button>
-        <button 
-          onClick={() => setActiveTab('saved')} 
-          style={{ background: 'none', border: 'none', padding: 'var(--space-3) var(--space-4)', cursor: 'pointer', color: activeTab === 'saved' ? 'var(--primary)' : 'var(--text-muted)', fontWeight: activeTab === 'saved' ? 600 : 400, display: 'flex', alignItems: 'center', gap: 'var(--space-2)', zIndex: 1 }}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'saved'}
+          className={`lit-tab${activeTab === 'saved' ? ' is-active' : ''}`}
+          onClick={() => setActiveTab('saved')}
         >
-          <Bookmark size={16} /> Saved Surveys
+          <Bookmark size={15} /> <span className="lit-tab-label-full">Saved </span>Surveys
         </button>
-        <div className="lit-tab-indicator" style={{ width: '50%', left: activeTab === 'search' ? '0%' : '50%' }} />
       </div>
 
       {activeTab === 'search' ? (
         <>
-      {/* Search */}
-      <div className="lit-search-row" style={{ display: 'flex', gap: 'var(--space-3)', marginBottom: 'var(--space-5)', flexWrap: 'wrap' }}>
-        <div style={{ position: 'relative', flex: 1, minWidth: '220px' }}>
-          <Search size={15} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-subtle)', pointerEvents: 'none' }} />
+      {/* Search desk */}
+      <div className="lit-search-desk">
+        <div className="lit-search-field">
+          <Search size={15} />
           <input
-            placeholder="Search by topic, keyword, or author..."
+            placeholder="Topic, keyword, or author…"
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && search()}
-            style={{ paddingLeft: 'var(--space-7)' }}
+            aria-label="Search literature"
           />
         </div>
-        <InteractiveHoverButton 
-          text={loading ? "Searching" : "Search"} 
+        <InteractiveHoverButton
+          className="lit-search-go"
+          text={loading ? '…' : 'Search'}
           loading={loading}
-          onClick={() => search()} 
-          disabled={loading} 
+          onClick={() => search()}
+          disabled={loading}
         />
       </div>
       
@@ -245,7 +252,7 @@ export default function LiteratureSurvey() {
 
       {/* Toolbar and Filters */}
       {papers.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', marginBottom: 'var(--space-4)', background: 'var(--bg-card)', padding: 'var(--space-4)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border)' }}>
+        <div className="lit-filter-bar">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
               <BookOpen size={15} color="var(--primary)" />
@@ -262,7 +269,7 @@ export default function LiteratureSurvey() {
             </div>
           </div>
           
-          <div className="lit-filter-row" style={{ display: 'flex', gap: 'var(--space-4)', flexWrap: 'wrap', borderTop: '1px solid var(--border)', paddingTop: 'var(--space-4)' }}>
+          <div className="lit-filter-row" style={{ borderTop: '1px solid var(--border)', paddingTop: 'var(--space-4)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
               <label style={{ fontSize: 'var(--fs-sm)', fontWeight: 600, color: 'var(--text-muted)' }}>Year:</label>
               <select value={filterYear} onChange={e => { setFilterYear(e.target.value); setVisibleCount(15); }} style={{ padding: 'var(--space-2)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: 'var(--fs-sm)' }}>
@@ -331,22 +338,22 @@ export default function LiteratureSurvey() {
         )}
 
         {!loading && papers.length === 0 && !hasSearched && !searchError && (
-          <div className="empty-state">
-            <BookOpen size={38} style={{ margin: '0 auto var(--space-3)', color: 'var(--text-subtle)', display: 'block' }} />
+          <div className="lit-empty">
+            <BookOpen size={28} />
             Enter a topic to discover relevant research.
           </div>
         )}
 
         {!loading && papers.length === 0 && hasSearched && !searchError && (
-          <div className="empty-state">
-            <BookOpen size={38} style={{ margin: '0 auto var(--space-3)', color: 'var(--text-subtle)', display: 'block' }} />
-            No results found for '{lastQuery}'. Try a different search term.
+          <div className="lit-empty">
+            <BookOpen size={28} />
+            No results for '{lastQuery}'. Try a different term.
           </div>
         )}
 
         {!loading && papers.length > 0 && filteredPapers.length === 0 && (
-          <div className="empty-state">
-            <BookOpen size={38} style={{ margin: '0 auto var(--space-3)', color: 'var(--text-subtle)', display: 'block' }} />
+          <div className="lit-empty">
+            <BookOpen size={28} />
             No papers match your selected filters.
           </div>
         )}

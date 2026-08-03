@@ -60,7 +60,15 @@ const Sidebar = ({ open, onClose, collapsed, onToggleCollapse }) => {
             <h2>Research Agent</h2>
             <span>AI Publishing Platform</span>
           </div>
-          <button className="sidebar-toggle-btn hide-mobile" onClick={onToggleCollapse}>
+          <button
+            type="button"
+            className="sidebar-close-btn hide-desktop"
+            onClick={onClose}
+            aria-label="Close navigation"
+          >
+            <X size={18} />
+          </button>
+          <button className="sidebar-toggle-btn hide-mobile" onClick={onToggleCollapse} aria-label="Collapse sidebar">
             {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
           </button>
         </div>
