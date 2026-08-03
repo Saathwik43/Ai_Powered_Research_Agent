@@ -90,7 +90,7 @@ function MessageBubble({ msg }) {
       <div className="pdf-markdown-body">
         <ReactMarkdown
           remarkPlugins={[remarkGfm, remarkMath]}
-          rehypePlugins={[rehypeKatex]}
+          rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false, errorColor: 'inherit' }]]}
           components={{
             a: ({ node, href, children, ...props }) => {
               if (href?.startsWith('#page-')) {
@@ -108,7 +108,8 @@ function MessageBubble({ msg }) {
               const language = match ? match[1].toLowerCase() : '';
               const contentStr = String(children).replace(/\n$/, '');
               
-              if (!inline && (language === 'mermaid' || language === 'graph' || contentStr.trim().startsWith('graph ') || contentStr.trim().startsWith('pie ') || contentStr.trim().startsWith('sequenceDiagram'))) {
+              const mermaidLangs = ['mermaid', 'graph', 'xychart-beta', 'gantt', 'classDiagram', 'pie', 'sequenceDiagram'];
+              if (!inline && (mermaidLangs.includes(language) || contentStr.trim().startsWith('graph ') || contentStr.trim().startsWith('pie ') || contentStr.trim().startsWith('sequenceDiagram') || contentStr.trim().startsWith('xychart-beta') || contentStr.trim().startsWith('gantt') || contentStr.trim().startsWith('classDiagram'))) {
                 return <Mermaid chart={contentStr} />;
               }
               return !inline && match ? (

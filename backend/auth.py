@@ -1,4 +1,5 @@
 import os
+import uuid
 import bcrypt
 import logging
 from datetime import datetime, timedelta, timezone
@@ -42,7 +43,7 @@ def verify_password(password: str, hashed: str) -> bool:
 
 def create_access_token(user_id: str, email: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
-    payload = {"sub": user_id, "email": email, "exp": expire}
+    payload = {"sub": user_id, "email": email, "exp": expire, "jti": str(uuid.uuid4())}
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 RESET_TOKEN_EXPIRE_MINUTES = 30
@@ -72,6 +73,29 @@ def decode_access_token(token: str) -> dict:
         )
 
 
+# ─── Token Revocation (logout blacklist) ───────────────────────────────────────
+# Stores revoked jtis with their original expiry so Mongo can TTL-expire them
+# automatically once the token would've expired naturally anyway.
+
+async def revoke_token(jti: str, exp: int) -> None:
+    if not jti:
+        return
+    collection = db["revoked_tokens"]
+    await collection.update_one(
+        {"jti": jti},
+        {"$set": {"jti": jti, "expires_at": datetime.fromtimestamp(exp, tz=timezone.utc)}},
+        upsert=True,
+    )
+
+
+async def is_token_revoked(jti: str) -> bool:
+    if not jti:
+        return False
+    collection = db["revoked_tokens"]
+    doc = await collection.find_one({"jti": jti})
+    return doc is not None
+
+
 # ─── Auth Dependency ───────────────────────────────────────────────────────────
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)) -> dict:
@@ -79,6 +103,13 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(b
     user_id = payload.get("sub")
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload.")
+
+    if await is_token_revoked(payload.get("jti")):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has been revoked. Please log in again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     
     # Set the current user ID for usage tracking in the current async context
     usage_tracker.current_user_id.set(user_id)

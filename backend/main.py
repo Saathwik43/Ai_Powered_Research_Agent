@@ -18,9 +18,10 @@ import traceback
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-from auth import decode_access_token , is_reset_token_valid
+from auth import decode_access_token , is_reset_token_valid, revoke_token
 from fastapi import Request
 from ssrf_guard import assert_public_url
+from file_validation import verify_pdf_signature, verify_upload_signature
 
 from ai.topic_discovery import discover_topics
 from ai.manuscript_generation import generate_section, edit_section
@@ -215,6 +216,16 @@ async def google_auth(request: Request, payload: GoogleAuthPayload):
     if not email:
         raise HTTPException(status_code=400, detail="Google token does not contain an email.")
     return await google_auth_user(email.lower(), name, picture)
+
+@app.post("/api/auth/logout")
+@limiter.limit("20/minute")
+async def logout(request: Request, current_user: dict = Depends(get_current_user)):
+    from fastapi.security import HTTPBearer
+    auth_header = request.headers.get("authorization", "")
+    token = auth_header.replace("Bearer ", "").strip()
+    payload = decode_access_token(token)
+    await revoke_token(payload.get("jti"), payload.get("exp"))
+    return {"message": "Logged out."}
 
 @app.post("/api/auth/forgot-password")
 @limiter.limit("5/minute")
@@ -418,7 +429,8 @@ async def edit_manuscript_section(request: Request, payload: ManuscriptEditPaylo
     return {"section": payload.section, "content": content}
 
 @app.post("/api/manuscript/save")
-async def save_manuscript_draft(payload: ManuscriptSavePayload, current_user: dict = Depends(get_current_user)):
+@limiter.limit("20/minute")
+async def save_manuscript_draft(request: Request, payload: ManuscriptSavePayload, current_user: dict = Depends(get_current_user)):
     user_id = current_user["user_id"]
     collection = db["manuscripts"]
     now = datetime.now(timezone.utc).isoformat()
@@ -450,7 +462,8 @@ async def save_manuscript_draft(payload: ManuscriptSavePayload, current_user: di
 
 
 @app.get("/api/manuscript/load")
-async def load_manuscript_draft(topic: str, current_user: dict = Depends(get_current_user)):
+@limiter.limit("30/minute")
+async def load_manuscript_draft(request: Request, topic: str, current_user: dict = Depends(get_current_user)):
     user_id = current_user["user_id"]
     collection = db["manuscripts"]
     doc = await collection.find_one({"user_id": user_id, "topic": topic}, {"_id": 0, "user_id": 0})
@@ -460,7 +473,8 @@ async def load_manuscript_draft(topic: str, current_user: dict = Depends(get_cur
 
 
 @app.get("/api/manuscript/list")
-async def list_manuscript_drafts(current_user: dict = Depends(get_current_user)):
+@limiter.limit("30/minute")
+async def list_manuscript_drafts(request: Request, current_user: dict = Depends(get_current_user)):
     user_id = current_user["user_id"]
     collection = db["manuscripts"]
     cursor = collection.find(
@@ -480,6 +494,7 @@ async def extract_pdf_endpoint(request: Request, file: UploadFile = File(...), c
     contents = await file.read()
     if len(contents) > 10 * 1024 * 1024:  # 10MB limit
         raise HTTPException(status_code=400, detail="File too large. Limit is 10MB.")
+    verify_pdf_signature(contents)
 
     text, structure = await asyncio.gather(
         extract_pdf_text(contents),
@@ -527,6 +542,7 @@ async def upload_source(
             raise HTTPException(status_code=400, detail=f"Failed to fetch content from URL: {e}")
     elif file:
         raw = await file.read()
+        verify_upload_signature(raw, file.content_type, file.filename)
         text = await extract_source_text(raw, file.content_type, file.filename)
         filename = file.filename
         content_type = file.content_type
@@ -684,7 +700,8 @@ async def delete_literature(query: str, current_user: dict = Depends(get_current
 
 
 @app.post("/api/pdf-chats/save")
-async def save_pdf_chat(payload: PdfChatSavePayload, current_user: dict = Depends(get_current_user)):
+@limiter.limit("20/minute")
+async def save_pdf_chat(request: Request, payload: PdfChatSavePayload, current_user: dict = Depends(get_current_user)):
     user_id = current_user["user_id"]
     collection = db["pdf_chats"]
     now = datetime.now(timezone.utc).isoformat()
@@ -712,7 +729,8 @@ async def save_pdf_chat(payload: PdfChatSavePayload, current_user: dict = Depend
     return {"message": "Chat saved", "chat_id": str(result.inserted_id)}
 
 @app.get("/api/pdf-chats/list")
-async def list_pdf_chats(current_user: dict = Depends(get_current_user)):
+@limiter.limit("30/minute")
+async def list_pdf_chats(request: Request, current_user: dict = Depends(get_current_user)):
     user_id = current_user["user_id"]
     collection = db["pdf_chats"]
     # only return metadata, not full text or messages
@@ -728,7 +746,8 @@ async def list_pdf_chats(current_user: dict = Depends(get_current_user)):
     return {"data": chats}
 
 @app.get("/api/pdf-chats/{chat_id}")
-async def load_pdf_chat(chat_id: str, current_user: dict = Depends(get_current_user)):
+@limiter.limit("30/minute")
+async def load_pdf_chat(request: Request, chat_id: str, current_user: dict = Depends(get_current_user)):
     user_id = current_user["user_id"]
     collection = db["pdf_chats"]
     try:
@@ -741,7 +760,8 @@ async def load_pdf_chat(chat_id: str, current_user: dict = Depends(get_current_u
         raise HTTPException(status_code=404, detail="Invalid chat ID.")
 
 @app.delete("/api/pdf-chats/{chat_id}")
-async def delete_pdf_chat(chat_id: str, current_user: dict = Depends(get_current_user)):
+@limiter.limit("20/minute")
+async def delete_pdf_chat(request: Request, chat_id: str, current_user: dict = Depends(get_current_user)):
     user_id = current_user["user_id"]
     collection = db["pdf_chats"]
     try:
