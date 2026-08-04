@@ -88,11 +88,23 @@ export default function Dashboard() {
   const [loadingRecent, setLoadingRecent] = useState(false);
 
   useEffect(() => {
-    sessionStorage.setItem('dash_topic', topic);
+    const id = setTimeout(() => {
+      sessionStorage.setItem('dash_topic', topic);
+    }, 300);
+    return () => clearTimeout(id);
+  }, [topic]);
+
+  useEffect(() => {
     sessionStorage.setItem('dash_results', JSON.stringify(results));
+  }, [results]);
+
+  useEffect(() => {
     sessionStorage.setItem('dash_relatedPapers', JSON.stringify(relatedPapers));
+  }, [relatedPapers]);
+
+  useEffect(() => {
     sessionStorage.setItem('dash_hasSearched', String(hasSearched));
-  }, [topic, results, relatedPapers, hasSearched]);
+  }, [hasSearched]);
 
   useEffect(() => {
     setVisibleRelatedCount(RELATED_PAGE_SIZE);

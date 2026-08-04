@@ -1,10 +1,266 @@
-/* ── Admin Dashboard Styles ────────────────────────────────────────── */
+/* Admin Center — ink / rust / forest desk
+   Curved surfaces · soft motion · live engagement */
 
-/* Stats Grid */
+.admin-page {
+  --admin-ink: #12141A;
+  --admin-ink-soft: #2A2D36;
+  --admin-rust: #B84A1E;
+  --admin-rust-deep: #8F3614;
+  --admin-forest: #1F5C45;
+  --admin-mute: #6E6A62;
+  --admin-line: #D6D2C8;
+  --admin-paper: #FFFEFA;
+  --admin-wash: #F3F0E8;
+  --admin-radius: 16px;
+  --admin-radius-sm: 12px;
+  --admin-ease: 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  color: var(--admin-ink);
+  max-width: 1180px;
+  padding-bottom: 3rem;
+  animation: adminRise 0.45s var(--admin-ease) both;
+}
+
+@keyframes adminRise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes adminSoftIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes adminPulseRing {
+  0% { transform: scale(0.85); opacity: 0.55; }
+  70% { transform: scale(1.35); opacity: 0; }
+  100% { transform: scale(1.35); opacity: 0; }
+}
+
+@keyframes adminSpin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes adminLiveBlink {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(31, 92, 69, 0.45); }
+  50% { opacity: 0.7; box-shadow: 0 0 0 5px rgba(31, 92, 69, 0); }
+}
+
+@keyframes adminOrbFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+
+.admin-page--loading {
+  min-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  color: var(--admin-mute);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.8rem;
+}
+
+/* ── Animated brand mark ── */
+.admin-mark {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 18px;
+  background:
+    linear-gradient(145deg, rgba(184, 74, 30, 0.12), rgba(31, 92, 69, 0.1)),
+    var(--admin-paper);
+  border: 1px solid var(--admin-line);
+  overflow: hidden;
+}
+
+.admin-mark-ring,
+.admin-mark-ring-delay {
+  position: absolute;
+  inset: 6px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(184, 74, 30, 0.35);
+  animation: adminPulseRing 2.4s ease-out infinite;
+  pointer-events: none;
+}
+
+.admin-mark-ring-delay {
+  animation-delay: 1.1s;
+  border-color: rgba(31, 92, 69, 0.35);
+}
+
+.admin-mark-icon {
+  color: var(--admin-rust);
+  position: relative;
+  z-index: 1;
+  transition: transform var(--admin-ease), color var(--admin-ease);
+}
+
+.admin-mark.is-spinning .admin-mark-icon {
+  animation: adminSpin 1.1s linear infinite;
+  color: var(--admin-forest);
+}
+
+.admin-mark.is-spinning .admin-mark-ring,
+.admin-mark.is-spinning .admin-mark-ring-delay {
+  animation-duration: 1.2s;
+}
+
+/* ── Masthead ── */
+.admin-masthead {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1.25rem;
+  margin-bottom: 1.75rem;
+  padding-bottom: 1.25rem;
+  position: relative;
+  flex-wrap: wrap;
+}
+
+.admin-masthead::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  width: 4.5rem;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--admin-rust), transparent);
+}
+
+.admin-masthead-copy {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.admin-kicker {
+  margin: 0 0 0.35rem;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--admin-rust);
+}
+
+.admin-title {
+  margin: 0 0 0.35rem;
+  font-family: 'Source Serif 4', Georgia, serif;
+  font-size: clamp(1.85rem, 3.2vw, 2.45rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: var(--admin-ink);
+}
+
+.admin-subtitle {
+  margin: 0 0 0.85rem;
+  color: var(--admin-mute);
+  font-size: 0.95rem;
+  max-width: 34rem;
+  line-height: 1.5;
+}
+
+.admin-inline-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.7rem;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.72rem;
+  color: var(--admin-mute);
+}
+
+.admin-metric-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--admin-mute);
+  opacity: 0.55;
+}
+
+.admin-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--admin-forest);
+  display: inline-block;
+  margin-right: 0.35rem;
+  animation: adminLiveBlink 2s ease-in-out infinite;
+}
+
+.admin-refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.7rem 1.1rem;
+  border-radius: 999px;
+  border: 1px solid var(--admin-line);
+  background: var(--admin-paper);
+  color: var(--admin-ink);
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 650;
+  cursor: pointer;
+  transition:
+    transform var(--admin-ease),
+    border-color var(--admin-ease),
+    background var(--admin-ease),
+    box-shadow var(--admin-ease);
+}
+
+.admin-refresh-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: var(--admin-ink);
+  box-shadow: 0 8px 20px rgba(18, 20, 26, 0.06);
+}
+
+.admin-refresh-btn.is-busy,
+.admin-refresh-btn:disabled {
+  opacity: 0.75;
+  cursor: wait;
+}
+
+.admin-spin {
+  animation: adminSpin 0.9s linear infinite;
+}
+
+/* ── Alert ── */
+.admin-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding: 0.9rem 1.15rem;
+  margin-bottom: 1.35rem;
+  border-radius: var(--admin-radius-sm);
+  background: rgba(184, 74, 30, 0.08);
+  border: 1px solid rgba(184, 74, 30, 0.28);
+  color: var(--admin-rust-deep);
+  font-size: 0.88rem;
+  animation: adminSoftIn 0.3s var(--admin-ease) both;
+}
+
+.admin-alert strong {
+  display: block;
+  margin-bottom: 0.15rem;
+}
+
+.admin-alert span {
+  color: var(--admin-mute);
+}
+
+/* ── Stats ── */
 .admin-stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: var(--space-4);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
   margin-bottom: 1.5rem;
 }
 
@@ -12,110 +268,202 @@
   display: flex;
   align-items: center;
   gap: 1rem;
-  padding: 1.25rem 1.5rem;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: none;
+  padding: 1.2rem 1.35rem;
+  background: var(--admin-paper);
+  border: 1px solid var(--admin-line);
+  border-radius: var(--admin-radius);
+  animation: adminSoftIn 0.4s var(--admin-ease) both;
+  transition:
+    transform var(--admin-ease),
+    border-color var(--admin-ease),
+    box-shadow var(--admin-ease);
 }
 
-.admin-stat-icon-wrapper {
+.admin-stat-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(18, 20, 26, 0.28);
+  box-shadow: 0 10px 24px rgba(18, 20, 26, 0.05);
+}
+
+.admin-stat-orb {
+  position: relative;
   width: 48px;
   height: 48px;
-  border-radius: var(--radius-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
   flex-shrink: 0;
 }
 
-.admin-stat-icon-wrapper.blue {
-  background: var(--primary-light);
-  color: var(--primary);
+.admin-stat-orb-glow {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0.55;
+  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.7), transparent 65%);
+  pointer-events: none;
 }
 
-.admin-stat-icon-wrapper.orange {
-  background: rgba(201, 98, 42, 0.12);
-  color: var(--accent);
+.admin-stat-orb--ink {
+  background: rgba(18, 20, 26, 0.08);
+  color: var(--admin-ink);
 }
 
-.admin-stat-icon-wrapper.green {
-  background: rgba(79, 143, 107, 0.12);
-  color: var(--success);
+.admin-stat-orb--rust {
+  background: rgba(184, 74, 30, 0.12);
+  color: var(--admin-rust);
+}
+
+.admin-stat-orb--forest {
+  background: rgba(31, 92, 69, 0.12);
+  color: var(--admin-forest);
+}
+
+.admin-health-ring {
+  --health: 0%;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  color: var(--admin-forest);
+  background:
+    radial-gradient(circle, var(--admin-paper) 58%, transparent 59%),
+    conic-gradient(var(--admin-forest) var(--health), rgba(214, 210, 200, 0.9) 0);
+  transition: background 0.6s var(--admin-ease);
 }
 
 .admin-stat-label {
-  font-size: var(--fs-xs);
-  color: var(--text-subtle);
-  font-weight: 600;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.65rem;
+  color: var(--admin-mute);
+  font-weight: 650;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
 }
 
 .admin-stat-value {
-  font-size: 1.5rem;
-  font-weight: 800;
-  color: var(--text);
-  line-height: 1.2;
+  font-family: 'Source Serif 4', Georgia, serif;
+  font-size: 1.65rem;
+  font-weight: 650;
+  color: var(--admin-ink);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.admin-stat-of {
+  font-size: 0.95rem;
+  color: var(--admin-mute);
+  font-weight: 500;
 }
 
 .admin-stat-sub {
-  font-size: var(--fs-xs);
-  color: var(--text-muted);
-  margin-top: 2px;
+  font-size: 0.78rem;
+  color: var(--admin-mute);
+  margin-top: 0.15rem;
 }
 
-/* Tabs */
+/* ── Tabs ── */
 .admin-tabs {
-  display: flex;
-  gap: 0.5rem;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 1.5rem;
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.25rem;
+  padding: 0.3rem;
+  margin-bottom: 1.35rem;
+  background: var(--admin-wash);
+  border: 1px solid var(--admin-line);
+  border-radius: var(--admin-radius);
 }
 
 .admin-tab {
-  display: flex;
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.75rem 1.25rem;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.75rem 1rem;
   background: transparent;
   border: none;
-  border-bottom: 2px solid transparent;
-  font-size: var(--fs-sm);
+  border-radius: calc(var(--admin-radius) - 4px);
+  font-family: inherit;
+  font-size: 0.86rem;
   font-weight: 650;
-  color: var(--text-muted);
+  color: var(--admin-mute);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: color var(--admin-ease);
 }
 
 .admin-tab:hover {
-  color: var(--text);
+  color: var(--admin-ink);
 }
 
-.admin-tab.active {
-  color: var(--primary);
-  border-bottom-color: var(--primary);
+.admin-tab.is-active {
+  color: var(--admin-ink);
 }
 
-/* Table Header & Search */
+.admin-tab-count {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.68rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(18, 20, 26, 0.06);
+  color: var(--admin-mute);
+}
+
+.admin-tab.is-active .admin-tab-count {
+  background: rgba(184, 74, 30, 0.12);
+  color: var(--admin-rust);
+}
+
+.admin-tab-indicator {
+  position: absolute;
+  top: 0.3rem;
+  bottom: 0.3rem;
+  left: 0.3rem;
+  width: calc(50% - 0.3rem);
+  border-radius: calc(var(--admin-radius) - 4px);
+  background: var(--admin-paper);
+  border: 1px solid var(--admin-line);
+  box-shadow: 0 4px 14px rgba(18, 20, 26, 0.05);
+  transition: transform var(--admin-ease);
+  pointer-events: none;
+}
+
+.admin-tab-indicator.is-status {
+  transform: translateX(100%);
+}
+
+/* ── Panels ── */
+.admin-panel {
+  background: var(--admin-paper);
+  border: 1px solid var(--admin-line);
+  border-radius: var(--admin-radius);
+  overflow: hidden;
+  animation: adminSoftIn 0.35s var(--admin-ease) both;
+}
+
 .admin-table-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1.25rem 1.5rem;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-card);
+  padding: 1.1rem 1.35rem;
+  border-bottom: 1px solid var(--admin-line);
+  background: linear-gradient(180deg, var(--admin-wash), var(--admin-paper));
   flex-wrap: wrap;
-  gap: 1rem;
+  gap: 0.85rem;
 }
 
 .admin-table-title {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: var(--fs-md);
-  font-weight: 750;
-  color: var(--text);
+  font-family: 'Source Serif 4', Georgia, serif;
+  font-size: 1.05rem;
+  font-weight: 650;
+  color: var(--admin-ink);
 }
 
 .admin-search-wrapper {
@@ -128,30 +476,29 @@
   left: 0.85rem;
   top: 50%;
   transform: translateY(-50%);
-  color: var(--text-subtle);
+  color: var(--admin-mute);
   pointer-events: none;
 }
 
 .admin-search-input {
   width: 100%;
-  padding: 0.55rem 0.85rem 0.55rem 2.4rem;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  background: var(--bg-elevated);
-  font-size: var(--fs-xs);
-  color: var(--text);
+  padding: 0.6rem 0.85rem 0.6rem 2.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--admin-line);
+  background: var(--admin-paper);
+  font-size: 0.82rem;
+  color: var(--admin-ink);
   outline: none;
-  transition: border-color 0.2s ease;
+  transition: border-color var(--admin-ease), box-shadow var(--admin-ease);
 }
 
 .admin-search-input:focus {
-  border-color: var(--primary);
+  border-color: var(--admin-rust);
+  box-shadow: 0 0 0 3px rgba(184, 74, 30, 0.12);
 }
 
-/* Table */
 .admin-table-container {
   overflow-x: auto;
-  background: var(--bg-card);
 }
 
 .admin-table {
@@ -161,210 +508,687 @@
 }
 
 .admin-table th {
-  padding: 0.85rem 1.25rem;
-  color: var(--text-subtle);
-  font-weight: 700;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-elevated);
-  font-size: var(--fs-2xs);
+  padding: 0.8rem 1.15rem;
+  color: var(--admin-mute);
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 650;
+  border-bottom: 1px solid var(--admin-line);
+  background: var(--admin-wash);
+  font-size: 0.65rem;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
 }
 
 .admin-table td {
-  padding: 1rem 1.25rem;
-  border-bottom: 1px solid var(--border);
-  font-size: var(--fs-sm);
+  padding: 0.95rem 1.15rem;
+  border-bottom: 1px solid rgba(214, 210, 200, 0.7);
+  font-size: 0.88rem;
   vertical-align: middle;
 }
 
-.admin-table tr.row-suspended td {
-  background: rgba(229, 28, 35, 0.03);
+.admin-table tbody tr {
+  animation: adminSoftIn 0.3s var(--admin-ease) both;
+  transition: background var(--admin-ease);
 }
 
 .admin-table tbody tr:hover td {
-  background-color: var(--bg-elevated);
+  background: rgba(243, 240, 232, 0.55);
+}
+
+.admin-table tr.row-suspended td {
+  background: rgba(184, 74, 30, 0.04);
+}
+
+.admin-user-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.admin-user-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  font-family: 'Source Serif 4', Georgia, serif;
+  font-weight: 650;
+  background: rgba(18, 20, 26, 0.07);
+  color: var(--admin-ink);
+  border: 1px solid var(--admin-line);
+}
+
+.admin-user-avatar.is-admin {
+  background: rgba(184, 74, 30, 0.12);
+  color: var(--admin-rust);
+  border-color: rgba(184, 74, 30, 0.25);
+}
+
+.admin-user-name {
+  font-weight: 700;
+  color: var(--admin-ink);
+}
+
+.admin-user-email {
+  font-size: 0.75rem;
+  color: var(--admin-mute);
+}
+
+.admin-mono {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+
+.admin-mono.muted {
+  color: var(--admin-mute);
+  font-weight: 500;
+}
+
+.admin-quota-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 110px;
+  font-size: 0.78rem;
+  color: var(--admin-mute);
+}
+
+.admin-quota-cell .is-custom {
+  color: var(--admin-rust);
+  font-weight: 650;
+}
+
+.admin-quota-bar {
+  height: 4px;
+  background: var(--admin-line);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.admin-quota-fill {
+  height: 100%;
+  background: var(--admin-forest);
+  border-radius: inherit;
+  transition: width 0.45s var(--admin-ease);
+}
+
+.admin-quota-fill.is-hot {
+  background: var(--admin-rust);
+}
+
+.admin-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.admin-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.4rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid var(--admin-line);
+  background: var(--admin-paper);
+  color: var(--admin-ink-soft);
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 650;
+  cursor: pointer;
+  transition:
+    transform var(--admin-ease),
+    background var(--admin-ease),
+    border-color var(--admin-ease),
+    color var(--admin-ease);
+}
+
+.admin-action-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: var(--admin-ink);
+}
+
+.admin-action-btn.is-success {
+  background: rgba(31, 92, 69, 0.1);
+  color: var(--admin-forest);
+  border-color: rgba(31, 92, 69, 0.25);
+}
+
+.admin-action-btn.is-danger {
+  color: var(--admin-rust);
+  border-color: rgba(184, 74, 30, 0.3);
+}
+
+.admin-action-btn.is-danger.solid,
+.admin-action-btn.is-primary {
+  background: var(--admin-ink);
+  color: var(--admin-paper);
+  border-color: var(--admin-ink);
+}
+
+.admin-action-btn.is-danger.solid {
+  background: var(--admin-rust);
+  border-color: var(--admin-rust);
+}
+
+.admin-action-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.admin-empty-row {
+  padding: 2.5rem 1rem !important;
+  text-align: center;
+  color: var(--admin-mute);
 }
 
 /* Badges */
-.badge-role {
+.badge-role,
+.badge-status,
+.badge-messages {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  padding: 0.2rem 0.6rem;
+  padding: 0.22rem 0.6rem;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 0.68rem;
   font-weight: 750;
-  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .badge-role.admin {
-  background: var(--primary-light);
-  color: var(--primary);
-  border: 1px solid rgba(43, 94, 168, 0.2);
+  background: rgba(184, 74, 30, 0.1);
+  color: var(--admin-rust);
+  border: 1px solid rgba(184, 74, 30, 0.22);
 }
 
 .badge-role.user {
-  background: var(--bg-elevated);
-  color: var(--text-muted);
-  border: 1px solid var(--border);
-}
-
-.badge-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.2rem 0.6rem;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 750;
+  background: var(--admin-wash);
+  color: var(--admin-mute);
+  border: 1px solid var(--admin-line);
 }
 
 .badge-status.active {
-  background: rgba(79, 143, 107, 0.12);
-  color: var(--success);
-  border: 1px solid rgba(79, 143, 107, 0.2);
+  background: rgba(31, 92, 69, 0.1);
+  color: var(--admin-forest);
+  border: 1px solid rgba(31, 92, 69, 0.22);
 }
 
 .badge-status.suspended {
-  background: rgba(229, 28, 35, 0.12);
-  color: var(--danger);
-  border: 1px solid rgba(229, 28, 35, 0.2);
+  background: rgba(184, 74, 30, 0.1);
+  color: var(--admin-rust-deep);
+  border: 1px solid rgba(184, 74, 30, 0.22);
 }
 
 .badge-messages {
-  padding: 0.25rem 0.65rem;
-  border-radius: 999px;
-  font-size: var(--fs-xs);
-  font-weight: 700;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  color: var(--text);
+  background: var(--admin-wash);
+  border: 1px solid var(--admin-line);
+  color: var(--admin-ink);
+  text-transform: none;
+  letter-spacing: 0;
+  font-family: 'IBM Plex Mono', monospace;
 }
 
-/* Sources Grid */
-.sources-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+/* ── API status ── */
+.admin-status-panel {
+  padding: 1.35rem 1.45rem 1.5rem;
+}
+
+.admin-status-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
   gap: 1rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.admin-status-header h3 {
+  margin: 0;
+  font-family: 'Source Serif 4', Georgia, serif;
+  font-size: 1.15rem;
+  font-weight: 650;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.admin-status-subtitle {
+  margin: 0.4rem 0 0;
+  font-size: 0.82rem;
+  color: var(--admin-mute);
+  max-width: 36rem;
+  line-height: 1.45;
+}
+
+.admin-status-summary-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.status-pill {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.68rem;
+  font-weight: 650;
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid var(--admin-line);
+}
+
+.status-pill.ok {
+  background: rgba(31, 92, 69, 0.1);
+  color: var(--admin-forest);
+  border-color: rgba(31, 92, 69, 0.25);
+}
+
+.status-pill.warn {
+  background: rgba(184, 74, 30, 0.08);
+  color: var(--admin-rust);
+  border-color: rgba(184, 74, 30, 0.25);
+}
+
+.status-pill.bad {
+  background: rgba(18, 20, 26, 0.05);
+  color: var(--admin-ink-soft);
+  border-color: var(--admin-line);
+}
+
+.admin-status-category {
+  margin-bottom: 1.65rem;
+}
+
+.admin-status-category:last-child {
+  margin-bottom: 0;
+}
+
+.admin-status-category-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--admin-line);
+}
+
+.admin-status-category-head h4 {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.9rem;
+  font-weight: 750;
+  color: var(--admin-ink);
+}
+
+.admin-status-category-head span {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.68rem;
+  font-weight: 650;
+  color: var(--admin-mute);
+}
+
+.admin-cat-mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+}
+
+.admin-cat-mark--ink {
+  background: rgba(18, 20, 26, 0.08);
+  color: var(--admin-ink);
+}
+
+.admin-cat-mark--rust {
+  background: rgba(184, 74, 30, 0.12);
+  color: var(--admin-rust);
+}
+
+.admin-cat-mark--forest {
+  background: rgba(31, 92, 69, 0.12);
+  color: var(--admin-forest);
+}
+
+.sources-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  border: none;
 }
 
 .source-card-item {
-  padding: 1.15rem;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  background: var(--bg-card);
+  padding: 0.15rem 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
   display: flex;
   flex-direction: column;
+  gap: 0.3rem;
+  animation: adminSoftIn 0.35s var(--admin-ease) both;
+  transition: opacity var(--admin-ease);
+  box-shadow: none;
+}
+
+.source-card-item:hover {
+  transform: none;
+  box-shadow: none;
+  background: transparent;
+  opacity: 0.85;
+}
+
+.source-card-item--operational,
+.source-card-item--warning,
+.source-card-item--offline {
+  border: none;
+  opacity: 1;
+}
+
+.source-card-top {
+  display: flex;
   justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.source-card-name {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--admin-ink);
+  letter-spacing: -0.01em;
 }
 
 .source-type-pill {
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-subtle);
+  display: none;
 }
 
 .source-status-badge {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  padding: 0.25rem 0.65rem;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 750;
+  gap: 0.4rem;
+  padding: 0;
+  border: none !important;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.68rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.source-status-pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
 }
 
 .source-status-badge.operational {
-  background: rgba(79, 143, 107, 0.12);
-  color: var(--success);
-  border: 1px solid rgba(79, 143, 107, 0.25);
+  color: var(--admin-forest);
+}
+
+.source-status-badge.operational .source-status-pulse {
+  opacity: 1;
 }
 
 .source-status-badge.warning {
-  background: rgba(217, 119, 6, 0.12);
-  color: #d97706;
-  border: 1px solid rgba(217, 119, 6, 0.25);
+  color: var(--admin-rust);
 }
 
 .source-status-badge.offline {
-  background: rgba(229, 28, 35, 0.12);
-  color: var(--danger);
-  border: 1px solid rgba(229, 28, 35, 0.25);
+  color: var(--admin-mute);
 }
 
-/* Modals */
+.source-status-badge.offline .source-status-pulse {
+  opacity: 0.35;
+}
+
+.source-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.85rem;
+  padding-top: 0;
+  border-top: none;
+  font-size: 0.78rem;
+  color: var(--admin-mute);
+  line-height: 1.4;
+}
+
+.source-card-latency {
+  display: inline;
+  font-family: 'IBM Plex Mono', monospace;
+  color: var(--admin-mute);
+  font-weight: 550;
+}
+
+.source-card-key,
+.source-card-key-row {
+  display: inline;
+  padding: 0;
+  border: none !important;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.72rem;
+  color: var(--admin-mute);
+}
+
+.status-pill {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.68rem;
+  font-weight: 650;
+  padding: 0;
+  border-radius: 0;
+  border: none;
+  background: transparent;
+}
+
+.status-pill.ok {
+  background: transparent;
+  color: var(--admin-forest);
+  border: none;
+}
+
+.status-pill.warn {
+  background: transparent;
+  color: var(--admin-rust);
+  border: none;
+}
+
+.status-pill.bad {
+  background: transparent;
+  color: var(--admin-mute);
+  border: none;
+}
+
+.admin-status-summary-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+}
+
+.admin-status-empty {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: var(--admin-mute);
+  font-size: 0.88rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+/* ── Modals ── */
 .admin-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
+  background: rgba(18, 20, 26, 0.45);
+  backdrop-filter: blur(5px);
   z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 1rem;
+  animation: adminRise 0.2s var(--admin-ease) both;
 }
 
 .admin-modal {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
+  background: var(--admin-paper);
+  border: 1px solid var(--admin-line);
+  border-radius: var(--admin-radius);
   width: 100%;
   max-width: 460px;
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 18px 48px rgba(18, 20, 26, 0.18);
   overflow: hidden;
-  animation: slideUp 0.2s ease-out;
+  animation: adminSoftIn 0.25s var(--admin-ease) both;
 }
 
 .admin-modal-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1.15rem 1.5rem;
-  border-bottom: 1px solid var(--border);
+  padding: 1.1rem 1.35rem;
+  border-bottom: 1px solid var(--admin-line);
+  background: linear-gradient(180deg, var(--admin-wash), var(--admin-paper));
 }
 
 .admin-modal-header h3 {
   margin: 0;
-  font-size: var(--fs-md);
-  font-weight: 750;
+  font-family: 'Source Serif 4', Georgia, serif;
+  font-size: 1.15rem;
+  font-weight: 650;
+}
+
+.admin-modal-header h3.is-danger {
+  color: var(--admin-rust);
 }
 
 .admin-modal-close {
   background: none;
   border: none;
   cursor: pointer;
-  color: var(--text-subtle);
+  color: var(--admin-mute);
   display: flex;
+  padding: 0.35rem;
+  border-radius: 8px;
+  transition: background var(--admin-ease), color var(--admin-ease);
+}
+
+.admin-modal-close:hover {
+  background: var(--admin-wash);
+  color: var(--admin-ink);
 }
 
 .admin-modal-body {
-  padding: 1.5rem;
+  padding: 1.35rem;
+}
+
+.admin-modal-lead {
+  font-size: 0.9rem;
+  color: var(--admin-mute);
+  margin: 0 0 1.15rem;
+  line-height: 1.5;
+}
+
+.admin-field-label {
+  display: block;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.65rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--admin-mute);
+  margin-bottom: 0.45rem;
+}
+
+.admin-field-label span {
+  display: block;
+  margin-top: 0.2rem;
+  text-transform: none;
+  letter-spacing: 0;
+  font-family: inherit;
+  font-weight: 500;
+  color: var(--admin-mute);
+  opacity: 0.85;
+}
+
+.admin-field-input {
+  width: 100%;
+  padding: 0.65rem 0.85rem;
+  margin-bottom: 1.15rem;
+  border-radius: var(--admin-radius-sm);
+  border: 1px solid var(--admin-line);
+  background: var(--admin-paper);
+  color: var(--admin-ink);
+  font-family: inherit;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.admin-field-input:focus {
+  border-color: var(--admin-rust);
+  box-shadow: 0 0 0 3px rgba(184, 74, 30, 0.12);
+}
+
+.admin-modal-usage {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.85rem;
+  margin-bottom: 1.25rem;
+  background: var(--admin-wash);
+  border-radius: var(--admin-radius-sm);
+  border: 1px solid var(--admin-line);
+}
+
+.admin-modal-usage-value {
+  font-family: 'Source Serif 4', Georgia, serif;
+  font-size: 1.05rem;
+  font-weight: 650;
+  color: var(--admin-rust);
+}
+
+.admin-modal-actions {
+  display: flex;
+  gap: 0.65rem;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 900px) {
+  .admin-stats-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 768px) {
-  .admin-stats-grid {
-    grid-template-columns: 1fr;
+  .admin-masthead-copy {
+    width: 100%;
+  }
+
+  .admin-refresh-btn {
+    width: 100%;
+    justify-content: center;
   }
 
   .admin-tabs {
     overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    flex-wrap: nowrap;
-  }
-
-  .admin-tabs::-webkit-scrollbar {
-    display: none;
-  }
-
-  .admin-tab {
-    flex: 0 0 auto;
-    white-space: nowrap;
-    padding: 0.7rem 1rem;
   }
 
   .admin-search-wrapper {
@@ -372,27 +1196,55 @@
     width: 100%;
   }
 
-  .sources-grid {
-    grid-template-columns: 1fr;
-  }
-
   .admin-table-header {
     flex-direction: column;
     align-items: stretch;
-    gap: 0.75rem;
+  }
+
+  .sources-grid {
+    display: flex;
+  }
+
+  .admin-status-panel {
+    padding: 1rem;
   }
 }
 
 @media (max-width: 520px) {
+  .admin-mark {
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+  }
+
   .admin-stat-card {
     padding: 1rem;
   }
 
   .admin-stat-value {
-    font-size: 1.25rem;
+    font-size: 1.35rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-page,
+  .admin-stat-card,
+  .source-card-item,
+  .admin-table tbody tr,
+  .admin-mark-ring,
+  .admin-mark-ring-delay,
+  .admin-live-dot,
+  .admin-stat-orb,
+  .source-status-badge.operational .source-status-pulse,
+  .admin-mark.is-spinning .admin-mark-icon,
+  .admin-spin {
+    animation: none !important;
   }
 
-  .admin-modal-body {
-    padding: 1rem;
+  .admin-stat-card:hover,
+  .source-card-item:hover,
+  .admin-refresh-btn:hover:not(:disabled),
+  .admin-action-btn:hover:not(:disabled) {
+    transform: none;
   }
 }

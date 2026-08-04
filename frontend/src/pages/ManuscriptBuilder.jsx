@@ -506,11 +506,11 @@ export default function ManuscriptBuilder() {
     } catch { setSaveStatus('error'); }
   };
 
-  // Autosave Effect
+  // Autosave Effect — skip while streaming to avoid stringify thrash
   useEffect(() => {
+    if (generating) return;
     if (!topic || !Object.keys(content).length) return;
     
-    // Only autosave if the content actually changed since last save
     const currentContentStr = JSON.stringify(content);
     const lastSavedStr = JSON.stringify(lastSavedContentRef.current);
     if (currentContentStr === lastSavedStr) return;
@@ -521,7 +521,7 @@ export default function ManuscriptBuilder() {
     }, 5000);
     
     return () => clearTimeout(timeoutId);
-  }, [content, topic]);
+  }, [content, topic, generating]);
 
   useEffect(() => {
     if (!showLoad) return;

@@ -942,102 +942,15 @@ async def admin_delete_user(user_id: str, current_user: dict = Depends(get_curre
     return {"message": "User and associated data deleted"}
 
 @app.get("/api/admin/system-status")
-async def admin_system_status(current_user: dict = Depends(get_current_user)):
+async def admin_system_status(
+    force: bool = False,
+    current_user: dict = Depends(get_current_user),
+):
     if current_user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
-        
-    sources = []
-    
-    # 1. Groq API Check
-    groq_key = os.getenv("GROQ_API_KEY")
-    if not groq_key:
-        sources.append({"name": "Groq LLM Engine", "type": "LLM Provider", "status": "no_key", "details": "GROQ_API_KEY missing"})
-    else:
-        try:
-            start_t = time.time()
-            async with httpx.AsyncClient(timeout=3.0) as client:
-                res = await client.get("https://api.groq.com/openai/v1/models", headers={"Authorization": f"Bearer {groq_key}"})
-                latency = round((time.time() - start_t) * 1000)
-                if res.status_code == 200:
-                    sources.append({"name": "Groq LLM Engine", "type": "LLM Provider", "status": "operational", "latency_ms": latency, "details": "Models operational"})
-                elif res.status_code == 429:
-                    sources.append({"name": "Groq LLM Engine", "type": "LLM Provider", "status": "rate_limited", "latency_ms": latency, "details": "Rate limit active"})
-                else:
-                    sources.append({"name": "Groq LLM Engine", "type": "LLM Provider", "status": "degraded", "latency_ms": latency, "details": f"HTTP {res.status_code}"})
-        except Exception as e:
-            sources.append({"name": "Groq LLM Engine", "type": "LLM Provider", "status": "offline", "details": str(e)})
 
-    # 2. Google Gemini Check
-    gemini_key = os.getenv("GEMINI_API_KEY")
-    if not gemini_key:
-        sources.append({"name": "Google Gemini Engine", "type": "LLM Provider", "status": "no_key", "details": "GEMINI_API_KEY missing"})
-    else:
-        try:
-            start_t = time.time()
-            async with httpx.AsyncClient(timeout=3.0) as client:
-                res = await client.get(f"https://generativelanguage.googleapis.com/v1beta/models?key={gemini_key}")
-                latency = round((time.time() - start_t) * 1000)
-                if res.status_code == 200:
-                    sources.append({"name": "Google Gemini Engine", "type": "LLM Provider", "status": "operational", "latency_ms": latency, "details": "Operational"})
-                else:
-                    sources.append({"name": "Google Gemini Engine", "type": "LLM Provider", "status": "degraded", "latency_ms": latency, "details": f"HTTP {res.status_code}"})
-        except Exception as e:
-            sources.append({"name": "Google Gemini Engine", "type": "LLM Provider", "status": "offline", "details": str(e)})
+    from admin_status import collect_system_status
 
-    # 3. Semantic Scholar Search Check
-    try:
-        start_t = time.time()
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            res = await client.get("https://api.semanticscholar.org/graph/v1/paper/autocomplete?query=solar")
-            latency = round((time.time() - start_t) * 1000)
-            if res.status_code in (200, 400):
-                sources.append({"name": "Semantic Scholar API", "type": "Literature Source", "status": "operational", "latency_ms": latency, "details": "Active & Searchable"})
-            elif res.status_code == 429:
-                sources.append({"name": "Semantic Scholar API", "type": "Literature Source", "status": "rate_limited", "latency_ms": latency, "details": "Rate limit active"})
-            else:
-                sources.append({"name": "Semantic Scholar API", "type": "Literature Source", "status": "degraded", "details": f"HTTP {res.status_code}"})
-    except Exception as e:
-        sources.append({"name": "Semantic Scholar API", "type": "Literature Source", "status": "offline", "details": str(e)})
-
-    # 4. arXiv Search Check
-    try:
-        start_t = time.time()
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            res = await client.get("https://export.arxiv.org/api/query?search_query=all:electron&max_results=1")
-            latency = round((time.time() - start_t) * 1000)
-            if res.status_code == 200:
-                sources.append({"name": "arXiv Search API", "type": "Literature Source", "status": "operational", "latency_ms": latency, "details": "Active"})
-            else:
-                sources.append({"name": "arXiv Search API", "type": "Literature Source", "status": "degraded", "details": f"HTTP {res.status_code}"})
-    except Exception as e:
-        sources.append({"name": "arXiv Search API", "type": "Literature Source", "status": "offline", "details": str(e)})
-
-    # 5. PubMed NCBI Check
-    try:
-        start_t = time.time()
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            res = await client.get("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pmc&term=cancer&retmode=json&retmax=1")
-            latency = round((time.time() - start_t) * 1000)
-            if res.status_code == 200:
-                sources.append({"name": "PubMed NCBI Service", "type": "Literature Source", "status": "operational", "latency_ms": latency, "details": "Active"})
-            else:
-                sources.append({"name": "PubMed NCBI Service", "type": "Literature Source", "status": "degraded", "details": f"HTTP {res.status_code}"})
-    except Exception as e:
-        sources.append({"name": "PubMed NCBI Service", "type": "Literature Source", "status": "offline", "details": str(e)})
-
-    # 6. GROBID PDF Engine Check
-    try:
-        start_t = time.time()
-        async with httpx.AsyncClient(timeout=2.0) as client:
-            res = await client.get("http://localhost:8070/api/isalive")
-            latency = round((time.time() - start_t) * 1000)
-            if res.status_code == 200:
-                sources.append({"name": "GROBID Structuring Engine", "type": "PDF Parser", "status": "operational", "latency_ms": latency, "details": "Local GROBID active"})
-            else:
-                sources.append({"name": "GROBID Structuring Engine", "type": "PDF Parser", "status": "degraded", "details": "Resuming heuristic fallback"})
-    except Exception:
-        sources.append({"name": "GROBID Structuring Engine", "type": "PDF Parser", "status": "offline", "details": "Unreachable (Using PyMuPDF Fallback)"})
-
-    return {"sources": sources}
+    return await collect_system_status(force=force)
 
 # Trigger reload

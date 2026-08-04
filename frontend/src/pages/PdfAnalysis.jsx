@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback, memo } from 'react';
 import {
   UploadCloud, FileText, Send, AlertCircle,
   ChevronLeft, ChevronRight, Bot, User, Paperclip, X,
@@ -27,6 +27,9 @@ import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+
+const REMARK_PLUGINS = [remarkGfm, remarkMath];
+const REHYPE_PLUGINS = [[rehypeKatex, { strict: false, throwOnError: false, errorColor: 'inherit' }]];
 
 const SUGGESTIONS = [
   { label: 'Main contribution', prompt: "What's the main contribution of this paper?" },
@@ -118,7 +121,7 @@ function GapPanel({ data }) {
   );
 }
 
-function MessageBubble({ msg, onPageJump }) {
+function MessageBubble({ msg, markdownComponents }) {
   const isUser = msg.role === 'user';
 
   const renderContent = () => {
@@ -137,55 +140,9 @@ function MessageBubble({ msg, onPageJump }) {
     return (
       <div className="pdf-markdown-body">
         <ReactMarkdown
-          remarkPlugins={[remarkGfm, remarkMath]}
-          rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false, errorColor: 'inherit' }]]}
-          components={{
-            a: ({ href, children, ...props }) => {
-              if (href?.startsWith('#page-')) {
-                const pageNum = Number(href.replace('#page-', ''));
-                return (
-                  <button
-                    type="button"
-                    className="citation-pill"
-                    data-ref={`p.${pageNum}`}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      if (!Number.isNaN(pageNum)) onPageJump?.(pageNum);
-                    }}
-                  >
-                    {children}
-                  </button>
-                );
-              }
-              return (
-                <a href={href} target="_blank" rel="noreferrer" {...props}>
-                  {children}
-                </a>
-              );
-            },
-            code({ className, children, ...props }) {
-              const language = parseCodeLanguage(className);
-              const contentStr = codeChildrenToText(children);
-              const isBlock = Boolean(className) || contentStr.includes('\n');
-
-              if (isBlock && isMermaidBlock(language, contentStr)) {
-                return (
-                  <div className="pdf-figure-block">
-                    <Mermaid chart={contentStr} />
-                  </div>
-                );
-              }
-              return isBlock && language ? (
-                <SyntaxHighlighter style={ghcolors} language={language} PreTag="div" {...props}>
-                  {contentStr}
-                </SyntaxHighlighter>
-              ) : (
-                <code className={className} {...props}>
-                  {children}
-                </code>
-              );
-            },
-          }}
+          remarkPlugins={REMARK_PLUGINS}
+          rehypePlugins={REHYPE_PLUGINS}
+          components={markdownComponents}
         >
           {(msg.content || '').replace(/\[?(?:Page|Pg\.?)\s*(\d+)\]?/gi, '[Page $1](#page-$1)')}
         </ReactMarkdown>
@@ -209,6 +166,8 @@ function MessageBubble({ msg, onPageJump }) {
     </div>
   );
 }
+
+const MemoMessageBubble = memo(MessageBubble);
 
 export default function PdfAnalysis() {
   const pixelRatio = window.devicePixelRatio || 1;
@@ -288,13 +247,61 @@ export default function PdfAnalysis() {
     fetchChatList();
   }, []);
 
-  const jumpToPage = (page) => {
+  const jumpToPage = useCallback((page) => {
     setPageNumber(page);
     setMode('read');
     requestAnimationFrame(() => {
       viewerScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
     });
-  };
+  }, []);
+
+  const markdownComponents = useMemo(() => ({
+    a: ({ href, children, ...props }) => {
+      if (href?.startsWith('#page-')) {
+        const pageNum = Number(href.replace('#page-', ''));
+        return (
+          <button
+            type="button"
+            className="citation-pill"
+            data-ref={`p.${pageNum}`}
+            onClick={(e) => {
+              e.preventDefault();
+              if (!Number.isNaN(pageNum)) jumpToPage(pageNum);
+            }}
+          >
+            {children}
+          </button>
+        );
+      }
+      return (
+        <a href={href} target="_blank" rel="noreferrer" {...props}>
+          {children}
+        </a>
+      );
+    },
+    code({ className, children, ...props }) {
+      const language = parseCodeLanguage(className);
+      const contentStr = codeChildrenToText(children);
+      const isBlock = Boolean(className) || contentStr.includes('\n');
+
+      if (isBlock && isMermaidBlock(language, contentStr)) {
+        return (
+          <div className="pdf-figure-block">
+            <Mermaid chart={contentStr} />
+          </div>
+        );
+      }
+      return isBlock && language ? (
+        <SyntaxHighlighter style={ghcolors} language={language} PreTag="div" {...props}>
+          {contentStr}
+        </SyntaxHighlighter>
+      ) : (
+        <code className={className} {...props}>
+          {children}
+        </code>
+      );
+    },
+  }), [jumpToPage]);
 
   const fetchChatList = async () => {
     setLoadingChats(true);
@@ -785,7 +792,7 @@ export default function PdfAnalysis() {
                 <section className="pdf-mode-panel pdf-ask-panel">
                   <div className="pdf-messages-area">
                     {messages.map((msg) => (
-                      <MessageBubble key={msg.id} msg={msg} onPageJump={jumpToPage} />
+                      <MemoMessageBubble key={msg.id} msg={msg} markdownComponents={markdownComponents} />
                     ))}
                     {messages.length === 1 && (
                       <div className="pdf-suggestions">

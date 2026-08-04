@@ -3,8 +3,6 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { BookOpen, CheckCircle2, ChevronRight, Copy, Download, ExternalLink, FileText, Filter, List, RefreshCw, Save, Search, Sparkles, User, X, Loader2, Bookmark, Unlock, ChevronDown, Trash2 } from 'lucide-react';
 import { InteractiveHoverButton } from '@/components/ui/interactive-hover-button';
 import './LiteratureSurvey.css';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import { useAuth } from '../context/AuthContext';
 import { useAppContext } from '../context/AppContext';
 import { Spinner, SkeletonList } from '../components/Loader';
@@ -125,8 +123,13 @@ export default function LiteratureSurvey() {
   const displayedPapers = filteredPapers.slice(0, visibleCount);
   const hasMoreFiltered = visibleCount < filteredPapers.length;
 
-  const exportSurveyToPDF = (papersToExport, queryName) => {
+  const exportSurveyToPDF = async (papersToExport, queryName) => {
     if (!papersToExport || !papersToExport.length) return;
+    const [{ default: jsPDF }, autoTableMod] = await Promise.all([
+      import('jspdf'),
+      import('jspdf-autotable'),
+    ]);
+    const autoTable = autoTableMod.default;
     const doc = new jsPDF();
     doc.setFontSize(16);
     doc.text(`Literature Survey: ${queryName}`, 14, 22);

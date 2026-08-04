@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useRef, useEffect } from 'react';
+import React, { createContext, useContext, useState, useRef, useEffect, useMemo } from 'react';
 import { useAuth } from './AuthContext';
 
 const AppContext = createContext();
@@ -53,8 +53,7 @@ export const AppProvider = ({ children }) => {
     }
   }, [user]);
 
-  const value = {
-    // Manuscript
+  const value = useMemo(() => ({
     manuscriptState: {
       active: manuscriptActive, setActive: setManuscriptActive,
       topic: manuscriptTopic, setTopic: setManuscriptTopic,
@@ -64,7 +63,6 @@ export const AppProvider = ({ children }) => {
       manuscriptRefs, setManuscriptRefs,
       lastSavedContentRef
     },
-    // Literature Survey
     literatureState: {
       query: litQuery, setQuery: setLitQuery,
       papers: litPapers, setPapers: setLitPapers,
@@ -77,7 +75,12 @@ export const AppProvider = ({ children }) => {
       filterSource: litFilterSource, setFilterSource: setLitFilterSource,
       visibleCount: litVisibleCount, setVisibleCount: setLitVisibleCount,
     }
-  };
+  }), [
+    manuscriptActive, manuscriptTopic, manuscriptContent, manuscriptGenerating,
+    manuscriptEditHistory, manuscriptRefs,
+    litQuery, litPapers, litLoading, litActiveTab, litSearchError,
+    litHasSearched, litLastQuery, litFilterYear, litFilterSource, litVisibleCount,
+  ]);
 
   return (
     <AppContext.Provider value={value}>

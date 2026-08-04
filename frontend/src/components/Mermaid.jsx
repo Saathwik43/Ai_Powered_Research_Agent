@@ -1,6 +1,5 @@
 import React, { useEffect, useId, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import mermaid from 'mermaid';
 import { Maximize2, X, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 import {
   sanitizeMermaidChart,
@@ -8,11 +7,20 @@ import {
 } from '../utils/mermaidChart';
 
 const svgCache = new Map();
+let mermaidModule = null;
 let initialized = false;
 let renderChain = Promise.resolve();
 
-function ensureMermaidInit() {
-  if (initialized) return;
+async function loadMermaid() {
+  if (!mermaidModule) {
+    mermaidModule = (await import('mermaid')).default;
+  }
+  return mermaidModule;
+}
+
+async function ensureMermaidInit() {
+  const mermaid = await loadMermaid();
+  if (initialized) return mermaid;
   mermaid.initialize({
     startOnLoad: false,
     securityLevel: 'loose',
@@ -78,6 +86,7 @@ function ensureMermaidInit() {
     },
   });
   initialized = true;
+  return mermaid;
 }
 
 function enqueueRender(task) {
@@ -89,8 +98,6 @@ function enqueueRender(task) {
 function cleanupStrayMermaid(id) {
   document.querySelectorAll(`[id^="${id}"]`).forEach((el) => el.remove());
 }
-
-ensureMermaidInit();
 
 function DiagramLightbox({ svgHtml, onClose }) {
   const [zoom, setZoom] = useState(1);
@@ -161,7 +168,6 @@ export default function Mermaid({ chart }) {
 
   useEffect(() => {
     let isMounted = true;
-    ensureMermaidInit();
 
     const cleanChart = sanitizeMermaidChart(chart);
     if (!cleanChart) return undefined;
@@ -187,12 +193,8 @@ export default function Mermaid({ chart }) {
         const id = `mmd-${reactId}-${Math.random().toString(36).slice(2, 9)}`;
 
         try {
+          const mermaid = await ensureMermaidInit();
           await mermaid.parse(cleanChart);
-        } catch {
-          return;
-        }
-
-        try {
           const { svg } = await mermaid.render(id, cleanChart);
           const fixed = normalizeMermaidSvg(svg);
           if (!fixed || fixed.length < 40) throw new Error('Empty diagram SVG');
