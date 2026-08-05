@@ -604,12 +604,47 @@ export default function ManuscriptBuilder() {
     setPrintPending(true);
   };
 
+  const [latexVenue, setLatexVenue] = useState('ieee');
+  const [latexExporting, setLatexExporting] = useState(false);
+  const [latexError, setLatexError] = useState('');
+
+  const exportLatex = async () => {
+    if (!topic || !Object.keys(content).length) return;
+    setLatexExporting(true);
+    setLatexError('');
+    try {
+      const res = await authFetch(
+        `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/export-latex?topic=${encodeURIComponent(topic)}&venue=${latexVenue}`
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || 'Export failed.');
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${topic.replace(/\s+/g, '-')}-${latexVenue}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setLatexError(e.message || 'Export failed.');
+    } finally {
+      setLatexExporting(false);
+    }
+  };
+
   useEffect(() => {
   if (printPending && viewMode === 'paper') {
     const waitForCharts = () => {
       const nodes = document.querySelectorAll('.paper-preview-print .mermaid-chart');
       const allReady = Array.from(nodes).every(n => n.querySelector('svg'));
       if (allReady) {
+        // Scroll containers clip off-screen SVG when printing — reset scroll origin first
+        document.querySelectorAll('.paper-preview-print .mermaid-chart-scroll').forEach((el) => {
+          el.scrollTop = 0;
+          el.scrollLeft = 0;
+        });
         window.print();
         setPrintPending(false);
       } else {
@@ -628,38 +663,73 @@ export default function ManuscriptBuilder() {
   return (
     <div className="animate-fade-in">
       {/* Header */}
-      <div className="page-header manuscript-page-header">
-        <div>
+      <header className="page-header manuscript-page-header">
+        <div className="manuscript-masthead">
           <h1>Manuscript Builder</h1>
           <p className="text-muted">Write your research paper section by section with AI assistance.</p>
-          <div style={{ marginTop: 'var(--space-3)', color: 'var(--text-muted)', fontSize: 'var(--fs-sm)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-            <span style={{ fontSize: 'var(--fs-base)' }}>💡</span>
-            <span><strong>Note:</strong> AI can make mistakes, review before proceeding.</span>
+          <p className="manuscript-ai-note">
+            <strong>Note:</strong> AI can make mistakes — review before proceeding.
+          </p>
+        </div>
+
+        <div className="manuscript-toolbar">
+          <div className="manuscript-toolbar-start">
+            <div className="manuscript-format-badge">
+              {citationStyle.toUpperCase()} Format
+            </div>
+            <div className="manuscript-action-cluster">
+              <button className="btn btn-secondary" onClick={handleNewPaper}>
+                <Plus size={14} /> New Paper
+              </button>
+              <button className="btn btn-secondary" onClick={() => { setShowLoad(true); setLoadError(''); setDraftFilter(''); }}>
+                <FolderOpen size={14} /> Load Draft
+              </button>
+            </div>
+          </div>
+
+          <div className="manuscript-action-cluster manuscript-export-cluster">
+            <span className="manuscript-cluster-label">Export</span>
+            <button className="btn btn-secondary" onClick={exportMarkdown} disabled={!Object.keys(content).length}>
+              <FileText size={14} /> Markdown
+            </button>
+            <div className="manuscript-latex-control">
+              <select
+                className="manuscript-venue-select"
+                value={latexVenue}
+                onChange={(e) => setLatexVenue(e.target.value)}
+                aria-label="Target venue for LaTeX export"
+                title="Target venue for LaTeX export"
+              >
+                <option value="ieee">IEEE</option>
+                <option value="acm">ACM</option>
+                <option value="springer">Springer LNCS</option>
+                <option value="elsevier">Elsevier</option>
+              </select>
+              <button
+                className="btn btn-secondary manuscript-latex-btn"
+                onClick={exportLatex}
+                disabled={!Object.keys(content).length || latexExporting}
+                title="Export as LaTeX (.tex + .bib) for the selected venue"
+              >
+                <FileText size={14} /> {latexExporting ? 'Exporting…' : 'LaTeX'}
+              </button>
+            </div>
+            <button
+              className="btn btn-primary"
+              onClick={exportPDF}
+              disabled={!Object.keys(content).length}
+              title="Export as PDF (uncheck 'Headers and footers' in the print dialog for a clean file)"
+            >
+              <Printer size={14} /> PDF
+            </button>
           </div>
         </div>
-        <div className="responsive-actions">
-          <div className="manuscript-format-badge">
-            {citationStyle.toUpperCase()} Format
-          </div>
-          <button className="btn btn-secondary" onClick={handleNewPaper}>
-            <Plus size={14} /> New Paper
-          </button>
-          <button className="btn btn-secondary" onClick={() => { setShowLoad(true); setLoadError(''); setDraftFilter(''); }}>
-            <FolderOpen size={14} /> Load Draft
-          </button>
-          <button className="btn btn-secondary" onClick={exportMarkdown} disabled={!Object.keys(content).length}>
-            <FileText size={14} /> .md
-          </button>
-          <button 
-            className="btn btn-primary" 
-            onClick={exportPDF} 
-            disabled={!Object.keys(content).length}
-            title="Export as PDF (uncheck 'Headers and footers' in the print dialog for a clean file)"
-          >
-            <Printer size={14} /> PDF
-          </button>
+      </header>
+      {latexError && (
+        <div className="manuscript-error-banner" role="alert" style={{ padding: 'var(--space-2) var(--space-4)', color: 'var(--danger, #b00020)' }}>
+          {latexError}
         </div>
-      </div>
+      )}
 
       <div className="manuscript-layout">
 

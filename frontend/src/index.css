@@ -997,3 +997,33 @@ textarea::placeholder {
   }
 }
 
+/* Print / Save-as-PDF: no scroll clipping; paper-format CSS sets exact figure sizes */
+@media print {
+  .mermaid-lightbox,
+  .mermaid-expand-btn {
+    display: none !important;
+  }
+
+  .mermaid-figure {
+    overflow: visible !important;
+    border: none !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .mermaid-chart-scroll {
+    cursor: default !important;
+  }
+
+  .mermaid-chart {
+    min-width: 0 !important;
+  }
+
+  .mermaid-chart svg {
+    height: auto !important;
+  }
+}
+

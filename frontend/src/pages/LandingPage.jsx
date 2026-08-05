@@ -82,11 +82,6 @@ const LandingPage = () => {
                 Open existing account
               </button>
             </div>
-            <div className="trust-row" aria-label="Platform highlights">
-              <span><ShieldCheck size={16} /> Private account workspace</span>
-              <span><BookOpen size={16} /> Academic source integrations</span>
-              <span><CheckCircle2 size={16} /> Export-ready outputs</span>
-            </div>
           </div>
 
           <div className="product-preview" aria-label="Research Agent product preview">
@@ -217,6 +212,11 @@ const LandingPage = () => {
           <div className="section-heading">
             <h2>Built for the full paper workflow</h2>
             <p>Every module is designed for repeated research work: quick inputs, clear results, and direct next actions.</p>
+          </div>
+          <div className="trust-row" aria-label="Platform highlights">
+            <span><ShieldCheck size={16} /> Private account workspace</span>
+            <span><BookOpen size={16} /> Academic source integrations</span>
+            <span><CheckCircle2 size={16} /> Export-ready outputs</span>
           </div>
           <div className="feature-grid">
             {features.map(({ icon: Icon, title, desc }, index) => (

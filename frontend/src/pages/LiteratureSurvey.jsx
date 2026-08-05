@@ -1,11 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { BookOpen, CheckCircle2, ChevronRight, Copy, Download, ExternalLink, FileText, Filter, List, RefreshCw, Save, Search, Sparkles, User, X, Loader2, Bookmark, Unlock, ChevronDown, Trash2 } from 'lucide-react';
+import { BookOpen, CheckCircle2, ChevronRight, Copy, Download, ExternalLink, FileText, Filter, List, Save, Search, Sparkles, User, X, Loader2, Bookmark, Unlock, ChevronDown, Trash2, Square } from 'lucide-react';
 import { InteractiveHoverButton } from '@/components/ui/interactive-hover-button';
 import './LiteratureSurvey.css';
 import { useAuth } from '../context/AuthContext';
 import { useAppContext } from '../context/AppContext';
 import { Spinner, SkeletonList } from '../components/Loader';
+import {
+  validateSearchQuery,
+  normalizeSearchQuery,
+  isAbortError,
+} from '../utils/searchHeuristics';
 
 export default function LiteratureSurvey() {
   const { authFetch } = useAuth();
@@ -27,8 +32,14 @@ export default function LiteratureSurvey() {
   const [saveStatus, setSaveStatus] = useState('');
   const [savedSurveys, setSavedSurveys] = useState([]);
   const [loadingSaved, setLoadingSaved] = useState(false);
+  const abortRef = useRef(null);
+  const inFlightQueryRef = useRef('');
 
   const PAGE_SIZE = 15;
+
+  useEffect(() => () => {
+    abortRef.current?.abort();
+  }, []);
 
   const fetchSavedSurveys = async () => {
     setLoadingSaved(true);
@@ -60,24 +71,71 @@ export default function LiteratureSurvey() {
     if (incomingQuery && incomingQuery.trim()) {
       setActiveTab('search');
       setQuery(incomingQuery);
-      search(incomingQuery);
+      search(incomingQuery, true);
       // Clear the nav state so refreshing/back-nav doesn't re-trigger the search.
       navigate(location.pathname, { replace: true, state: {} });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state]);
 
-  const search = async (q = query, newSearch = true) => {
-    if (!q.trim()) return;
-    setLoading(true);
+  const stopSearch = useCallback(() => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    inFlightQueryRef.current = '';
+    setLoading(false);
+  }, [setLoading]);
+
+  const clearSearch = useCallback(() => {
+    stopSearch();
+    setQuery('');
     setPapers([]);
+    setSearchError('');
+    setHasSearched(false);
+    setLastQuery('');
+    setFilterYear('All');
+    setFilterSource('All');
     setVisibleCount(15);
-    setSaveStatus(''); setSearchError('');
-    setHasSearched(true); setLastQuery(q);
-    setFilterYear('All'); setFilterSource('All');
-    
+    setSaveStatus('');
+  }, [
+    stopSearch, setQuery, setPapers, setSearchError, setHasSearched,
+    setLastQuery, setFilterYear, setFilterSource, setVisibleCount,
+  ]);
+
+  const search = async (q = query, newSearch = true) => {
+    const check = validateSearchQuery(q);
+    if (!check.ok) {
+      setSearchError(check.message);
+      if (check.code === 'empty') setHasSearched(false);
+      return;
+    }
+
+    const normalized = normalizeSearchQuery(check.query);
+    if (loading && inFlightQueryRef.current === normalized) return;
+
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    inFlightQueryRef.current = normalized;
+
+    setQuery(check.query);
+    setLoading(true);
+    if (newSearch) setPapers([]);
+    setVisibleCount(15);
+    setSaveStatus('');
+    setSearchError('');
+    setHasSearched(true);
+    setLastQuery(check.query);
+    setFilterYear('All');
+    setFilterSource('All');
+
     try {
-      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature?query=${encodeURIComponent(q)}`);
+      const res = await authFetch(
+        `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature?query=${encodeURIComponent(check.query)}`,
+        { signal: controller.signal }
+      );
+      if (controller.signal.aborted) return;
       if (res.status === 429 || res.status === 503) {
         setSearchError('Rate limit exceeded. Please wait a minute before trying again.');
         setPapers([]);
@@ -91,11 +149,16 @@ export default function LiteratureSurvey() {
       const data = await res.json();
       setPapers(data.data || []);
     } catch (e) {
+      if (isAbortError(e)) {
+        setSearchError('Search stopped.');
+        return;
+      }
       console.error(e);
       setSearchError('Network error. Please try again.');
       setPapers([]);
-    }
-    finally {
+    } finally {
+      if (abortRef.current === controller) abortRef.current = null;
+      inFlightQueryRef.current = '';
       setLoading(false);
     }
   };
@@ -233,36 +296,57 @@ export default function LiteratureSurvey() {
             placeholder="Topic, keyword, or author…"
             value={query}
             onChange={e => setQuery(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && search()}
+            onKeyDown={e => {
+              if (e.key === 'Enter') search();
+              if (e.key === 'Escape' && loading) stopSearch();
+            }}
             aria-label="Search literature"
           />
+          {(query || hasSearched) && (
+            <button
+              type="button"
+              className="lit-search-clear"
+              onClick={clearSearch}
+              aria-label="Clear search"
+              title="Clear search"
+            >
+              <X size={14} />
+            </button>
+          )}
         </div>
-        <InteractiveHoverButton
-          className="lit-search-go"
-          text={loading ? '…' : 'Search'}
-          loading={loading}
-          onClick={() => search()}
-          disabled={loading}
-        />
+        {loading ? (
+          <button type="button" className="lit-search-stop" onClick={stopSearch}>
+            <Square size={12} fill="currentColor" /> Stop
+          </button>
+        ) : (
+          <InteractiveHoverButton
+            className="lit-search-go"
+            text="Search"
+            loading={false}
+            onClick={() => search()}
+          />
+        )}
       </div>
-      
 
       {searchError && (
-        <div style={{ marginBottom: 'var(--space-5)', padding: 'var(--space-3) var(--space-4)', background: 'rgba(229,28,35,0.08)', border: '1px solid rgba(229,28,35,0.2)', borderRadius: 'var(--radius-md)', color: 'var(--danger)', fontSize: 'var(--fs-sm)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-          <X size={15} /> {searchError}
+        <div className={`lit-search-alert${searchError === 'Search stopped.' ? ' is-muted' : ''}`} role="alert">
+          <span className="lit-search-alert-text"><X size={15} /> {searchError}</span>
+          <button type="button" className="lit-search-alert-dismiss" onClick={() => setSearchError('')} aria-label="Dismiss">
+            Dismiss
+          </button>
         </div>
       )}
 
       {/* Toolbar and Filters */}
       {papers.length > 0 && (
         <div className="lit-filter-bar">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+          <div className="lit-filter-top">
+            <div className="lit-filter-summary">
               <BookOpen size={15} color="var(--primary)" />
-              <span style={{ fontWeight: 600, fontSize: 'var(--fs-sm)' }}>{filteredPapers.length} results</span>
-              <span style={{ color: 'var(--text-subtle)', fontSize: 'var(--fs-sm)' }}>for "{lastQuery}"</span>
+              <span className="lit-filter-count">{filteredPapers.length} results</span>
+              <span className="lit-filter-query">for &ldquo;{lastQuery}&rdquo;</span>
             </div>
-            <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+            <div className="lit-filter-actions">
               <button className="btn btn-secondary" onClick={saveSurvey} disabled={saveStatus === 'saving'}>
                 <Save size={14} /> {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : 'Save'}
               </button>
@@ -271,11 +355,11 @@ export default function LiteratureSurvey() {
               </button>
             </div>
           </div>
-          
-          <div className="lit-filter-row" style={{ borderTop: '1px solid var(--border)', paddingTop: 'var(--space-4)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-              <label style={{ fontSize: 'var(--fs-sm)', fontWeight: 600, color: 'var(--text-muted)' }}>Year:</label>
-              <select value={filterYear} onChange={e => { setFilterYear(e.target.value); setVisibleCount(15); }} style={{ padding: 'var(--space-2)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: 'var(--fs-sm)' }}>
+
+          <div className="lit-filter-row">
+            <div className="lit-filter-field">
+              <label htmlFor="lit-filter-year">Year</label>
+              <select id="lit-filter-year" value={filterYear} onChange={e => { setFilterYear(e.target.value); setVisibleCount(15); }}>
                 <option value="All">All Years</option>
                 <option value="Last 5 Years">Last 5 Years</option>
                 <option value="2026">2026</option>
@@ -286,9 +370,9 @@ export default function LiteratureSurvey() {
                 <option value="2021">2021</option>
               </select>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-              <label style={{ fontSize: 'var(--fs-sm)', fontWeight: 600, color: 'var(--text-muted)' }}>Source:</label>
-              <select value={filterSource} onChange={e => { setFilterSource(e.target.value); setVisibleCount(15); }} style={{ padding: 'var(--space-2)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: 'var(--fs-sm)' }}>
+            <div className="lit-filter-field">
+              <label htmlFor="lit-filter-source">Source</label>
+              <select id="lit-filter-source" value={filterSource} onChange={e => { setFilterSource(e.target.value); setVisibleCount(15); }}>
                 <option value="All">All Sources</option>
                 <option value="Semantic Scholar">Semantic Scholar</option>
                 <option value="IEEE">IEEE</option>
@@ -363,57 +447,51 @@ export default function LiteratureSurvey() {
 
         {displayedPapers.map((p, i) => (
           <div key={p.id || i} className="lit-result-card animate-slide-up"
-            style={{ animationDelay: `${(i % 15) * 0.04}s`, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 'var(--space-4) var(--space-5)', transition: 'transform 0.18s ease, border-color 0.18s ease' }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(0,87,255,0.28)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.transform = ''; }}
+            style={{ animationDelay: `${(i % 15) * 0.04}s` }}
           >
-            {/* Title + citations */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 'var(--space-4)', marginBottom: 'var(--space-2)', width: '100%' }}>
-              <h3 style={{ margin: 0, fontSize: 'var(--fs-sm)', fontWeight: 600, lineHeight: 1.45, flex: 1, color: 'var(--text)' }}>{p.title}</h3>
-              <div className="action-buttons" style={{ display: 'flex', gap: 'var(--space-2)', flexShrink: 0 }}>
+            <div className="lit-result-head">
+              <h3 className="lit-result-title">{p.title}</h3>
+              <div className="lit-result-actions">
                 {p.oa_url && (
-                  <a href={p.oa_url} target="_blank" rel="noreferrer" style={{ fontSize: 'var(--fs-xs)', fontWeight: 600, color: '#16a34a', background: 'rgba(22,163,74,0.08)', border: '1px solid rgba(22,163,74,0.22)', padding: 'var(--space-1) var(--space-2)', borderRadius: '999px', whiteSpace: 'nowrap', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 'var(--space-1)' }}
+                  <a href={p.oa_url} target="_blank" rel="noreferrer" className="lit-badge lit-badge-oa"
                     title="Open Access — free full text available"
                   >
                     <Unlock size={11} /> Open Access
                   </a>
                 )}
                 {p.citations > 0 && (
-                  <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 600, color: 'var(--text-muted)', background: 'var(--bg-elevated)', border: '1px solid var(--border)', padding: 'var(--space-1) var(--space-2)', borderRadius: '999px', whiteSpace: 'nowrap' }}>
+                  <span className="lit-badge">
                     {p.citations.toLocaleString()} citations
                   </span>
                 )}
               </div>
             </div>
 
-            {/* Authors + year */}
-            <p style={{ margin: '0 0 var(--space-3)', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>
+            <p className="lit-result-meta">
               {p.authors}
-              {p.year && p.year !== 'N/A' && <span style={{ color: 'var(--text-subtle)' }}> · {p.year}</span>}
-              {p.published && p.year === 'Unknown' && <span style={{ color: 'var(--text-subtle)' }}> · {p.published}</span>}
+              {p.year && p.year !== 'N/A' && <span> · {p.year}</span>}
+              {p.published && p.year === 'Unknown' && <span> · {p.published}</span>}
             </p>
 
-            {/* Abstract */}
             {p.abstract && p.abstract !== 'No abstract available' && (
-              <p style={{ margin: '0 0 var(--space-3)', fontSize: 'var(--fs-sm)', color: 'var(--text-subtle)', lineHeight: 1.6 }}>
+              <p className="lit-result-abstract">
                 {p.abstract.substring(0, 240)}{p.abstract.length > 240 ? '...' : ''}
               </p>
             )}
 
-            {/* Links */}
-            <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+            <div className="lit-result-links">
               {p.url && (
-                <a href={p.url} target="_blank" rel="noreferrer" className="btn btn-ghost" style={{ fontSize: 'var(--fs-sm)', padding: 'var(--space-1) var(--space-3)', textDecoration: 'none' }}>
+                <a href={p.url} target="_blank" rel="noreferrer" className="btn btn-ghost lit-link-btn">
                   <ExternalLink size={12} /> View
                 </a>
               )}
               {p.pdf_url && p.pdf_url !== p.url && (
-                <a href={p.pdf_url} target="_blank" rel="noreferrer" className="btn btn-ghost" style={{ fontSize: 'var(--fs-sm)', padding: 'var(--space-1) var(--space-3)', textDecoration: 'none' }}>
+                <a href={p.pdf_url} target="_blank" rel="noreferrer" className="btn btn-ghost lit-link-btn">
                   <FileText size={12} /> PDF
                 </a>
               )}
               {p.oa_url && p.oa_url !== p.url && p.oa_url !== p.pdf_url && (
-                <a href={p.oa_url} target="_blank" rel="noreferrer" className="btn btn-ghost" style={{ fontSize: 'var(--fs-sm)', padding: 'var(--space-1) var(--space-3)', textDecoration: 'none', color: '#16a34a' }}>
+                <a href={p.oa_url} target="_blank" rel="noreferrer" className="btn btn-ghost lit-link-btn lit-link-oa">
                   <Unlock size={12} /> Full Text (OA)
                 </a>
               )}
@@ -421,8 +499,7 @@ export default function LiteratureSurvey() {
                 href={`https://scholar.google.com/scholar?q=${encodeURIComponent(p.title)}`}
                 target="_blank"
                 rel="noreferrer"
-                className="btn btn-ghost"
-                style={{ fontSize: 'var(--fs-sm)', padding: 'var(--space-1) var(--space-3)', textDecoration: 'none' }}
+                className="btn btn-ghost lit-link-btn"
               >
                 <Search size={12} /> Scholar
               </a>
@@ -453,21 +530,22 @@ export default function LiteratureSurvey() {
             </div>
           ) : (
             savedSurveys.map((survey, i) => (
-              <div key={i} className="lit-result-card animate-slide-up"
-                style={{ animationDelay: `${i * 0.04}s`, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 'var(--space-4) var(--space-5)', transition: 'transform 0.18s ease, border-color 0.18s ease', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-4)' }}
+              <div key={i} className="lit-result-card lit-saved-card animate-slide-up"
+                style={{ animationDelay: `${i * 0.04}s` }}
               >
-                <div>
-                  <h3 style={{ margin: '0 0 var(--space-1)', fontSize: 'var(--fs-md)', fontWeight: 600, color: 'var(--text)' }}>{survey.query}</h3>
-                  <p style={{ margin: 0, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>{survey.papers?.length || 0} papers saved</p>
+                <div className="lit-saved-copy">
+                  <h3>{survey.query}</h3>
+                  <p>{survey.papers?.length || 0} papers saved</p>
                 </div>
-                <div className="action-buttons" style={{ display: 'flex', gap: 'var(--space-2)' }}>
+                <div className="lit-result-actions lit-saved-actions">
                   <button className="btn btn-secondary" onClick={() => exportSurveyToPDF(survey.papers, survey.query)}>
                     <Download size={14} /> Download PDF
                   </button>
-                  <button 
-                    className="btn btn-icon" 
-                    onClick={() => deleteSurvey(survey.query)} 
-                    style={{ color: 'var(--danger)', background: 'rgba(229, 28, 35, 0.1)', border: 'none' }}
+                  <button
+                    type="button"
+                    className="btn btn-icon lit-delete-btn"
+                    onClick={() => deleteSurvey(survey.query)}
+                    aria-label="Delete survey"
                   >
                     <Trash2 size={16} />
                   </button>

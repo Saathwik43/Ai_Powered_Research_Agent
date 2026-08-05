@@ -225,7 +225,12 @@ async def search_all(
             return cached_data
 
     def _task(name, coro):
-        return (name, asyncio.create_task(coro, name=name)) if name not in exclude_sources else None
+        if name in exclude_sources:
+            # The coroutine was already constructed by the call below, so close it
+            # explicitly instead of letting it leak as a "never awaited" warning.
+            coro.close()
+            return None
+        return (name, asyncio.create_task(coro, name=name))
 
     named = [t for t in [
         _task("SemanticScholar", s2_search(query, limit=limit_per_source)),

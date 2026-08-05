@@ -503,6 +503,7 @@
 
 .admin-table {
   width: 100%;
+  min-width: 720px;
   border-collapse: collapse;
   text-align: left;
 }

@@ -1,11 +1,16 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Search, TrendingUp, ArrowUpRight, ExternalLink, FileText, X, Trash2, ArrowRight,
-  Brain, Shield, Cpu, Database, Atom, Eye, BookOpen, Layers
+  Brain, Shield, Cpu, Database, Atom, Eye, BookOpen, Layers, Square
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Spinner, SkeletonList } from '../components/Loader';
 import { useNavigate } from 'react-router-dom';
+import {
+  validateSearchQuery,
+  normalizeSearchQuery,
+  isAbortError,
+} from '../utils/searchHeuristics';
 import './Dashboard.css';
 
 const SUGGESTIONS = [
@@ -112,7 +117,13 @@ export default function Dashboard() {
 
   const debounce = useRef(null);
   const inputWrap = useRef(null);
+  const abortRef = useRef(null);
+  const lastQueryRef = useRef('');
   const navigate = useNavigate();
+
+  useEffect(() => () => {
+    abortRef.current?.abort();
+  }, []);
 
   const handleInputChange = useCallback((val) => {
     setTopic(val);
@@ -125,9 +136,50 @@ export default function Dashboard() {
     }, 180);
   }, []);
 
+  const stopDiscover = useCallback(() => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    setLoading(false);
+    setPapersLoading(false);
+  }, []);
+
+  const clearSearch = useCallback(() => {
+    stopDiscover();
+    setTopic('');
+    setSuggestions([]);
+    setShowSug(false);
+    setResults([]);
+    setRelatedPapers([]);
+    setError('');
+    setHasSearched(false);
+    setActiveCategory(null);
+    setCategoryPapers([]);
+    lastQueryRef.current = '';
+    sessionStorage.removeItem('dash_topic');
+    sessionStorage.removeItem('dash_results');
+    sessionStorage.removeItem('dash_relatedPapers');
+    sessionStorage.removeItem('dash_hasSearched');
+  }, [stopDiscover]);
+
   const discover = async (q = topic) => {
-    if (!q.trim()) return;
-    setTopic(q);
+    const check = validateSearchQuery(q);
+    if (!check.ok) {
+      setError(check.message);
+      if (check.code === 'empty') setHasSearched(false);
+      return;
+    }
+    const normalized = normalizeSearchQuery(check.query);
+    // Ignore duplicate submits while a matching search is already in flight
+    if (loading && lastQueryRef.current === normalized) return;
+
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    lastQueryRef.current = normalized;
+    setTopic(check.query);
     setShowSug(false);
     setLoading(true);
     setPapersLoading(true);
@@ -136,9 +188,15 @@ export default function Dashboard() {
     setHasSearched(true);
     try {
       const [topicRes, paperRes] = await Promise.all([
-        authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/topics?intent=${encodeURIComponent(q)}`),
-        authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature?query=${encodeURIComponent(q)}&limit=6`),
+        authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/topics?intent=${encodeURIComponent(check.query)}`, {
+          signal: controller.signal,
+        }),
+        authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature?query=${encodeURIComponent(check.query)}&limit=6`, {
+          signal: controller.signal,
+        }),
       ]);
+
+      if (controller.signal.aborted) return;
 
       if (topicRes.status === 429 || paperRes.status === 429 || topicRes.status === 503 || paperRes.status === 503) {
         if (topicRes.status === 503 || paperRes.status === 503) {
@@ -167,7 +225,7 @@ export default function Dashboard() {
 
       const topicData = await topicRes.json();
       if (topicData.coherence_check === 'failed') {
-        setError(`"${q}" doesn't look like a research topic. Try a specific field or subject area.`);
+        setError(`"${check.query}" doesn't look like a research topic. Try a specific field or subject area.`);
         setResults([]);
         setRelatedPapers([]);
         return;
@@ -177,9 +235,14 @@ export default function Dashboard() {
       setResults(topicData.data || []);
       setRelatedPapers(paperData.data || []);
     } catch (e) {
+      if (isAbortError(e)) {
+        setError('Search stopped.');
+        return;
+      }
       console.error(e);
       setError('Network error. Please try again.');
     } finally {
+      if (abortRef.current === controller) abortRef.current = null;
       setLoading(false);
       setPapersLoading(false);
     }
@@ -320,7 +383,7 @@ export default function Dashboard() {
         </aside>
 
         {/* ── Right workspace: search + stream ── */}
-        <main className="dashboard-workspace">
+        <div className="dashboard-workspace">
           <div className="dashboard-query">
             <div ref={inputWrap} className="dashboard-query-field">
               <Search size={16} className="dashboard-query-icon" />
@@ -331,10 +394,25 @@ export default function Dashboard() {
                 onChange={e => handleInputChange(e.target.value)}
                 onKeyDown={e => {
                   if (e.key === 'Enter') discover();
-                  if (e.key === 'Escape') setShowSug(false);
+                  if (e.key === 'Escape') {
+                    if (loading) stopDiscover();
+                    else setShowSug(false);
+                  }
                 }}
                 onFocus={() => suggestions.length && setShowSug(true)}
+                aria-label="Discover research topics"
               />
+              {(topic || hasSearched) && (
+                <button
+                  type="button"
+                  className="dashboard-query-clear"
+                  onClick={clearSearch}
+                  aria-label="Clear search"
+                  title="Clear search"
+                >
+                  <X size={14} />
+                </button>
+              )}
               {showSug && (
                 <div className="dashboard-suggestions">
                   {suggestions.map((s, i) => (
@@ -345,20 +423,32 @@ export default function Dashboard() {
                 </div>
               )}
             </div>
-            <button
-              type="button"
-              className="dashboard-query-btn"
-              onClick={() => discover()}
-              disabled={loading}
-            >
-              {loading ? 'Searching…' : 'Discover'}
-              {!loading && <ArrowRight size={14} />}
-            </button>
+            {loading ? (
+              <button
+                type="button"
+                className="dashboard-query-btn dashboard-query-btn-stop"
+                onClick={stopDiscover}
+              >
+                <Square size={12} fill="currentColor" /> Stop
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="dashboard-query-btn"
+                onClick={() => discover()}
+              >
+                Discover
+                <ArrowRight size={14} />
+              </button>
+            )}
           </div>
 
           {error && (
-            <div className="dashboard-error" role="alert">
-              <X size={14} /> {error}
+            <div className={`dashboard-error${error === 'Search stopped.' ? ' is-muted' : ''}`} role="alert">
+              <span className="dashboard-error-text"><X size={14} /> {error}</span>
+              <button type="button" className="dashboard-error-dismiss" onClick={() => setError('')} aria-label="Dismiss">
+                Dismiss
+              </button>
             </div>
           )}
 
@@ -574,7 +664,7 @@ export default function Dashboard() {
               <p>Try a more specific field, or pick one from the left rail.</p>
             </div>
           )}
-        </main>
+        </div>
       </div>
     </div>
   );

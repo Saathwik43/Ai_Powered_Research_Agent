@@ -127,22 +127,35 @@
 }
 
 
-/* ─── IEEE Format ──────────────────────────────────────────────────── */
+/* ─── IEEE Format ────────────────────────────────────────────────────
+   Layout numbers from IEEE Graphics / IEEEtran author guidelines:
+   - Column width:  3.5 in  (88.9 mm / 21 picas)
+   - Page width:    7.16 in (182 mm / 43 picas)
+   - Max figure depth: 8.5 in (leave room for caption → cap graphics lower)
+*/
 .paper-preview.format-ieee {
+  --ieee-col-width: 3.5in;
+  --ieee-page-width: 7.16in;
+  --ieee-fig-max-height: 3.5in;
   font-family: 'Times New Roman', 'Noto Serif', Georgia, serif;
   font-size: 10pt;
   line-height: 1.35;
+  /* Match IEEEtran text block (~7.16in) when the panel is wide enough */
+  max-width: calc(var(--ieee-page-width) + 2rem);
+  margin-inline: auto;
+  padding: 0.75in 0.5in;
 }
 
 .paper-preview.format-ieee .paper-title {
-  font-size: 1.65rem;
+  font-size: 24pt;
   font-family: 'Times New Roman', 'Noto Serif', Georgia, serif;
 }
 
 .paper-preview.format-ieee .paper-body {
   column-count: 2;
-  column-gap: 1.5rem;
-  column-rule: 1px solid #e0e0e0;
+  column-gap: 0.25in; /* IEEEtran inter-column gap */
+  column-rule: none;
+  column-fill: balance;
 }
 
 .paper-preview.format-ieee .paper-body h1,
@@ -162,6 +175,77 @@
 .paper-preview.format-ieee .paper-refs {
   column-span: all;
   font-size: 8.5pt;
+}
+
+/* IEEE figures: one-column graphic = 3.5in wide, ≤3.5in tall (IEEE max depth 8.5in) */
+.paper-preview.format-ieee .mermaid-figure,
+.paper-preview.format-ieee .table-chart-container {
+  width: var(--ieee-col-width);
+  max-width: 100%;
+  margin: 0.55em auto;
+  box-sizing: border-box;
+  break-inside: avoid;
+  -webkit-column-break-inside: avoid;
+  page-break-inside: avoid;
+  column-span: none;
+}
+
+.paper-preview.format-ieee .mermaid-figure {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+  position: relative;
+}
+
+.paper-preview.format-ieee .mermaid-chart-scroll {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ieee-col-width);
+  max-width: 100%;
+  max-height: var(--ieee-fig-max-height);
+  overflow: hidden;
+  padding: 0.05in 0;
+  cursor: zoom-in;
+  box-sizing: border-box;
+}
+
+.paper-preview.format-ieee .mermaid-chart {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.paper-preview.format-ieee .mermaid-chart svg {
+  display: block;
+  width: auto !important;
+  height: auto !important;
+  max-width: 100% !important;
+  max-height: var(--ieee-fig-max-height) !important;
+  margin: 0 auto;
+}
+
+.paper-preview.format-ieee .mermaid-expand-btn {
+  right: 0.15rem;
+  bottom: 0.15rem;
+  transform: scale(0.85);
+  transform-origin: bottom right;
+}
+
+.paper-preview.format-ieee .table-chart-container > div:last-child {
+  width: 100% !important;
+  height: 2.4in !important;
+  max-height: calc(var(--ieee-fig-max-height) - 0.4in);
+  padding: 0.12in !important;
+  box-sizing: border-box;
+}
+
+.paper-preview.format-ieee .table-chart-container > div:first-child {
+  font-size: 8pt;
+  font-family: 'Times New Roman', Times, serif;
+  margin-bottom: 0.15em;
 }
 
 
@@ -310,10 +394,17 @@
   p, li { orphans: 3; widows: 3; }
   h1, h2, h3 { page-break-after: avoid; }
 
-  /* IEEE 2-column for print with KaTeX math protection */
+  /* IEEE 2-column print — IEEEtran: 3.45in cols + 0.25in gap ≈ 7.16in text */
+  .paper-preview-print.format-ieee {
+    max-width: 7.16in !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    font-size: 10pt !important;
+  }
+
   .paper-preview-print.format-ieee .paper-body {
     column-count: 2;
-    column-gap: 0.4in;
+    column-gap: 0.25in;
     column-rule: none;
   }
   
@@ -327,9 +418,88 @@
     break-inside: avoid;
     -webkit-column-break-inside: avoid;
   }
+
+  /* Mermaid / charts: print full graphic at IEEE column size (not page-wide) */
+  .paper-preview-print .mermaid-figure,
+  .paper-preview-print .mermaid-chart-scroll {
+    overflow: visible !important;
+    max-height: none !important;
+  }
+
+  .paper-preview-print .mermaid-expand-btn {
+    display: none !important;
+  }
+
+  .paper-preview-print.format-ieee .mermaid-figure,
+  .paper-preview-print.format-ieee .table-chart-container {
+    width: 3.5in !important;
+    max-width: 3.5in !important;
+    margin: 0.5em auto !important;
+    column-span: none !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    -webkit-column-break-inside: avoid;
+    border: none !important;
+    background: transparent !important;
+    overflow: visible !important;
+  }
+
+  .paper-preview-print.format-ieee .mermaid-chart-scroll {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 3.5in !important;
+    max-height: 3.5in !important;
+    height: auto !important;
+    padding: 0.05in 0 !important;
+    overflow: hidden !important;
+  }
+
+  .paper-preview-print.format-ieee .mermaid-chart {
+    display: block !important;
+    width: 100% !important;
+    max-width: 3.5in !important;
+    min-width: 0 !important;
+  }
+
+  .paper-preview-print.format-ieee .mermaid-chart svg {
+    width: auto !important;
+    height: auto !important;
+    max-width: 3.5in !important;
+    max-height: 3.5in !important;
+  }
+
+  .paper-preview-print.format-ieee .table-chart-container > div:last-child {
+    width: 3.5in !important;
+    height: 2.4in !important;
+    max-height: 2.4in !important;
+  }
+
+  /* Non-IEEE formats: keep readable single-column figure width */
+  .paper-preview-print:not(.format-ieee) .mermaid-figure,
+  .paper-preview-print:not(.format-ieee) .table-chart-container {
+    width: 5.5in;
+    max-width: 100%;
+    max-height: 4in;
+    margin: 0.75em auto;
+    column-span: none;
+  }
+
+  .paper-preview-print:not(.format-ieee) .mermaid-chart-scroll {
+    max-height: 4in !important;
+    overflow: hidden !important;
+  }
+
+  .paper-preview-print:not(.format-ieee) .mermaid-chart svg {
+    max-width: 5.5in !important;
+    width: auto !important;
+    max-height: 3.75in !important;
+    height: auto !important;
+  }
 }
 
-@page { margin: 2cm 1.5cm; size: A4; }
+/* Letter + IEEE text block ≈ 7.16in wide (8.5 − 2×0.67) */
+@page { margin: 0.75in 0.67in; size: letter; }
 
 
 /* ─── Responsive: single column on small screens ───────────────────── */

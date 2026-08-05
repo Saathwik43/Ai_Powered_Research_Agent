@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="Research Agent  marginalia caret">
+  <!-- Marginalia caret: page + AI annotation in the margin -->
+  <rect width="64" height="64" rx="14" fill="#0F1115"/>
+  <!-- Page -->
+  <rect x="22" y="12" width="30" height="40" rx="3" fill="#FAFAF8"/>
+  <path d="M22 15.5h30" stroke="#E4E1D8" stroke-width="1"/>
+  <!-- Text lines -->
+  <rect x="28" y="22" width="18" height="2.2" rx="1" fill="#C9C5B8"/>
+  <rect x="28" y="28" width="16" height="2.2" rx="1" fill="#C9C5B8"/>
+  <rect x="28" y="34" width="14" height="2.2" rx="1" fill="#C9C5B8"/>
+  <!-- Highlighted claim line -->
+  <rect x="28" y="40" width="17" height="2.4" rx="1" fill="#2B5EA8" opacity="0.85"/>
+  <rect x="28" y="43.2" width="17" height="1.4" rx="0.7" fill="#C9622A" opacity="0.9"/>
+  <!-- Margin gutter -->
+  <path d="M27 16 V48" stroke="#E4E1D8" stroke-width="1" stroke-dasharray="2 2" opacity="0.9"/>
+  <!-- Marginalia caret / agent mark -->
+  <path
+    d="M12.5 29.5 L18.5 33 L12.5 36.5"
+    stroke="#C9622A"
+    stroke-width="2.8"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    fill="none"
+  />
+  <circle cx="18.5" cy="33" r="2.1" fill="#C9622A"/>
+</svg>
