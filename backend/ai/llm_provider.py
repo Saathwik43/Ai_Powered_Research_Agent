@@ -7,6 +7,7 @@ import httpx
 provider_semaphores = {
     "Groq": asyncio.Semaphore(5),
     "OpenRouter": asyncio.Semaphore(5),
+    "Cerebras": asyncio.Semaphore(5),
     "HuggingFace": asyncio.Semaphore(3),
     "Mistral": asyncio.Semaphore(3),
     "Gemini": asyncio.Semaphore(3),
@@ -78,6 +79,8 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "mistral-large-2407")
+CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY")
+CEREBRAS_MODEL = os.getenv("CEREBRAS_MODEL", "llama-3.3-70b")
 
 # google-genai Client — created once at module level if key is available.
 # The old google-generativeai SDK used genai.configure() globally; the new SDK
@@ -206,6 +209,31 @@ async def _generate_groq(system_prompt: str, user_prompt: str, max_tokens: int, 
         return data["choices"][0]["message"]["content"].strip(), usage
 
 
+async def _generate_cerebras(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float) -> str:
+    key = os.getenv("CEREBRAS_API_KEY")
+    if not key:
+        raise RuntimeError("CEREBRAS_API_KEY is not configured.")
+    payload = {
+        "model": os.getenv("CEREBRAS_MODEL", "llama-3.3-70b"),
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    headers = {
+        "Authorization": f"Bearer {CEREBRAS_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    async with httpx.AsyncClient(timeout=60) as client:
+        response = await client.post("https://api.cerebras.ai/v1/chat/completions", headers=headers, json=payload)
+        response.raise_for_status()
+        data = response.json()
+        usage = data.get("usage", {}).get("total_tokens", 0)
+        return data["choices"][0]["message"]["content"].strip(), usage
+
+
 async def _generate_nvidia(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float) -> str:
     key = os.getenv("NVIDIA_API_KEY")
     if not key:
@@ -328,6 +356,8 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
             provider_fn = _generate_groq
         elif effective_provider == "openrouter":
             provider_fn = _generate_openrouter
+        elif effective_provider == "cerebras":
+            provider_fn = _generate_cerebras
         elif effective_provider == "nvidia":
             provider_fn = _generate_nvidia
         elif effective_provider == "huggingface":
@@ -368,8 +398,10 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
         providers.append(("Gemini", _generate_gemini))
     if LLM_PROVIDER in ("auto", "groq"):
         providers.append(("Groq", _generate_groq))
-    if LLM_PROVIDER in ("auto", "openrouter"):
+    if LLM_PROVIDER == "openrouter":
         providers.append(("OpenRouter", _generate_openrouter))
+    if LLM_PROVIDER in ("auto", "cerebras") and os.getenv("CEREBRAS_API_KEY"):
+        providers.append(("Cerebras", _generate_cerebras))
     if LLM_PROVIDER in ("auto", "mistral") and os.getenv("MISTRAL_API_KEY"):
         providers.append(("Mistral", _generate_mistral))
     if LLM_PROVIDER in ("auto", "huggingface"):
@@ -497,6 +529,21 @@ async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: in
         async for chunk in _stream_openai_compatible("https://integrate.api.nvidia.com/v1/chat/completions", headers, payload):
             yield chunk
 
+    elif provider == "cerebras":
+        key = os.getenv("CEREBRAS_API_KEY")
+        if not key:
+            yield {"type": "stopped", "reason": "error", "message": "CEREBRAS_API_KEY not configured."}
+            return
+        payload = {
+            "model": effective_model or os.getenv("CEREBRAS_MODEL", "llama-3.3-70b"),
+            "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+        async for chunk in _stream_openai_compatible("https://api.cerebras.ai/v1/chat/completions", headers, payload):
+            yield chunk
+
     elif provider == "openrouter":
         key = os.getenv("OPENROUTER_API_KEY")
         if not key:
@@ -593,7 +640,7 @@ async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: in
 
 
 async def stream_completion_auto(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float, cached_content: str = None):
-    fixed_order = ("openai", "gemini", "groq", "openrouter", "mistral", "huggingface")
+    fixed_order = ("openai", "gemini", "groq", "cerebras", "mistral", "huggingface")
     full_accumulated_text = ""
     
     for provider in fixed_order:

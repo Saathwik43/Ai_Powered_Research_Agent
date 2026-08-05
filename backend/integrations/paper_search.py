@@ -9,8 +9,10 @@ from integrations.crossref import search_works as crossref_search
 from integrations.github_knowledge import search_github_knowledge
 from integrations.pubmed import search_papers as pubmed_search
 from integrations.springer import search_papers as springer_search
-from integrations.ieee import search_papers as ieee_search
 from integrations.core_api import search_papers as core_search
+from integrations.base_search import search_papers as base_search
+from integrations.europepmc import search_papers as europepmc_search
+from integrations.doaj import search_papers as doaj_search
 
 logger = logging.getLogger(__name__)
 _cache = {}
@@ -97,12 +99,14 @@ _SOURCE_WEIGHTS = {
     "Semantic Scholar": 0.9,
     "SemanticScholar": 0.9,
     "Springer": 0.85,
-    "IEEE": 0.8,
     "OpenAlex": 0.7,
+    "EuropePMC": 0.65,
     "CORE": 0.65,
     "PubMed": 0.65,
     "Crossref": 0.6,
+    "DOAJ": 0.55,
     "arXiv": 0.5,
+    "BASE": 0.45,
 }
 # GitHub sub-sources all start with "GitHub/"
 _GITHUB_SOURCE_WEIGHT = 0.3
@@ -201,12 +205,18 @@ async def search_all(
     semantic_rerank: bool = True,
     source_timeout: float = 20.0,
     oa_timeout: float = 8.0,
+    exclude_sources: set = None,
 ) -> list:
     """
     Query all configured integrations in parallel using asyncio.
     Aggregates, deduplicates, and ranks results.
+
+    exclude_sources: optional set of source names to skip entirely (e.g.
+    {"BASE", "DOAJ"} for topic-discovery, where grey-lit/broad-OA noise
+    hurts more than raw coverage helps).
     """
-    cache_key = f"{query}_{limit_per_source}_all"
+    exclude_sources = exclude_sources or set()
+    cache_key = f"{query}_{limit_per_source}_all_{sorted(exclude_sources)}"
     now = time.time()
     if cache_key in _cache:
         cached_data, timestamp = _cache[cache_key]
@@ -214,18 +224,22 @@ async def search_all(
             logger.info(f"Returning cached literature results for {query}")
             return cached_data
 
-    named = [
-        ("SemanticScholar", asyncio.create_task(s2_search(query, limit=limit_per_source),       name="SemanticScholar")),
-        ("OpenAlex",        asyncio.create_task(openalex_search(query, limit=limit_per_source),  name="OpenAlex")),
-        ("Crossref",        asyncio.create_task(crossref_search(query, limit=limit_per_source),  name="Crossref")),
-        ("PubMed",          asyncio.create_task(pubmed_search(query, limit=limit_per_source),    name="PubMed")),
-        ("arXiv",           asyncio.create_task(arxiv_search(query, limit=limit_per_source),     name="arXiv")),
-        ("GitHub",          asyncio.create_task(
-                                asyncio.to_thread(search_github_knowledge, query),    name="GitHub")),
-        ("Springer",        asyncio.create_task(springer_search(query, limit=limit_per_source), name="Springer")),
-        ("IEEE",            asyncio.create_task(ieee_search(query, limit=limit_per_source), name="IEEE")),
-        ("CORE",            asyncio.create_task(core_search(query, limit=limit_per_source), name="CORE")),
-    ]
+    def _task(name, coro):
+        return (name, asyncio.create_task(coro, name=name)) if name not in exclude_sources else None
+
+    named = [t for t in [
+        _task("SemanticScholar", s2_search(query, limit=limit_per_source)),
+        _task("OpenAlex",        openalex_search(query, limit=limit_per_source)),
+        _task("Crossref",        crossref_search(query, limit=limit_per_source)),
+        _task("PubMed",          pubmed_search(query, limit=limit_per_source)),
+        _task("arXiv",           arxiv_search(query, limit=limit_per_source)),
+        _task("GitHub",          asyncio.to_thread(search_github_knowledge, query)),
+        _task("Springer",        springer_search(query, limit=limit_per_source)),
+        _task("CORE",            core_search(query, limit=limit_per_source)),
+        _task("BASE",            base_search(query, limit=limit_per_source)),
+        _task("EuropePMC",       europepmc_search(query, limit=limit_per_source)),
+        _task("DOAJ",            doaj_search(query, limit=limit_per_source)),
+    ] if t is not None]
 
     task_to_name = {task: name for name, task in named}
     all_tasks = {task for _, task in named}
@@ -268,8 +282,10 @@ async def search_all(
     arxiv_results    = results_map.get("arXiv", [])
     github_results   = results_map.get("GitHub", [])
     springer_results = results_map.get("Springer", [])
-    ieee_results     = results_map.get("IEEE", [])
     core_results     = results_map.get("CORE", [])
+    base_results     = results_map.get("BASE", [])
+    europepmc_results = results_map.get("EuropePMC", [])
+    doaj_results     = results_map.get("DOAJ", [])
 
     # Tag sources that don't already have one
     for p in openalex_results:
@@ -282,13 +298,17 @@ async def search_all(
         p.setdefault("source", "Crossref")
     for p in pubmed_results:
         p.setdefault("source", "PubMed")
-    # Semantic Scholar, IEEE, Springer, CORE already tag their own in their modules (or we enforce it here if not)
+    # Semantic Scholar, Springer, CORE, BASE, EuropePMC, DOAJ already tag their own in their modules (or we enforce it here if not)
     for p in springer_results:
         p.setdefault("source", "Springer")
-    for p in ieee_results:
-        p.setdefault("source", "IEEE")
     for p in core_results:
         p.setdefault("source", "CORE")
+    for p in base_results:
+        p.setdefault("source", "BASE")
+    for p in europepmc_results:
+        p.setdefault("source", "EuropePMC")
+    for p in doaj_results:
+        p.setdefault("source", "DOAJ")
 
     # Merge all sources into a single list
     merged = (
@@ -299,8 +319,10 @@ async def search_all(
         + arxiv_results
         + github_results
         + springer_results
-        + ieee_results
         + core_results
+        + base_results
+        + europepmc_results
+        + doaj_results
     )
 
     # Deduplicate

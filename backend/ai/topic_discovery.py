@@ -31,6 +31,8 @@ async def discover_topics(intent: str):
             intent,
             limit_per_source=10,      # bigger sample = corpus actually reflects the query
             semantic_rerank=True,      # rank by relevance to intent, not just recency
+            exclude_sources={"BASE", "DOAJ"},  # grey-lit/broad-OA noise skews topic extraction;
+                                                 # fine for full literature search, not for this.
         )
 
         papers = await _filter_relevant_papers(intent, papers)

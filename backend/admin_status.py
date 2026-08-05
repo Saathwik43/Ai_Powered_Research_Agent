@@ -292,19 +292,59 @@ async def check_springer() -> Source:
         return _result("Springer Nature", "Literature Sources", "offline", str(e), requires_key="SPRINGER_META_API_KEY")
 
 
-async def check_ieee() -> Source:
-    key = os.getenv("IEEE_API_KEY")
-    if not key:
-        return _result("IEEE Xplore", "Literature Sources", "no_key", "IEEE_API_KEY missing", requires_key="IEEE_API_KEY")
+async def check_base() -> Source:
     try:
         code, latency, _ = await _timed_get(
-            "https://ieeexploreapi.ieee.org/api/v1/search/articles",
-            params={"querytext": "machine learning", "apikey": key, "max_records": 1},
+            "https://api.base-search.net/cgi-bin/BaseHttpSearchInterface.fcgi",
+            params={
+                "func": "PerformSearchRequest",
+                "query": "machine learning",
+                "hits": 1,
+                "format": "json",
+            },
+            timeout=8.0,
         )
         status, details = _classify_http(code)
-        return _result("IEEE Xplore", "Literature Sources", status, details, latency, "IEEE_API_KEY")
+        if status == "operational":
+            details = "Reachable (no API key required)"
+        return _result("BASE", "Literature Sources", status, details, latency)
     except Exception as e:
-        return _result("IEEE Xplore", "Literature Sources", "offline", str(e), requires_key="IEEE_API_KEY")
+        return _result("BASE", "Literature Sources", "offline", str(e))
+
+
+async def check_europepmc() -> Source:
+    try:
+        code, latency, _ = await _timed_get(
+            "https://www.ebi.ac.uk/europepmc/webservices/rest/search",
+            params={
+                "query": "machine learning",
+                "format": "json",
+                "pageSize": 1,
+                "resultType": "core",
+            },
+            timeout=8.0,
+        )
+        status, details = _classify_http(code)
+        if status == "operational":
+            details = "Reachable (no API key required)"
+        return _result("Europe PMC", "Literature Sources", status, details, latency)
+    except Exception as e:
+        return _result("Europe PMC", "Literature Sources", "offline", str(e))
+
+
+async def check_doaj() -> Source:
+    try:
+        code, latency, _ = await _timed_get(
+            "https://doaj.org/api/search/articles/machine%20learning",
+            params={"pageSize": 1},
+            timeout=8.0,
+        )
+        status, details = _classify_http(code)
+        if status == "operational":
+            details = "Reachable (no API key required)"
+        return _result("DOAJ", "Literature Sources", status, details, latency)
+    except Exception as e:
+        return _result("DOAJ", "Literature Sources", "offline", str(e))
 
 
 async def check_core() -> Source:
@@ -449,8 +489,10 @@ CHECKS: list[CheckFn] = [
     check_openalex,
     check_crossref,
     check_springer,
-    check_ieee,
     check_core,
+    check_base,
+    check_europepmc,
+    check_doaj,
     check_unpaywall,
     check_github_knowledge,
     check_grobid,

@@ -2,35 +2,32 @@
 Shared paper relevance filtering used by both manuscript generation and
 the /api/literature endpoint.
 
+Relevance classification
+-------------------------
+Each paper without a pre-existing ``relevance_score`` gets a single yes/no
+LLM classification call (via the existing provider cascade — Groq by
+default) judging whether its title+abstract is actually relevant to the
+requested topic. This catches synonyms/paraphrases and off-topic noise
+that plain keyword overlap misses (e.g. a paper about "network intrusion"
+correctly matching a "cybersecurity threat detection" query even with no
+literal word overlap).
+
 Fail-open behaviour note
 ------------------------
-When the Groq classification call fails (rate limit, timeout, network error),
-the paper is **included** by default.  This is intentional for manuscript
-generation (better to surface a possibly-borderline paper than silently drop
-context), but carries a known trade-off for the literature endpoint: under
-heavy Groq load every unclassified paper leaks through, potentially returning
-noisy results to the user.  The trade-off is documented here pending a
-frontend 'low-confidence' flag or server-side fail-closed option.
+When the classification call fails (rate limit, timeout, network error),
+the paper is **included** by default. This is intentional for manuscript
+generation (better to surface a possibly-borderline paper than silently
+drop context) and for the literature endpoint (better to show more results
+than none when the classifier is down).
 """
 
 import logging
 import time
 import re
 
-_STOPWORDS = {"the", "a", "an", "of", "in", "on", "for", "and", "to", "with", "is", "are", "using", "based"}
-
-def _keyword_relevance_score(topic: str, title: str, abstract: str) -> bool:
-    """Local, LLM-free relevance check: what fraction of the topic's
-    significant words appear in the paper's title/abstract."""
-    topic_words = {w for w in re.sub(r"[^a-z0-9 ]", " ", topic.lower()).split() if w not in _STOPWORDS and len(w) > 2}
-    if not topic_words:
-        return True  # nothing meaningful to check against, don't filter
-    text = (title + " " + abstract).lower()
-    matched = sum(1 for w in topic_words if w in text)
-    return (matched / len(topic_words)) >= 0.5  # at least half the topic's keywords present
+from ai.llm_provider import generate_completion
 
 logger = logging.getLogger(__name__)
-
 
 __all__ = ["_filter_relevant_papers"]
 
@@ -43,9 +40,34 @@ _CACHE_TTL = 600
 
 def _cache_key(topic: str, paper: dict) -> tuple:
     """Stable cache key from topic + first 60 chars of normalised title."""
-    import re
     title = re.sub(r"[^a-z0-9 ]", "", (paper.get("title", "") or "").lower()).strip()[:60]
     return (topic.strip().lower(), title)
+
+
+_CLASSIFIER_SYSTEM_PROMPT = (
+    "You are a strict research-paper relevance classifier. Given a research "
+    "topic and a paper's title and abstract, respond with exactly one word: "
+    "'yes' if the paper is genuinely relevant to the topic, or 'no' if it is "
+    "not. Do not explain, do not add punctuation, respond with only yes or no."
+)
+
+
+def _build_classifier_prompt(topic: str, title: str, abstract: str) -> str:
+    return (
+        f"Research topic: {topic}\n\n"
+        f"Paper title: {title}\n"
+        f"Paper abstract: {abstract}\n\n"
+        "Is this paper relevant to the research topic? Answer yes or no."
+    )
+
+
+async def _classify_relevance(topic: str, title: str, abstract: str) -> bool:
+    """Single yes/no LLM call. Raises on failure — caller decides fail-open."""
+    user_prompt = _build_classifier_prompt(topic, title, abstract)
+    result = await generate_completion(
+        _CLASSIFIER_SYSTEM_PROMPT, user_prompt, max_tokens=5, temperature=0.0
+    )
+    return (result or "").strip().lower().startswith("yes")
 
 
 async def _filter_relevant_papers(topic: str, papers: list) -> list:
@@ -60,7 +82,7 @@ async def _filter_relevant_papers(topic: str, papers: list) -> list:
     pair within the last 10 minutes, the cached verdict is reused.
 
     LLM-path: for all other papers a single yes/no call is made to the
-    configured provider (Groq in auto mode).  On failure the paper is
+    configured provider (Groq in auto mode). On failure the paper is
     **included** (fail-open).
 
     Parameters
@@ -77,7 +99,7 @@ async def _filter_relevant_papers(topic: str, papers: list) -> list:
     """
     import asyncio
     now = time.time()
-    
+
     async def _process_paper(paper):
         # Fast-path: check if provider already scored relevance
         if "relevance_score" in paper:
@@ -103,10 +125,15 @@ async def _filter_relevant_papers(topic: str, papers: list) -> list:
             else:
                 del _relevance_cache[ck]  # expired
 
-        # Local keyword-overlap relevance check — no LLM, no network call
+        # LLM-path: single yes/no classification call
         title = paper.get("title", "")
-        abstract = (paper.get("abstract", "") or "")[:300]
-        is_relevant = _keyword_relevance_score(topic, title, abstract)
+        abstract = (paper.get("abstract", "") or "")[:600]
+        try:
+            is_relevant = await _classify_relevance(topic, title, abstract)
+        except Exception as e:
+            logger.warning(f"Relevance classification failed, including paper (fail-open): {e}")
+            return paper  # fail-open: don't cache a failure verdict
+
         _relevance_cache[ck] = (is_relevant, now)
         if is_relevant:
             return paper
@@ -118,8 +145,7 @@ async def _filter_relevant_papers(topic: str, papers: list) -> list:
     async def _throttled(p):
         async with global_llm_sem:
             return await _process_paper(p)
-            
+
     processed_papers = await asyncio.gather(*[_throttled(p) for p in papers])
     relevant = [p for p in processed_papers if p is not None]
     return relevant
-

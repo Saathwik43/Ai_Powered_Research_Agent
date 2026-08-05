@@ -326,7 +326,9 @@ class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
             patch("integrations.paper_search.arxiv_search",     side_effect=instant_search),
             patch("integrations.paper_search.search_github_knowledge", side_effect=instant_github),
             patch("integrations.paper_search.springer_search",  side_effect=instant_search),
-            patch("integrations.paper_search.ieee_search",      side_effect=instant_search),
+            patch("integrations.paper_search.base_search",      side_effect=instant_search),
+            patch("integrations.paper_search.europepmc_search", side_effect=instant_search),
+            patch("integrations.paper_search.doaj_search",      side_effect=instant_search),
             patch("integrations.paper_search.core_search",      side_effect=instant_search),
         ):
             t0 = time.monotonic()
@@ -390,7 +392,9 @@ class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
             patch("integrations.paper_search.arxiv_search",     side_effect=always_slow),
             patch("integrations.paper_search.search_github_knowledge", side_effect=always_slow_sync),
             patch("integrations.paper_search.springer_search",  side_effect=always_slow),
-            patch("integrations.paper_search.ieee_search",      side_effect=always_slow),
+            patch("integrations.paper_search.base_search",      side_effect=always_slow),
+            patch("integrations.paper_search.europepmc_search", side_effect=always_slow),
+            patch("integrations.paper_search.doaj_search",      side_effect=always_slow),
             patch("integrations.paper_search.core_search",      side_effect=always_slow),
         ):
             t0 = time.monotonic()
@@ -448,7 +452,9 @@ class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
             patch("integrations.paper_search.arxiv_search",     side_effect=ax_fast),
             patch("integrations.paper_search.search_github_knowledge", side_effect=gh_fast),
             patch("integrations.paper_search.springer_search",  side_effect=sp_fast),
-            patch("integrations.paper_search.ieee_search",      side_effect=ie_fast),
+            patch("integrations.paper_search.base_search",      side_effect=ie_fast),
+            patch("integrations.paper_search.europepmc_search", side_effect=ie_fast),
+            patch("integrations.paper_search.doaj_search",      side_effect=ie_fast),
             patch("integrations.paper_search.core_search",      side_effect=co_fast),
         ):
             t0 = time.monotonic()
@@ -508,7 +514,9 @@ class TestSearchAllPartialResults(unittest.IsolatedAsyncioTestCase):
             patch("integrations.paper_search.arxiv_search",     side_effect=instant),
             patch("integrations.paper_search.search_github_knowledge", side_effect=instant_github),
             patch("integrations.paper_search.springer_search",  side_effect=instant),
-            patch("integrations.paper_search.ieee_search",      side_effect=instant),
+            patch("integrations.paper_search.base_search",      side_effect=instant),
+            patch("integrations.paper_search.europepmc_search", side_effect=instant),
+            patch("integrations.paper_search.doaj_search",      side_effect=instant),
             patch("integrations.paper_search.core_search",      side_effect=instant),
         ):
             t0 = time.monotonic()
@@ -614,7 +622,9 @@ class TestSearchAllPartialResults(unittest.IsolatedAsyncioTestCase):
             patch("integrations.paper_search.arxiv_search",     side_effect=ax_fast),
             patch("integrations.paper_search.search_github_knowledge", side_effect=gh_fast),
             patch("integrations.paper_search.springer_search",  side_effect=sp_fast),
-            patch("integrations.paper_search.ieee_search",      side_effect=ie_fast),
+            patch("integrations.paper_search.base_search",      side_effect=ie_fast),
+            patch("integrations.paper_search.europepmc_search", side_effect=ie_fast),
+            patch("integrations.paper_search.doaj_search",      side_effect=ie_fast),
             patch("integrations.paper_search.core_search",      side_effect=co_fast),
         ):
             t0 = time.monotonic()

@@ -7,6 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timezone
 import logging
 import asyncio
+import io
+import zipfile
+import re
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from fastapi.responses import JSONResponse
@@ -32,6 +35,7 @@ from ai.pdf_analysis import extract_pdf_text, extract_pdf_structure, analyze_upl
 from ai.source_ingestion import extract_source_text
 from integrations.paper_search import search_all
 from ai.relevance import _filter_relevant_papers
+from ai.latex_export import export_manuscript, VENUES
 from integrations.arxiv import fetch_category_feed, fetch_multiple_feeds, CATEGORY_MAP
 from integrations.crossref import search_journals
 from integrations.github_knowledge import (
@@ -470,6 +474,90 @@ async def load_manuscript_draft(request: Request, topic: str, current_user: dict
     if not doc:
         raise HTTPException(status_code=404, detail="No draft found for this topic.")
     return {"data": doc}
+
+
+def _flatten_references(manuscript_refs) -> list:
+    """manuscript_refs is stored as an opaque Dict[str, Any] (frontend-defined
+    shape) -- defensively flatten whatever paper dicts are nested inside."""
+    out = []
+    if not manuscript_refs:
+        return out
+    if isinstance(manuscript_refs, list):
+        return [r for r in manuscript_refs if isinstance(r, dict)]
+    if isinstance(manuscript_refs, dict):
+        for v in manuscript_refs.values():
+            if isinstance(v, list):
+                out.extend(r for r in v if isinstance(r, dict))
+            elif isinstance(v, dict):
+                out.append(v)
+    return out
+
+
+@app.get("/api/manuscript/export-latex")
+@limiter.limit("10/minute")
+async def export_manuscript_latex(
+    request: Request,
+    topic: str,
+    venue: str,
+    author_name: str = "Author Name",
+    author_affil: str = "Affiliation, City, Country",
+    current_user: dict = Depends(get_current_user),
+):
+    if venue.lower() not in VENUES:
+        raise HTTPException(status_code=400, detail=f"Unknown venue. Supported: {list(VENUES.keys())}")
+
+    user_id = current_user["user_id"]
+    collection = db["manuscripts"]
+    doc = await collection.find_one({"user_id": user_id, "topic": topic}, {"_id": 0, "user_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="No draft found for this topic.")
+
+    content = doc.get("content") or {}
+    if not content:
+        raise HTTPException(status_code=400, detail="Draft has no section content to export.")
+    references = _flatten_references(doc.get("manuscript_refs"))
+
+    try:
+        tex, bib = export_manuscript(
+            topic=topic,
+            content=content,
+            venue=venue.lower(),
+            references=references,
+            author_name=author_name,
+            author_affil=author_affil,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    readme = (
+        f"LaTeX export for: {topic}\n"
+        f"Venue: {venue.upper()}\n\n"
+        "This zip contains paper.tex + references.bib only. You still need:\n"
+        f"  1. The official {venue.upper()} class file (not included -- get the current\n"
+        "     version from the publisher's author center or Overleaf's official template\n"
+        "     gallery, since redistributing a bundled copy here would go stale).\n"
+        "  2. Any Mermaid diagram in the draft is left as a '% TODO' comment in paper.tex --\n"
+        "     recreate it as a real LaTeX figure before submission.\n"
+        "  3. Venue-specific extras not auto-filled: ACM CCS Concepts, Elsevier Highlights\n"
+        "     (if applicable) -- add manually.\n"
+        "  4. Compile in Overleaf (upload this zip + the class file) or a local TeX toolchain.\n"
+    )
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("paper.tex", tex)
+        zf.writestr("references.bib", bib)
+        zf.writestr("README.txt", readme)
+    buf.seek(0)
+
+    safe_topic = re.sub(r"[^a-zA-Z0-9]+", "_", topic).strip("_")[:50] or "manuscript"
+    filename = f"{safe_topic}_{venue.lower()}.zip"
+
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/api/manuscript/list")
