@@ -162,6 +162,12 @@ class ManuscriptSavePayload(BaseModel):
     manuscript_refs: Optional[Dict[str, Any]] = None
     citation_style: Optional[str] = "ieee"
 
+class LatexExportPayload(BaseModel):
+    topic: str
+    venue: str
+    author_name: str = "Author Name"
+    author_affil: str = "Affiliation, City, Country"
+
 class PdfAnalyzePayload(BaseModel):
     text: str
     custom_prompt: Optional[str] = None
@@ -493,16 +499,15 @@ def _flatten_references(manuscript_refs) -> list:
     return out
 
 
-@app.get("/api/manuscript/export-latex")
+@app.post("/api/manuscript/export-latex")
 @limiter.limit("10/minute")
 async def export_manuscript_latex(
     request: Request,
-    topic: str,
-    venue: str,
-    author_name: str = "Author Name",
-    author_affil: str = "Affiliation, City, Country",
+    payload: LatexExportPayload,
     current_user: dict = Depends(get_current_user),
 ):
+    topic = payload.topic
+    venue = payload.venue
     if venue.lower() not in VENUES:
         raise HTTPException(status_code=400, detail=f"Unknown venue. Supported: {list(VENUES.keys())}")
 
@@ -523,8 +528,8 @@ async def export_manuscript_latex(
             content=content,
             venue=venue.lower(),
             references=references,
-            author_name=author_name,
-            author_affil=author_affil,
+            author_name=payload.author_name,
+            author_affil=payload.author_affil,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -536,10 +541,11 @@ async def export_manuscript_latex(
         f"  1. The official {venue.upper()} class file (not included -- get the current\n"
         "     version from the publisher's author center or Overleaf's official template\n"
         "     gallery, since redistributing a bundled copy here would go stale).\n"
-        "  2. Any Mermaid diagram in the draft is left as a '% TODO' comment in paper.tex --\n"
-        "     recreate it as a real LaTeX figure before submission.\n"
+        "  2. Any Mermaid diagram in the draft is left as a '% TODO' comment in paper.tex\n"
+        "     with the original Mermaid source preserved below it -- recreate it as a\n"
+        "     real LaTeX figure before submission.\n"
         "  3. Venue-specific extras not auto-filled: ACM CCS Concepts, Elsevier Highlights\n"
-        "     (if applicable) -- add manually.\n"
+        "     (if applicable) -- placeholders are marked TODO; replace manually.\n"
         "  4. Compile in Overleaf (upload this zip + the class file) or a local TeX toolchain.\n"
     )
 

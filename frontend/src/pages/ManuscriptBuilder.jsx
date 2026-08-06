@@ -614,7 +614,12 @@ export default function ManuscriptBuilder() {
     setLatexError('');
     try {
       const res = await authFetch(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/export-latex?topic=${encodeURIComponent(topic)}&venue=${latexVenue}`
+        `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/export-latex`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ topic, venue: latexVenue }),
+        }
       );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));

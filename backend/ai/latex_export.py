@@ -7,8 +7,9 @@ compilable .tex + .bib pair for a chosen publisher venue.
 Scope (v1): section body conversion, reference list -> venue-correct .bib,
 skeleton fill. Explicitly NOT handled here (documented, not silently
 dropped):
-  - Mermaid diagram blocks -> flagged as a TODO comment, not converted to
-    a real LaTeX figure. Mermaid doesn't compile in LaTeX.
+  - Mermaid diagram blocks -> flagged as a TODO comment with the original
+    Mermaid source preserved as LaTeX comments (not converted to a real
+    figure). Mermaid doesn't compile in LaTeX.
   - ACM CCS Concepts / Elsevier Highlights -> left as placeholders; both
     need real classification/summarization, not string templating.
   - No PDF compilation. Output is .tex + .bib for Overleaf or a local
@@ -84,11 +85,16 @@ def _markdown_to_latex(md: str) -> str:
             in_mermaid = True
             out.append("% TODO: Mermaid diagram omitted -- recreate as a LaTeX figure "
                         "(tikz/pgfplots or an exported image) before submission.")
+            out.append("% --- original Mermaid source (for reference; does not compile) ---")
             continue
         if in_mermaid:
             if stripped.startswith("```"):
                 in_mermaid = False
-            continue  # skip mermaid source lines entirely
+                out.append("% --- end Mermaid source ---")
+            else:
+                # Preserve chart data as LaTeX comments so authors can recreate the figure.
+                out.append("% " + line.rstrip("\r\n") if line.strip() else "%")
+            continue
 
         if not stripped:
             if in_list:
