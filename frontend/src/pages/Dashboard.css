@@ -2,19 +2,19 @@
    Left browse rail · right stream · curved surfaces · soft motion */
 
 .dashboard-page {
-  --dash-ink: #12141A;
-  --dash-ink-soft: #2A2D36;
-  --dash-rust: #B84A1E;
-  --dash-rust-deep: #8F3614;
-  --dash-forest: #1F5C45;
-  --dash-mute: #6E6A62;
-  --dash-line: #D6D2C8;
-  --dash-rule: #12141A;
-  --dash-paper: #FFFEFA;
-  --dash-wash: #F3F0E8;
-  --dash-warm: #FFF8F3;
-  --dash-radius: 16px;
-  --dash-radius-sm: 10px;
+  --dash-ink: #0F1218;
+  --dash-ink-soft: #374151;
+  --dash-rust: var(--primary);
+  --dash-rust-deep: var(--primary);
+  --dash-forest: #15803D;
+  --dash-mute: #3F4A5A;
+  --dash-line: var(--border);
+  --dash-rule: #0F1218;
+  --dash-paper: var(--bg-card);
+  --dash-wash: var(--bg-elevated);
+  --dash-warm: var(--bg-elevated);
+  --dash-radius: 12px;
+  --dash-radius-sm: 8px;
   --dash-radius-pill: 999px;
   --dash-ease: 220ms cubic-bezier(0.22, 1, 0.36, 1);
   color: var(--dash-ink);
@@ -23,16 +23,17 @@
 }
 
 [data-theme="dark"] .dashboard-page {
-  --dash-ink: #F4F1E8;
-  --dash-ink-soft: #C9C5B8;
-  --dash-mute: #9A9690;
-  --dash-line: #2E2F28;
-  --dash-rule: #F4F1E8;
-  --dash-paper: #1C1D18;
-  --dash-wash: #25261F;
-  --dash-warm: #252018;
-  --dash-rust-deep: #E08A4F;
-  --dash-forest: #6AAB86;
+  --dash-ink: #F3F4F6;
+  --dash-ink-soft: #D1D5DB;
+  --dash-mute: #A7B0BF;
+  --dash-line: var(--border);
+  --dash-rule: #F3F4F6;
+  --dash-paper: var(--bg-card);
+  --dash-wash: var(--bg-elevated);
+  --dash-warm: var(--bg-elevated);
+  --dash-rust: var(--primary);
+  --dash-rust-deep: var(--primary);
+  --dash-forest: #22C55E;
 }
 
 @keyframes dashRise {
@@ -59,8 +60,8 @@
   height: 3px;
   width: 4.5rem;
   margin-top: 1.1rem;
-  border-radius: var(--dash-radius-pill);
-  background: linear-gradient(90deg, var(--dash-rust), transparent);
+  border-radius: 0;
+  background: var(--dash-rust);
 }
 
 .dashboard-kicker {
@@ -85,10 +86,13 @@
 
 .dashboard-subtitle {
   margin: 0 0 0.85rem;
-  color: var(--dash-mute);
-  font-size: 0.95rem;
+  font-family: 'Caveat', cursive;
+  font-size: clamp(1.15rem, 1.7vw, 1.35rem);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--accent-strong);
   max-width: 32rem;
-  line-height: 1.5;
+  line-height: 1.4;
 }
 
 .dashboard-inline-metrics {
@@ -312,15 +316,22 @@
 }
 
 .dashboard-rail-survey-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
   border: 0;
+  border-radius: 50%;
   background: transparent;
   color: var(--dash-mute);
-  padding: 0.2rem;
+  padding: 0;
   cursor: pointer;
   flex-shrink: 0;
 }
 
 .dashboard-rail-survey-delete:hover {
+  background: rgba(229, 28, 35, 0.1);
   color: var(--danger, #B23A2E);
 }
 
@@ -352,10 +363,10 @@
   align-items: stretch;
   gap: 0;
   margin-bottom: 1.5rem;
-  border: 1.5px solid var(--dash-line);
+  border: var(--border-width) solid var(--border-strong);
   border-radius: var(--dash-radius);
   background: var(--dash-paper);
-  box-shadow: 0 1px 0 rgba(18, 20, 26, 0.03);
+  box-shadow: var(--shadow-sm);
   overflow: hidden;
   transition: border-color var(--dash-ease), box-shadow var(--dash-ease), transform var(--dash-ease);
 }
@@ -446,14 +457,23 @@
 }
 
 .dashboard-query-btn-stop {
-  background: rgba(185, 28, 28, 0.08);
-  color: #b91c1c;
-  border-left-color: rgba(185, 28, 28, 0.2);
+  width: 46px;
+  min-width: 46px;
+  height: 46px;
+  padding: 0;
+  margin: 0.35rem;
+  border-radius: 50%;
+  border-left: 0;
+  background: var(--danger);
+  color: #fff;
+  justify-content: center;
+  gap: 0;
 }
 
 .dashboard-query-btn-stop:hover:not(:disabled) {
   background: #b91c1c;
   color: #fff;
+  transform: scale(1.04);
 }
 
 .dashboard-suggestions {
@@ -463,7 +483,7 @@
   right: 0;
   z-index: 40;
   background: var(--dash-paper);
-  border: 1px solid var(--dash-line);
+  border: var(--border-width) solid var(--dash-line);
   border-radius: var(--dash-radius);
   overflow: hidden;
   box-shadow: 0 12px 32px rgba(18, 20, 26, 0.08);
@@ -665,7 +685,7 @@
   gap: 0.85rem;
   padding: 1rem 1rem;
   margin: 0.45rem 0;
-  border: 1px solid var(--dash-line);
+  border: var(--border-width) solid var(--dash-line);
   border-radius: var(--dash-radius);
   background: var(--dash-paper);
   cursor: pointer;
@@ -676,7 +696,7 @@
 
 .dashboard-direction:hover,
 .dashboard-direction:focus-visible {
-  border-color: rgba(184, 74, 30, 0.35);
+  border-color: rgba(30, 79, 214, 0.35);
   transform: translateY(-2px);
   box-shadow: 0 10px 28px rgba(18, 20, 26, 0.06);
 }
@@ -688,8 +708,8 @@
 
 .dashboard-direction.is-lead {
   padding-top: 1.15rem;
-  border-color: rgba(184, 74, 30, 0.28);
-  background: linear-gradient(180deg, var(--dash-warm) 0%, var(--dash-paper) 100%);
+  border-color: rgba(30, 79, 214, 0.28);
+  background: var(--dash-paper);
 }
 
 .dashboard-direction.is-lead .dashboard-direction-title {
@@ -709,11 +729,11 @@
 }
 
 .dashboard-direction-label {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-family: 'Caveat', cursive;
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-transform: none;
   color: var(--dash-mute);
 }
 
@@ -769,9 +789,12 @@
 
 .dashboard-direction-hint {
   margin: 0 0 0.7rem;
-  font-size: 0.8rem;
-  color: var(--dash-mute);
-  line-height: 1.45;
+  font-family: 'Caveat', cursive;
+  font-size: 1.1rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--accent-strong);
+  line-height: 1.35;
 }
 
 .dashboard-direction-actions {
@@ -784,12 +807,21 @@
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
+  border: 0;
+  background: transparent;
+  padding: 0;
   font-family: 'IBM Plex Mono', monospace;
   font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--dash-ink);
+  cursor: pointer;
+}
+
+.dashboard-action-primary:hover {
+  color: var(--dash-rust-deep);
+  text-decoration: underline;
 }
 
 .dashboard-action-link {
@@ -956,7 +988,12 @@
 
 .dashboard-empty-search p {
   margin: 0;
-  font-size: 0.88rem;
+  font-family: 'Caveat', cursive;
+  font-size: 1.15rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--accent-strong);
+  line-height: 1.35;
 }
 
 /* ── Responsive ── */

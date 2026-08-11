@@ -13,12 +13,26 @@
 
 .manuscript-masthead .text-muted {
   margin: 0;
+  font-family: 'Caveat', cursive;
+  font-size: clamp(1.15rem, 1.7vw, 1.35rem);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--accent-strong);
+  line-height: 1.4;
 }
 
 .manuscript-ai-note {
   margin: 0.65rem 0 0;
-  color: var(--text-muted);
-  font-size: var(--fs-sm);
+  font-family: 'Caveat', cursive;
+  font-size: 1.15rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--accent-strong);
+  line-height: 1.35;
+}
+
+.manuscript-ai-note strong {
+  font-weight: 600;
 }
 
 .manuscript-toolbar {
@@ -597,7 +611,7 @@
   }
 
   .manuscript-page-header .text-muted {
-    font-size: 0.88rem;
+    font-size: 1.1rem;
   }
 
   .manuscript-sidebar-column {

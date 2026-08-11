@@ -41,7 +41,7 @@
 .brand-mark img {
   width: 36px;
   height: 36px;
-  border-radius: 8px;
+  border-radius: 50%;
   box-shadow: 0 4px 12px rgba(47, 90, 255, 0.14);
 }
 

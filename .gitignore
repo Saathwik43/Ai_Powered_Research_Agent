@@ -6,8 +6,9 @@ __pycache__/
 node_modules/
 dist/
 all_fixes.patch
-code-report.md
-audit-checklist.md
+
+# Local working reports and checklists
+.reports/
 
 # Test files and artifacts
 test_*.py

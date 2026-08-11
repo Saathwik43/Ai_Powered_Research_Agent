@@ -375,8 +375,12 @@
 .pdf-empty-stage p {
   margin: 0;
   max-width: 28rem;
-  color: var(--text-muted);
-  font-size: var(--fs-sm);
+  font-family: 'Caveat', cursive;
+  font-size: 1.2rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--accent-strong);
+  line-height: 1.35;
 }
 
 .pdf-empty-icon {
@@ -386,7 +390,7 @@
   align-items: center;
   justify-content: center;
   border: 1.5px solid var(--text);
-  border-radius: var(--pdf-radius-sm);
+  border-radius: 50%;
   color: var(--primary);
   background: var(--primary-light);
 }

@@ -30,6 +30,12 @@
 .lit-masthead p {
   margin: 0;
   max-width: 36rem;
+  font-family: 'Caveat', cursive;
+  font-size: clamp(1.15rem, 1.7vw, 1.35rem);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--accent-strong);
+  line-height: 1.4;
 }
 
 .lit-tabs {
@@ -42,11 +48,7 @@
   padding: 0;
   background: transparent;
   border: 0;
-  border-bottom: 1px solid var(--border);
-  border-radius: 0;
-}
-
-.lit-tab {
+  border-bottom: var(--border-width) solid var(--border-strong);
   position: relative;
   isolation: isolate;
   z-index: 1;
@@ -93,10 +95,7 @@
   margin-bottom: 1.25rem;
   padding: 0 0 0.75rem;
   border: 0;
-  border-bottom: 1px solid var(--border-strong);
-  border-radius: 0;
-  background: transparent;
-}
+  border-bottom: var(--border-width) solid var(--border-strong);
 
 .lit-search-desk:focus-within {
   border-color: var(--text);
@@ -194,24 +193,24 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.4rem;
-  min-width: 7.25rem;
-  min-height: 46px;
-  padding: 0 1.15rem;
+  width: 46px;
+  height: 46px;
+  min-width: 46px;
+  padding: 0;
   border: 0;
-  border-radius: calc(var(--lit-radius) - 4px);
-  background: rgba(185, 28, 28, 0.1);
-  color: #b91c1c;
+  border-radius: 50%;
+  background: var(--danger);
+  color: #fff;
   font-weight: 700;
   font-size: 0.9rem;
   cursor: pointer;
-  transition: background var(--lit-ease), color var(--lit-ease), transform var(--lit-ease);
+  transition: background var(--lit-ease), transform var(--lit-ease);
 }
 
 .lit-search-stop:hover {
   background: #b91c1c;
   color: #fff;
-  transform: scale(1.02);
+  transform: scale(1.04);
 }
 
 .lit-search-alert {
@@ -242,7 +241,14 @@
 }
 
 .lit-search-alert-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 0.55rem;
   border: 0;
+  border-radius: 999px;
   background: transparent;
   color: inherit;
   font-size: 0.72rem;
@@ -256,6 +262,7 @@
 
 .lit-search-alert-dismiss:hover {
   opacity: 1;
+  background: rgba(15, 17, 21, 0.06);
 }
 
 .lit-filter-bar {
@@ -326,11 +333,7 @@
 .lit-filter-field select {
   padding: 0.4rem 0.6rem;
   border-radius: 10px;
-  border: 1px solid var(--border);
-  background: var(--bg-input);
-  color: var(--text);
-  font-size: var(--fs-sm);
-}
+  border: var(--border-width) solid var(--border-strong);
 
 .lit-result-card {
   display: flex;
@@ -338,9 +341,7 @@
   gap: 0.5rem;
   background: transparent;
   border: 0;
-  border-bottom: 1px solid var(--border);
-  border-radius: 0;
-  padding: 1.1rem 0;
+  border-bottom: var(--border-width) solid var(--border);
   min-width: 0;
 }
 
@@ -505,8 +506,8 @@
   }
 
   .lit-masthead p {
-    font-size: 0.88rem;
-    line-height: 1.45;
+    font-size: 1.1rem;
+    line-height: 1.35;
   }
 
   .lit-tabs {
@@ -522,11 +523,17 @@
     margin-bottom: 1rem;
   }
 
-  .lit-search-desk .lit-search-go,
-  .lit-search-stop {
+  .lit-search-desk .lit-search-go {
     min-width: 4.75rem;
     padding: 0 0.85rem;
     font-size: 0.8rem;
+  }
+
+  .lit-search-stop {
+    width: 42px;
+    height: 42px;
+    min-width: 42px;
+    padding: 0;
   }
 
   .lit-search-field input {

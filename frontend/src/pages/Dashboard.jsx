@@ -76,10 +76,16 @@ export default function Dashboard() {
   const [suggestions, setSuggestions] = useState([]);
   const [showSug, setShowSug] = useState(false);
   const [results, setResults] = useState(() => {
-    try { return JSON.parse(sessionStorage.getItem('dash_results') || '[]'); } catch { return []; }
+    try {
+      if (sessionStorage.getItem('dash_cache_ver') !== 'topic-rel-2') return [];
+      return JSON.parse(sessionStorage.getItem('dash_results') || '[]');
+    } catch { return []; }
   });
   const [relatedPapers, setRelatedPapers] = useState(() => {
-    try { return JSON.parse(sessionStorage.getItem('dash_relatedPapers') || '[]'); } catch { return []; }
+    try {
+      if (sessionStorage.getItem('dash_cache_ver') !== 'topic-rel-2') return [];
+      return JSON.parse(sessionStorage.getItem('dash_relatedPapers') || '[]');
+    } catch { return []; }
   });
   const [visibleRelatedCount, setVisibleRelatedCount] = useState(RELATED_PAGE_SIZE);
   const [loading, setLoading] = useState(false);
@@ -88,9 +94,16 @@ export default function Dashboard() {
   const [categoryPapers, setCategoryPapers] = useState([]);
   const [catLoading, setCatLoading] = useState(false);
   const [error, setError] = useState('');
-  const [hasSearched, setHasSearched] = useState(() => sessionStorage.getItem('dash_hasSearched') === 'true');
+  const [hasSearched, setHasSearched] = useState(() => {
+    if (sessionStorage.getItem('dash_cache_ver') !== 'topic-rel-2') return false;
+    return sessionStorage.getItem('dash_hasSearched') === 'true';
+  });
   const [recentSurveys, setRecentSurveys] = useState([]);
   const [loadingRecent, setLoadingRecent] = useState(false);
+
+  useEffect(() => {
+    sessionStorage.setItem('dash_cache_ver', 'topic-rel-2');
+  }, []);
 
   useEffect(() => {
     const id = setTimeout(() => {
@@ -396,7 +409,7 @@ export default function Dashboard() {
                     <button
                       type="button"
                       className="dashboard-rail-survey-main"
-                      onClick={() => navigate('/literature-survey', { state: { query: survey.query } })}
+                      onClick={() => navigate('/literature-survey', { state: { query: survey.query, autoSearch: true } })}
                     >
                       <span className="dashboard-rail-survey-query">{survey.query}</span>
                       <span className="dashboard-rail-survey-meta">
@@ -464,8 +477,10 @@ export default function Dashboard() {
                 type="button"
                 className="dashboard-query-btn dashboard-query-btn-stop"
                 onClick={stopDiscover}
+                aria-label="Stop search"
+                title="Stop"
               >
-                <Square size={12} fill="currentColor" /> Stop
+                <Square size={14} fill="currentColor" />
               </button>
             ) : (
               <button
@@ -538,11 +553,11 @@ export default function Dashboard() {
                           className={`dashboard-direction${i === 0 ? ' is-lead' : ''}`}
                           role="button"
                           tabIndex={0}
-                          onClick={() => navigate('/literature-survey', { state: { query: t.title } })}
+                          onClick={() => navigate('/literature-survey', { state: { query: t.title, autoSearch: true } })}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' || e.key === ' ') {
                               e.preventDefault();
-                              navigate('/literature-survey', { state: { query: t.title } });
+                              navigate('/literature-survey', { state: { query: t.title, autoSearch: true } });
                             }
                           }}
                         >
@@ -564,9 +579,18 @@ export default function Dashboard() {
                             </div>
                             <p className="dashboard-direction-hint">{impactHint(t.impact)}</p>
                             <div className="dashboard-direction-actions">
-                              <span className="dashboard-action-primary">
+                              <button
+                                type="button"
+                                className="dashboard-action-primary"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigate('/literature-survey', {
+                                    state: { query: t.title, autoSearch: true },
+                                  });
+                                }}
+                              >
                                 Start survey <ArrowRight size={12} />
-                              </span>
+                              </button>
                               <a
                                 href={`https://scholar.google.com/scholar?q=${encodeURIComponent(t.title)}`}
                                 target="_blank"
@@ -590,7 +614,7 @@ export default function Dashboard() {
                   <h2 className="dashboard-stream-title">
                     <FileText size={15} /> Related papers
                   </h2>
-                  <button type="button" className="dashboard-text-btn" onClick={() => navigate('/literature-survey', { state: { query: topic } })}>
+                  <button type="button" className="dashboard-text-btn" onClick={() => navigate('/literature-survey', { state: { query: topic, autoSearch: true } })}>
                     Literature survey <ArrowUpRight size={13} />
                   </button>
                 </div>

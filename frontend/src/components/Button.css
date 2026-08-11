@@ -43,13 +43,13 @@
   background: var(--primary);
   color: var(--on-primary);
   border-color: var(--primary);
-  box-shadow: 0 8px 18px rgba(47, 90, 255, 0.15);
+  box-shadow: 0 8px 18px rgba(30, 79, 214, 0.18);
 }
 
 .btn-primary:hover {
   background: var(--primary-hover);
   border-color: var(--primary-hover);
-  box-shadow: 0 12px 28px rgba(47, 90, 255, 0.19);
+  box-shadow: 0 12px 28px rgba(30, 79, 214, 0.22);
   transform: translateY(-1px);
 }
 
@@ -98,7 +98,7 @@
   background: var(--bg-card);
   border: 1px solid var(--border);
   color: var(--text-muted);
-  border-radius: var(--radius-md);
+  border-radius: 50%;
   box-shadow: var(--shadow-sm);
 }
 

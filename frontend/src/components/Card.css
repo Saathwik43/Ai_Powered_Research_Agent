@@ -1,6 +1,6 @@
 .card {
   background: var(--bg-card);
-  border: 1px solid var(--border);
+  border: var(--border-width) solid var(--border);
   border-radius: var(--radius-lg);
   padding: 1.5rem;
   transition: border-color var(--transition), box-shadow var(--transition), transform var(--transition);
@@ -14,10 +14,10 @@
 }
 
 .card-glass {
-  background: rgba(255, 255, 255, 0.82);
+  background: rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(217, 224, 234, 0.84);
+  border: var(--border-width) solid var(--border);
   border-radius: var(--radius-lg);
   padding: 1.5rem;
   box-shadow: var(--shadow-md);

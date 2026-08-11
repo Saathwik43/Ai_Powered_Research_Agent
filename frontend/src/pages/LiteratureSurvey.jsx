@@ -73,21 +73,9 @@ export default function LiteratureSurvey() {
     }
   }, [activeTab]);
 
-  // Auto-run search when navigated here from Dashboard (saved survey card /
-  // direction card / "Open Literature Survey" button) with a query in state.
   const location = useLocation();
   const navigate = useNavigate();
-  useEffect(() => {
-    const incomingQuery = location.state?.query;
-    if (incomingQuery && incomingQuery.trim()) {
-      setActiveTab('search');
-      setQuery(incomingQuery);
-      search(incomingQuery, true);
-      // Clear the nav state so refreshing/back-nav doesn't re-trigger the search.
-      navigate(location.pathname, { replace: true, state: {} });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.state]);
+  const autoSearchKeyRef = useRef('');
 
   // Explicit user stop. Owns both the abort and the resulting UI state, so the
   // aborted request's own catch/finally can stay silent (see search()).
@@ -189,6 +177,23 @@ export default function LiteratureSurvey() {
       }
     }
   };
+
+  // Auto-run search when navigated here from Dashboard with a query in state.
+  useEffect(() => {
+    const incomingQuery = location.state?.query;
+    if (!incomingQuery || !String(incomingQuery).trim()) return;
+
+    const key = `${incomingQuery}::${location.key || ''}`;
+    if (autoSearchKeyRef.current === key) return;
+    autoSearchKeyRef.current = key;
+
+    setActiveTab('search');
+    setQuery(incomingQuery);
+    void search(incomingQuery, true);
+    // Clear nav state after starting search so refresh/back does not re-fire.
+    navigate(location.pathname, { replace: true, state: {} });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state, location.key]);
 
   const loadMore = async () => {
     if (visibleCount < filteredPapers.length) {
@@ -392,8 +397,8 @@ export default function LiteratureSurvey() {
           )}
         </div>
         {loading ? (
-          <button type="button" className="lit-search-stop" onClick={stopSearch}>
-            <Square size={12} fill="currentColor" /> Stop
+          <button type="button" className="lit-search-stop" onClick={stopSearch} aria-label="Stop search" title="Stop">
+            <Square size={14} fill="currentColor" />
           </button>
         ) : (
           <InteractiveHoverButton

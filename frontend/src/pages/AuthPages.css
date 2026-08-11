@@ -24,14 +24,14 @@
   --auth-ink: #12141A;
   --auth-ink-soft: #1C1F28;
   --auth-paper: #FAFAF8;
-  --auth-rust: #C9622A;
+  --auth-rust: #0E7490;
   --auth-forest: #4F8F6B;
   position: relative;
   min-height: 0;
   background:
-    radial-gradient(ellipse 80% 55% at 18% 12%, rgba(43, 94, 168, 0.28), transparent 55%),
-    radial-gradient(ellipse 70% 50% at 88% 78%, rgba(201, 98, 42, 0.18), transparent 50%),
-    linear-gradient(160deg, var(--auth-ink) 0%, var(--auth-ink-soft) 55%, #16130F 100%);
+    radial-gradient(ellipse 80% 55% at 18% 12%, rgba(30, 79, 214, 0.32), transparent 55%),
+    radial-gradient(ellipse 70% 50% at 88% 78%, rgba(14, 116, 144, 0.2), transparent 50%),
+    linear-gradient(160deg, var(--auth-ink) 0%, var(--auth-ink-soft) 55%, #10131A 100%);
   color: var(--auth-paper);
   display: flex;
   flex-direction: column;
@@ -80,7 +80,7 @@
   height: 180px;
   bottom: 8%;
   left: -50px;
-  background: rgba(201, 98, 42, 0.35);
+  background: rgba(14, 116, 144, 0.35);
   animation-delay: -3.5s;
   animation-duration: 11s;
 }
@@ -106,7 +106,7 @@
 .auth-brand img {
   width: 40px;
   height: 40px;
-  border-radius: 10px;
+  border-radius: 50%;
   object-fit: cover;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   animation: authBrandPulse 3.6s ease-in-out infinite;
@@ -192,7 +192,7 @@
   margin-bottom: 0.85rem;
   padding: 0.35rem 0.85rem;
   border-radius: 999px;
-  background: rgba(201, 98, 42, 0.92);
+  background: rgba(14, 116, 144, 0.92);
   color: #FFFEFA;
   font-size: var(--fs-sm);
   font-weight: 800;
@@ -212,9 +212,12 @@
 }
 
 .auth-subtitle {
-  color: rgba(250, 250, 248, 0.72);
-  font-size: var(--fs-md);
-  line-height: 1.55;
+  font-family: 'Caveat', cursive;
+  color: rgba(103, 232, 249, 0.92);
+  font-size: clamp(1.2rem, 2vw, 1.45rem);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1.4;
   max-width: 38ch;
   margin: 0;
 }
@@ -353,9 +356,13 @@
 }
 
 .auth-form-wrapper p.auth-form-subtitle {
-  color: var(--text-subtle);
+  font-family: 'Caveat', cursive;
+  color: var(--accent-strong);
   margin-bottom: clamp(0.75rem, 2vh, 1.25rem);
-  font-size: var(--fs-base);
+  font-size: 1.25rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1.35;
 }
 
 .auth-form {
