@@ -22,3 +22,10 @@
   padding: 1.5rem;
   box-shadow: var(--shadow-md);
 }
+
+[data-theme="dark"] .card-glass {
+  background: var(--bg-card);
+  border-color: var(--border);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}

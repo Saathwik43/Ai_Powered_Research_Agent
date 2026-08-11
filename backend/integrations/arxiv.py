@@ -72,6 +72,11 @@ def _parse_entry(entry) -> dict:
         if term:
             categories.append(term)
 
+    arxiv_id = None
+    if arxiv_url:
+        m = re.search(r"arxiv\.org/abs/([\w.\-]+)", arxiv_url)
+        arxiv_id = m.group(1) if m else None
+
     return {
         "id": arxiv_url,
         "title": title,
@@ -82,6 +87,7 @@ def _parse_entry(entry) -> dict:
         "abstract": abstract,
         "url": arxiv_url,
         "pdf_url": pdf_url,
+        "doi": f"10.48550/arXiv.{arxiv_id}" if arxiv_id else "",
         "categories": categories,
         "source": "arXiv",
     }
@@ -102,16 +108,21 @@ async def search_papers(query: str, limit: int = 8) -> list:
     email = os.getenv("CROSSREF_MAILTO", "")
     headers = {"User-Agent": f"AI-Powered-Research-Agent/1.0 (contact: {email})" if email else "AI-Powered-Research-Agent/1.0"}
     
-    try:
-        async with httpx.AsyncClient(timeout=15.0, headers=headers) as client:
-            resp = await client.get(ARXIV_SEARCH_URL, params=params)
-            resp.raise_for_status()
-            root = ET.fromstring(resp.text)
-            entries = root.findall("atom:entry", NS)
-            return [_parse_entry(e) for e in entries]
-    except Exception as e:
-        logger.error(f"arXiv search error: {e}")
-        return []
+    from services.api_telemetry import track_call
+    async with track_call("arXiv", "search") as rec:
+        try:
+            async with httpx.AsyncClient(timeout=15.0, headers=headers) as client:
+                resp = await client.get(ARXIV_SEARCH_URL, params=params)
+                resp.raise_for_status()
+                root = ET.fromstring(resp.text)
+                entries = root.findall("atom:entry", NS)
+                papers = [_parse_entry(e) for e in entries]
+                rec.succeed(http_status=resp.status_code, items=len(papers))
+                return papers
+        except Exception as e:
+            rec.fail(error=str(e))
+            logger.error(f"arXiv search error: {e}")
+            return []
 
 
 async def fetch_category_feed(category_code: str, limit: int = 10) -> list:

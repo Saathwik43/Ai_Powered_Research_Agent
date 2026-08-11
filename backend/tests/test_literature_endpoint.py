@@ -11,10 +11,11 @@ irrelevant).  Excluded paper titles are asserted by name to make the
 
 Patch-target note
 -----------------
-main.py does `from integrations.paper_search import search_all` and
+routers/discovery.py does `from integrations.paper_search import search_all` and
 `from ai.relevance import _filter_relevant_papers` at module-import time.
-Those names are bound in the `main` module namespace.  To intercept them we
-must patch `main.search_all` (not `integrations.paper_search.search_all`).
+Those names are bound in the `routers.discovery` module namespace.  To intercept
+them we must patch `routers.discovery.search_all` (not
+`integrations.paper_search.search_all`).
 The generate_completion call happens *inside* ai/relevance.py, so the correct
 patch target for the classifier is `ai.relevance.generate_completion`.
 """
@@ -26,7 +27,7 @@ import integrations.paper_search as _ps_module  # for cache clearing
 from fastapi.testclient import TestClient
 import main as main_module
 from main import app
-from auth import get_current_user
+from core.auth import get_current_user
 
 # Override auth for all tests in this module
 app.dependency_overrides[get_current_user] = lambda: {"user_id": "test_user"}
@@ -117,9 +118,9 @@ class TestLiteratureEndpointRelevanceFilter(unittest.IsolatedAsyncioTestCase):
         _clear_search_cache()
 
     # Correct patch targets:
-    #   main.search_all              — bound name in main.py (from ... import search_all)
+    #   routers.discovery.search_all — bound name in routers/discovery.py (from ... import search_all)
     #   ai.relevance.generate_completion — called inside _filter_relevant_papers
-    @patch("main.search_all", new_callable=AsyncMock)
+    @patch("routers.discovery.search_all", new_callable=AsyncMock)
     @patch("ai.relevance.generate_completion", new_callable=AsyncMock)
     def test_returns_13_relevant_papers(self, mock_gen, mock_search):
         """
@@ -142,7 +143,7 @@ class TestLiteratureEndpointRelevanceFilter(unittest.IsolatedAsyncioTestCase):
             f"Titles returned: {[p['title'] for p in data['data']]}",
         )
 
-    @patch("main.search_all", new_callable=AsyncMock)
+    @patch("routers.discovery.search_all", new_callable=AsyncMock)
     @patch("ai.relevance.generate_completion", new_callable=AsyncMock)
     def test_excluded_papers_are_the_three_cross_domain(self, mock_gen, mock_search):
         """
@@ -173,7 +174,7 @@ class TestLiteratureEndpointRelevanceFilter(unittest.IsolatedAsyncioTestCase):
                 f"Relevant paper was incorrectly excluded: '{relevant_title}'",
             )
 
-    @patch("main.search_all", new_callable=AsyncMock)
+    @patch("routers.discovery.search_all", new_callable=AsyncMock)
     @patch("ai.relevance.generate_completion", new_callable=AsyncMock)
     def test_response_shape_preserved(self, mock_gen, mock_search):
         """Response shape {'data': [...], 'count': N} must be unchanged."""
@@ -191,7 +192,7 @@ class TestLiteratureEndpointRelevanceFilter(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(body["data"], list)
         self.assertEqual(body["count"], len(body["data"]))
 
-    @patch("main.search_all", new_callable=AsyncMock)
+    @patch("routers.discovery.search_all", new_callable=AsyncMock)
     @patch("ai.relevance.generate_completion", new_callable=AsyncMock)
     def test_filter_uses_ai_relevance_not_manuscript_generation(self, mock_gen, mock_search):
         """
@@ -213,7 +214,7 @@ class TestLiteratureEndpointRelevanceFilter(unittest.IsolatedAsyncioTestCase):
             mock_gen.call_count,
             16,
             f"Expected 16 generate_completion calls (one per paper), got {mock_gen.call_count}. "
-            "If 0: either main.search_all patch didn't fire or wrong generate_completion target.",
+            "If 0: either routers.discovery.search_all patch didn't fire or wrong generate_completion target.",
         )
 
 
@@ -223,7 +224,7 @@ class TestLiteratureEndpointFailOpen(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         _clear_search_cache()
 
-    @patch("main.search_all", new_callable=AsyncMock)
+    @patch("routers.discovery.search_all", new_callable=AsyncMock)
     @patch("ai.relevance.generate_completion", new_callable=AsyncMock)
     def test_classifier_failure_returns_all_papers(self, mock_gen, mock_search):
         """When Groq is down, all papers pass through (fail-open)."""

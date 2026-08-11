@@ -12,6 +12,7 @@
   --dash-rule: #12141A;
   --dash-paper: #FFFEFA;
   --dash-wash: #F3F0E8;
+  --dash-warm: #FFF8F3;
   --dash-radius: 16px;
   --dash-radius-sm: 10px;
   --dash-radius-pill: 999px;
@@ -19,6 +20,19 @@
   color: var(--dash-ink);
   max-width: 1120px;
   animation: dashRise 0.45s var(--dash-ease) both;
+}
+
+[data-theme="dark"] .dashboard-page {
+  --dash-ink: #F4F1E8;
+  --dash-ink-soft: #C9C5B8;
+  --dash-mute: #9A9690;
+  --dash-line: #2E2F28;
+  --dash-rule: #F4F1E8;
+  --dash-paper: #1C1D18;
+  --dash-wash: #25261F;
+  --dash-warm: #252018;
+  --dash-rust-deep: #E08A4F;
+  --dash-forest: #6AAB86;
 }
 
 @keyframes dashRise {
@@ -422,7 +436,7 @@
 
 .dashboard-query-btn:hover:not(:disabled) {
   background: var(--dash-ink);
-  color: #fff;
+  color: var(--on-ink);
   transform: scale(1.02);
 }
 
@@ -675,7 +689,7 @@
 .dashboard-direction.is-lead {
   padding-top: 1.15rem;
   border-color: rgba(184, 74, 30, 0.28);
-  background: linear-gradient(180deg, #FFF8F3 0%, var(--dash-paper) 100%);
+  background: linear-gradient(180deg, var(--dash-warm) 0%, var(--dash-paper) 100%);
 }
 
 .dashboard-direction.is-lead .dashboard-direction-title {

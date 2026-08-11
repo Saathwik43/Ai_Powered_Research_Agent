@@ -1,7 +1,7 @@
 import contextvars
 from datetime import datetime, timezone
 import logging
-from database import db
+from core.database import db
 from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)

@@ -3,6 +3,8 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { Menu } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppProvider } from './context/AppContext';
+import { ThemeProvider } from './context/ThemeContext';
+import { MotionConfig } from 'motion/react';
 import Sidebar from './components/Sidebar';
 import './App.css';
 
@@ -132,11 +134,15 @@ function AppRoutes() {
 
 function App() {
   return (
-    <AuthProvider>
-      <AppProvider>
-        <AppRoutes />
-      </AppProvider>
-    </AuthProvider>
+    <MotionConfig reducedMotion="user">
+      <ThemeProvider>
+        <AuthProvider>
+          <AppProvider>
+            <AppRoutes />
+          </AppProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </MotionConfig>
   );
 }
 

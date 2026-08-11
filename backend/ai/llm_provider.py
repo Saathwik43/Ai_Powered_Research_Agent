@@ -3,6 +3,9 @@ import asyncio
 import logging
 from concurrent.futures import ThreadPoolExecutor
 import httpx
+from dotenv import load_dotenv
+
+load_dotenv()
 
 provider_semaphores = {
     "Groq": asyncio.Semaphore(5),
@@ -23,7 +26,7 @@ from contextvars import ContextVar
 
 current_provider: ContextVar[str | None] = ContextVar("current_provider", default=None)
 current_model: ContextVar[str | None] = ContextVar("current_model", default=None)
-import usage_tracker
+from services import usage_tracker
 import time
 
 logger = logging.getLogger(__name__)
@@ -78,7 +81,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
-MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "mistral-large-2407")
+MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "mistral-large-latest")
 CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY")
 CEREBRAS_MODEL = os.getenv("CEREBRAS_MODEL", "llama-3.3-70b")
 
@@ -90,6 +93,15 @@ if GEMINI_API_KEY:
     _gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
 _executor = ThreadPoolExecutor(max_workers=4)
+
+
+def _gemini_thinking_config(max_tokens: int, is_pro: bool):
+    """Flash models reject thinking_budget=0; 128 is the current floor."""
+    if is_pro:
+        return None
+    budget = 128 if max_tokens < 2000 else 300
+    return genai_types.ThinkingConfig(thinking_budget=budget)
+
 
 async def _generate_gemini(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float, model: str = None, cached_content: str = None) -> str:
     global _gemini_client
@@ -109,10 +121,9 @@ async def _generate_gemini(system_prompt: str, user_prompt: str, max_tokens: int
         "cached_content": cached_content
     }
     
-    if not is_pro and max_tokens < 2000:
-        config_kwargs["thinking_config"] = genai_types.ThinkingConfig(thinking_budget=0)
-    elif not is_pro: 
-        config_kwargs["thinking_config"] = genai_types.ThinkingConfig(thinking_budget=300)
+    thinking = _gemini_thinking_config(max_tokens, is_pro)
+    if thinking is not None:
+        config_kwargs["thinking_config"] = thinking
         
     config = genai_types.GenerateContentConfig(**config_kwargs)
 
@@ -198,7 +209,7 @@ async def _generate_groq(system_prompt: str, user_prompt: str, max_tokens: int, 
         "max_tokens": max_tokens,
     }
     headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
     }
     async with httpx.AsyncClient(timeout=60) as client:
@@ -223,7 +234,7 @@ async def _generate_cerebras(system_prompt: str, user_prompt: str, max_tokens: i
         "max_tokens": max_tokens,
     }
     headers = {
-        "Authorization": f"Bearer {CEREBRAS_API_KEY}",
+        "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
     }
     async with httpx.AsyncClient(timeout=60) as client:
@@ -277,7 +288,7 @@ async def _generate_openrouter(system_prompt: str, user_prompt: str, max_tokens:
         "max_tokens": max_tokens,
     }
     headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
         "HTTP-Referer": os.getenv("APP_PUBLIC_URL", "http://localhost:5173"),
         "X-Title": "Research Agent",
@@ -319,24 +330,82 @@ async def _generate_huggingface(system_prompt: str, user_prompt: str, max_tokens
     return await loop.run_in_executor(_executor, _run_huggingface, system_prompt, user_prompt, max_tokens, temperature)
 
 
-async def get_embedding(text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> list[float] | None:
+EMBEDDING_MODEL = "models/gemini-embedding-2"
+
+# embed_content accepts a list of contents, so a whole rerank window costs one
+# request instead of one per paper. Chunked to stay inside the per-request cap.
+EMBEDDING_BATCH_SIZE = 50
+
+
+def _ensure_gemini_client():
+    """Return the shared client, or None when no key is configured."""
     global _gemini_client
     if not _gemini_client:
         key = os.getenv("GEMINI_API_KEY")
         if not key:
             return None
         _gemini_client = genai.Client(api_key=key)
-        
-    try:
-        response = await _gemini_client.aio.models.embed_content(
-            model="models/gemini-embedding-2",
-            contents=text,
-            config=genai_types.EmbedContentConfig(task_type=task_type)
-        )
-        return response.embeddings[0].values
-    except Exception as e:
-        logger.warning(f"Failed to get embedding: {e}")
-        return None
+    return _gemini_client
+
+
+async def get_embeddings_batch(
+    texts: list[str], task_type: str = "RETRIEVAL_DOCUMENT"
+) -> list[list[float] | None]:
+    """
+    Embed *texts* in as few requests as possible.
+
+    Always returns one entry per input, positionally aligned, with None where
+    the embedding could not be produced. A failing chunk yields None for its
+    own texts only; other chunks still return values.
+    """
+    from services.api_telemetry import track_call
+
+    if not texts:
+        return []
+
+    client = _ensure_gemini_client()
+    if not client:
+        return [None] * len(texts)
+
+    out: list[list[float] | None] = []
+    for start in range(0, len(texts), EMBEDDING_BATCH_SIZE):
+        chunk = texts[start:start + EMBEDDING_BATCH_SIZE]
+        async with track_call("Google Gemini", "embed") as rec:
+            try:
+                response = await client.aio.models.embed_content(
+                    model=EMBEDDING_MODEL,
+                    contents=chunk,
+                    config=genai_types.EmbedContentConfig(task_type=task_type)
+                )
+                embeddings = list(response.embeddings or [])
+                values = [getattr(e, "values", None) for e in embeddings]
+                # Never let a short response shift the caller's alignment.
+                if len(values) < len(chunk):
+                    values.extend([None] * (len(chunk) - len(values)))
+                out.extend(values[:len(chunk)])
+                rec.succeed(http_status=200, items=sum(1 for v in values if v))
+            except Exception as e:
+                rec.fail(error=str(e))
+                logger.warning(f"Failed to get embeddings for {len(chunk)} text(s): {e}")
+                out.extend([None] * len(chunk))
+    return out
+
+
+async def get_embedding(text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> list[float] | None:
+    results = await get_embeddings_batch([text], task_type)
+    return results[0] if results else None
+
+_TELEMETRY_NAMES = {
+    "openai": "OpenAI",
+    "gemini": "Google Gemini",
+    "groq": "Groq",
+    "openrouter": "OpenRouter",
+    "cerebras": "Cerebras",
+    "nvidia": "NVIDIA NIM",
+    "huggingface": "Hugging Face Inference",
+    "mistral": "Mistral",
+}
+
 
 async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: int = 1200, temperature: float = 0.45, provider_override: str = None, model: str = None, cached_content: str = None) -> str:
     """
@@ -368,20 +437,19 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
         if not provider_fn:
             raise RuntimeError(f"Unknown provider '{effective_provider}'.")
             
+        from services.api_telemetry import track_call
+        tel_name = _TELEMETRY_NAMES.get(effective_provider, effective_provider)
         for attempt in range(2):
             try:
                 user_id = usage_tracker.current_user_id.get()
                 if user_id:
                     await usage_tracker.check_quota(user_id)
-                # Note: passing effective_model to Gemini explicitly
-                if effective_provider == "gemini":
-                    result, tokens = await asyncio.wait_for(provider_fn(system_prompt, user_prompt, max_tokens, temperature, effective_model, cached_content), timeout=60)
-                else:
-                    # Others don't currently take model arg directly in their signature except Gemini, wait, _generate_groq takes kwargs?
-                    # Let's inspect signature or just pass model if supported. 
-                    # Currently the _generate_* functions only take system_prompt, user_prompt, max_tokens, temperature except gemini
-                    # So for others we just call them normally, they fetch models from env.
-                    result, tokens = await asyncio.wait_for(provider_fn(system_prompt, user_prompt, max_tokens, temperature), timeout=60)
+                async with track_call(tel_name, "generate") as rec:
+                    if effective_provider == "gemini":
+                        result, tokens = await asyncio.wait_for(provider_fn(system_prompt, user_prompt, max_tokens, temperature, effective_model, cached_content), timeout=60)
+                    else:
+                        result, tokens = await asyncio.wait_for(provider_fn(system_prompt, user_prompt, max_tokens, temperature), timeout=60)
+                    rec.succeed(http_status=200, items=tokens)
                 if user_id:
                     await usage_tracker.log_usage(user_id, tokens, effective_provider.title())
                 return result
@@ -408,6 +476,7 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
         providers.append(("HuggingFace", _generate_huggingface))
 
 
+    from services.api_telemetry import track_call
     for provider_name, provider_func in providers:
         for attempt in range(2):
             try:
@@ -415,11 +484,14 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
                 if user_id:
                     await usage_tracker.check_quota(user_id)
                 sem=provider_semaphores.get(provider_name, asyncio.Semaphore(3))
+                tel_name = _TELEMETRY_NAMES.get(provider_name.lower(), provider_name)
                 async with sem:
-                    if provider_name== "Gemini":
-                        result,tokens = await asyncio.wait_for(provider_func(system_prompt, user_prompt , max_tokens , temperature, effective_model, cached_content),timeout=60)
-                    else:
-                        result,tokens = await asyncio.wait_for(provider_func(system_prompt, user_prompt , max_tokens , temperature),timeout=60)
+                    async with track_call(tel_name, "generate") as rec:
+                        if provider_name== "Gemini":
+                            result,tokens = await asyncio.wait_for(provider_func(system_prompt, user_prompt , max_tokens , temperature, effective_model, cached_content),timeout=60)
+                        else:
+                            result,tokens = await asyncio.wait_for(provider_func(system_prompt, user_prompt , max_tokens , temperature),timeout=60)
+                        rec.succeed(http_status=200, items=tokens)
                 if user_id:
                     await usage_tracker.log_usage(user_id, tokens, provider_name)
                     await usage_tracker.check_provider_rpd(provider_name)
@@ -443,51 +515,68 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
 
 import json
 
-async def _stream_openai_compatible(url: str, headers: dict, payload: dict):
+async def _stream_openai_compatible(url: str, headers: dict, payload: dict, provider_name: str = "LLM"):
+    from services.api_telemetry import track_call
+
+    payload = dict(payload)
     payload["stream"] = True
-    try:
-        total_chars = 0
-        timeout = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            async with client.stream("POST", url, headers=headers, json=payload) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    data_str = line[6:].strip()
-                    if data_str == "[DONE]":
-                        break
-                    try:
-                        data = json.loads(data_str)
-                        delta = data.get("choices", [{}])[0].get("delta", {}).get("content")
-                        if delta:
-                            total_chars += len(delta)
-                            yield {"type": "chunk", "text": delta}
-                    except json.JSONDecodeError as e:
-                        logger.warning(f"Stream chunk parse failure, raw line: {data_str[:200]!r} — error: {e}")
-                        continue
-                logger.info(f"Stream completed: {total_chars} chars from {url}")
-                yield {"type": "done"}
-    except httpx.HTTPStatusError as e:
-        await e.response.aread()
-        logger.error(f"Stream API HTTP Error {e.response.status_code}: {e.response.text}")
-        if e.response.status_code == 429:
-            retry_after = e.response.headers.get("Retry-After")
-            if not retry_after:
-                retry_after = e.response.headers.get("x-ratelimit-reset-requests") or e.response.headers.get("x-ratelimit-reset-tokens")
-            retry_val = None
-            try:
-                if retry_after:
-                    retry_val = float(retry_after.replace('s',''))
-            except:
-                pass
-            yield {"type": "stopped", "reason": "rate_limit", "retry_after_seconds": retry_val}
-        elif e.response.status_code == 402:
-            yield {"type": "stopped", "reason": "payment_required", "message": "Payment required (out of credits)."}
-        else:
-            yield {"type": "stopped", "reason": "error", "message": f"HTTP Error {e.response.status_code}"}
-    except Exception as e:
-        yield {"type": "stopped", "reason": "error", "message": str(e)}
+    if provider_name in ("Groq", "OpenAI", "OpenRouter"):
+        payload["stream_options"] = {"include_usage": True}
+
+    async with track_call(provider_name, "stream") as rec:
+        try:
+            total_chars = 0
+            usage_tokens = 0
+            timeout = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                async with client.stream("POST", url, headers=headers, json=payload) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        if not line.startswith("data: "):
+                            continue
+                        data_str = line[6:].strip()
+                        if data_str == "[DONE]":
+                            break
+                        try:
+                            data = json.loads(data_str)
+                            if data.get("usage"):
+                                usage_tokens = data["usage"].get("total_tokens", 0) or 0
+                            delta = data.get("choices", [{}])[0].get("delta", {}).get("content")
+                            if delta:
+                                total_chars += len(delta)
+                                yield {"type": "chunk", "text": delta}
+                        except json.JSONDecodeError as e:
+                            logger.warning(f"Stream chunk parse failure, raw line: {data_str[:200]!r} — error: {e}")
+                            continue
+                    logger.info(f"Stream completed: {total_chars} chars from {url}")
+                    if usage_tokens:
+                        user_id = usage_tracker.current_user_id.get()
+                        if user_id:
+                            await usage_tracker.log_usage(user_id, usage_tokens, provider_name)
+                    rec.succeed(http_status=200, items=usage_tokens or total_chars)
+                    yield {"type": "done"}
+        except httpx.HTTPStatusError as e:
+            await e.response.aread()
+            rec.fail(http_status=e.response.status_code, error=f"HTTP {e.response.status_code}")
+            logger.error(f"Stream API HTTP Error {e.response.status_code}: {e.response.text}")
+            if e.response.status_code == 429:
+                retry_after = e.response.headers.get("Retry-After")
+                if not retry_after:
+                    retry_after = e.response.headers.get("x-ratelimit-reset-requests") or e.response.headers.get("x-ratelimit-reset-tokens")
+                retry_val = None
+                try:
+                    if retry_after:
+                        retry_val = float(retry_after.replace('s',''))
+                except Exception:
+                    pass
+                yield {"type": "stopped", "reason": "rate_limit", "retry_after_seconds": retry_val}
+            elif e.response.status_code == 402:
+                yield {"type": "stopped", "reason": "payment_required", "message": "Payment required (out of credits)."}
+            else:
+                yield {"type": "stopped", "reason": "error", "message": f"HTTP Error {e.response.status_code}"}
+        except Exception as e:
+            rec.fail(error=str(e))
+            yield {"type": "stopped", "reason": "error", "message": str(e)}
 
 async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float, provider: str, model: str = None, cached_content: str = None):
     effective_provider = provider or current_provider.get()
@@ -511,10 +600,10 @@ async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: in
             "max_tokens": max_tokens,
         }
         headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-        async for chunk in _stream_openai_compatible("https://api.groq.com/openai/v1/chat/completions", headers, payload):
+        async for chunk in _stream_openai_compatible("https://api.groq.com/openai/v1/chat/completions", headers, payload, "Groq"):
             yield chunk
 
-    elif provider == "nvidia":
+    elif effective_provider == "nvidia":
         key = os.getenv("NVIDIA_API_KEY")
         if not key:
             yield {"type": "stopped", "reason": "error", "message": "NVIDIA_API_KEY not configured."}
@@ -526,10 +615,10 @@ async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: in
             "max_tokens": max_tokens,
         }
         headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-        async for chunk in _stream_openai_compatible("https://integrate.api.nvidia.com/v1/chat/completions", headers, payload):
+        async for chunk in _stream_openai_compatible("https://integrate.api.nvidia.com/v1/chat/completions", headers, payload, "NVIDIA NIM"):
             yield chunk
 
-    elif provider == "cerebras":
+    elif effective_provider == "cerebras":
         key = os.getenv("CEREBRAS_API_KEY")
         if not key:
             yield {"type": "stopped", "reason": "error", "message": "CEREBRAS_API_KEY not configured."}
@@ -541,10 +630,10 @@ async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: in
             "max_tokens": max_tokens,
         }
         headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-        async for chunk in _stream_openai_compatible("https://api.cerebras.ai/v1/chat/completions", headers, payload):
+        async for chunk in _stream_openai_compatible("https://api.cerebras.ai/v1/chat/completions", headers, payload, "Cerebras"):
             yield chunk
 
-    elif provider == "openrouter":
+    elif effective_provider == "openrouter":
         key = os.getenv("OPENROUTER_API_KEY")
         if not key:
             yield {"type": "stopped", "reason": "error", "message": "OPENROUTER_API_KEY not configured."}
@@ -556,10 +645,10 @@ async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: in
             "max_tokens": max_tokens,
         }
         headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-        async for chunk in _stream_openai_compatible("https://openrouter.ai/api/v1/chat/completions", headers, payload):
+        async for chunk in _stream_openai_compatible("https://openrouter.ai/api/v1/chat/completions", headers, payload, "OpenRouter"):
             yield chunk
 
-    elif provider == "openai":
+    elif effective_provider == "openai":
         key = os.getenv("OPENAI_API_KEY")
         if not key:
             yield {"type": "stopped", "reason": "error", "message": "OPENAI_API_KEY not configured."}
@@ -571,30 +660,38 @@ async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: in
             "max_tokens": max_tokens,
         }
         headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-        async for chunk in _stream_openai_compatible("https://api.openai.com/v1/chat/completions", headers, payload):
+        async for chunk in _stream_openai_compatible("https://api.openai.com/v1/chat/completions", headers, payload, "OpenAI"):
             yield chunk
 
-    elif provider == "mistral":
+    elif effective_provider == "mistral":
         key = os.getenv("MISTRAL_API_KEY")
         if not key:
             yield {"type": "stopped", "reason": "error", "message": "MISTRAL_API_KEY not configured."}
             return
         payload = {
-            "model": effective_model or os.getenv("MISTRAL_MODEL", "mistral-large-2407"),
+            "model": effective_model or os.getenv("MISTRAL_MODEL", "mistral-large-latest"),
             "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
         headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-        async for chunk in _stream_openai_compatible("https://api.mistral.ai/v1/chat/completions", headers, payload):
+        async for chunk in _stream_openai_compatible("https://api.mistral.ai/v1/chat/completions", headers, payload, "Mistral"):
             yield chunk
 
-    elif provider == "huggingface":
-        text, _tokens = await _generate_huggingface(system_prompt, user_prompt, max_tokens, temperature)
-        yield {"type": "chunk", "text": text}
-        yield {"type": "done"}
+    elif effective_provider == "huggingface":
+        from services.api_telemetry import track_call
+        async with track_call("Hugging Face Inference", "generate") as rec:
+            try:
+                text, _tokens = await _generate_huggingface(system_prompt, user_prompt, max_tokens, temperature)
+                rec.succeed(http_status=200, items=_tokens)
+                yield {"type": "chunk", "text": text}
+                yield {"type": "done"}
+            except Exception as e:
+                rec.fail(error=str(e))
+                yield {"type": "stopped", "reason": "error", "message": str(e)}
 
-    elif provider == "gemini":
+    elif effective_provider == "gemini":
+        from services.api_telemetry import track_call
         global _gemini_client
         if not _gemini_client:
             key = os.getenv("GEMINI_API_KEY")
@@ -613,28 +710,32 @@ async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: in
             "cached_content": cached_content
         }
         
-        if not is_pro:
-            config_kwargs["thinking_config"] = genai_types.ThinkingConfig(thinking_budget=300)
+        thinking = _gemini_thinking_config(max_tokens, is_pro)
+        if thinking is not None:
+            config_kwargs["thinking_config"] = thinking
             
         config = genai_types.GenerateContentConfig(**config_kwargs)
 
-        try:
-            response_stream = await _gemini_client.aio.models.generate_content_stream(
-                model=model_name,
-                contents=user_prompt,
-                config=config,
-            )
-            async for chunk in response_stream:
-                if chunk.text:
-                    yield {"type": "chunk", "text": chunk.text}
-                if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
-                    logger.info(f"Gemini stream usage: {chunk.usage_metadata}")
-            yield {"type": "done"}
-        except Exception as e:
-            if "429" in str(e):
-                yield {"type": "stopped", "reason": "rate_limit", "retry_after_seconds": None}
-            else:
-                yield {"type": "stopped", "reason": "error", "message": str(e)}
+        async with track_call("Google Gemini", "stream") as rec:
+            try:
+                response_stream = await _gemini_client.aio.models.generate_content_stream(
+                    model=model_name,
+                    contents=user_prompt,
+                    config=config,
+                )
+                async for chunk in response_stream:
+                    if chunk.text:
+                        yield {"type": "chunk", "text": chunk.text}
+                    if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
+                        logger.info(f"Gemini stream usage: {chunk.usage_metadata}")
+                rec.succeed(http_status=200)
+                yield {"type": "done"}
+            except Exception as e:
+                rec.fail(error=str(e))
+                if "429" in str(e):
+                    yield {"type": "stopped", "reason": "rate_limit", "retry_after_seconds": None}
+                else:
+                    yield {"type": "stopped", "reason": "error", "message": str(e)}
     else:
         yield {"type": "stopped", "reason": "error", "message": f"Unknown provider {effective_provider}"}
 

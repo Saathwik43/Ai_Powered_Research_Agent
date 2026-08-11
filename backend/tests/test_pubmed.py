@@ -223,7 +223,7 @@ class TestPubMedAbortEarly(unittest.IsolatedAsyncioTestCase):
         esummary_called = {"flag": False}
 
         async def slow_esearch(client, query, limit):
-            await asyncio.sleep(3.5)
+            await asyncio.sleep(0.45)
             return ["99999"]
 
         async def should_not_be_called(client, pmids):
@@ -231,9 +231,9 @@ class TestPubMedAbortEarly(unittest.IsolatedAsyncioTestCase):
             return [{"id": "pmid:99999", "title": "Should Not Appear"}]
 
         with (
+            patch.object(pubmed_mod, "_ESEARCH_ABORT_AFTER", 0.3),
             patch.object(pubmed_mod, "_esearch", side_effect=slow_esearch),
             patch.object(pubmed_mod, "_esummary", side_effect=should_not_be_called),
-            # Also patch httpx so no real network call is attempted
             patch("integrations.pubmed.httpx.AsyncClient"),
         ):
             t0 = time.monotonic()
@@ -242,8 +242,7 @@ class TestPubMedAbortEarly(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, [], "Slow esearch must return []")
         self.assertFalse(esummary_called["flag"], "esummary must NOT be called after slow esearch")
-        # Should return relatively quickly (≤ esearch sleep + small overhead, not +5s for esummary)
-        self.assertLess(elapsed, 5.0, f"Abort-early took {elapsed:.2f}s — expected <5s")
+        self.assertLess(elapsed, 2.0, f"Abort-early took {elapsed:.2f}s — expected <2s")
 
     async def test_fast_esearch_proceeds_to_esummary(self):
         """Esearch within threshold → esummary IS called."""
@@ -368,7 +367,7 @@ class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
         import integrations.paper_search as ps_module
 
         # Pre-populate with the EXACT key search_all() will compute.
-        cache_key = "cached_query_5_all"
+        cache_key = "cached_query_5_False_False_all"
         stale_papers = [
             {"id": "cached-001", "title": "Stale Cached Paper", "source": "OpenAlex"}
         ]

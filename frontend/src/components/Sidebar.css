@@ -80,7 +80,7 @@
   width: 40px;
   height: 40px;
   background: var(--primary);
-  color: white;
+  color: var(--on-primary);
   border-radius: var(--radius-md);
   display: flex;
   align-items: center;
@@ -151,7 +151,7 @@
 
 .nav-link.active {
   background: var(--primary);
-  color: var(--bg-card);
+  color: var(--on-primary);
   border-color: var(--primary);
   box-shadow: 0 8px 18px rgba(47, 90, 255, 0.12);
 }
@@ -296,6 +296,7 @@
   text-overflow: ellipsis;
 }
 
+.theme-toggle-btn,
 .logout-btn {
   display: flex;
   align-items: center;
@@ -311,6 +312,12 @@
   cursor: pointer;
   transition: var(--transition);
   font-family: inherit;
+}
+
+.theme-toggle-btn:hover {
+  background: var(--bg-elevated);
+  color: var(--text);
+  border-color: var(--border);
 }
 
 .logout-btn:hover {
@@ -337,7 +344,8 @@
 .sidebar.collapsed .nav-section-label,
 .sidebar.collapsed .nav-link-text,
 .sidebar.collapsed .user-details,
-.sidebar.collapsed .logout-text {
+.sidebar.collapsed .logout-text,
+.sidebar.collapsed .theme-toggle-text {
   display: none;
 }
 
@@ -359,6 +367,7 @@
   margin: 0;
 }
 
+.sidebar.collapsed .theme-toggle-btn,
 .sidebar.collapsed .logout-btn {
   justify-content: center;
   padding: 0.65rem 0;
@@ -383,7 +392,8 @@
   .sidebar.collapsed .nav-section-label,
   .sidebar.collapsed .nav-link-text,
   .sidebar.collapsed .user-details,
-  .sidebar.collapsed .logout-text {
+  .sidebar.collapsed .logout-text,
+  .sidebar.collapsed .theme-toggle-text {
     display: block;
   }
 
@@ -405,6 +415,7 @@
     justify-content: flex-start;
   }
 
+  .sidebar.collapsed .theme-toggle-btn,
   .sidebar.collapsed .logout-btn {
     justify-content: flex-start;
     padding: 0.65rem 0.85rem;

@@ -118,11 +118,14 @@ export default function Dashboard() {
   const debounce = useRef(null);
   const inputWrap = useRef(null);
   const abortRef = useRef(null);
+  const catAbortRef = useRef(null);
   const lastQueryRef = useRef('');
   const navigate = useNavigate();
 
   useEffect(() => () => {
+    clearTimeout(debounce.current);
     abortRef.current?.abort();
+    catAbortRef.current?.abort();
   }, []);
 
   const handleInputChange = useCallback((val) => {
@@ -136,17 +139,25 @@ export default function Dashboard() {
     }, 180);
   }, []);
 
+  // Explicit user stop. Owns both the abort and the resulting UI state, so the
+  // aborted request's own catch/finally can stay silent (see discover()).
   const stopDiscover = useCallback(() => {
     if (abortRef.current) {
       abortRef.current.abort();
       abortRef.current = null;
+      setError('Search stopped.');
     }
+    lastQueryRef.current = '';
     setLoading(false);
     setPapersLoading(false);
   }, []);
 
   const clearSearch = useCallback(() => {
     stopDiscover();
+    catAbortRef.current?.abort();
+    catAbortRef.current = null;
+    setCatLoading(false);
+    clearTimeout(debounce.current);
     setTopic('');
     setSuggestions([]);
     setShowSug(false);
@@ -171,14 +182,20 @@ export default function Dashboard() {
       return;
     }
     const normalized = normalizeSearchQuery(check.query);
-    // Ignore duplicate submits while a matching search is already in flight
-    if (loading && lastQueryRef.current === normalized) return;
+    // Ignore duplicate submits while a matching search is already in flight.
+    // Read the abort ref, not `loading` — the state closure is a render behind
+    // on rapid Enter presses and would let the duplicate through.
+    if (abortRef.current && lastQueryRef.current === normalized) return;
 
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
+    // Only the run that still owns abortRef may touch shared UI state; a run
+    // superseded by a newer search, or cancelled via stopDiscover, stays silent.
+    const isCurrent = () => abortRef.current === controller;
 
     lastQueryRef.current = normalized;
+    clearTimeout(debounce.current);
     setTopic(check.query);
     setShowSug(false);
     setLoading(true);
@@ -196,7 +213,7 @@ export default function Dashboard() {
         }),
       ]);
 
-      if (controller.signal.aborted) return;
+      if (!isCurrent()) return;
 
       if (topicRes.status === 429 || paperRes.status === 429 || topicRes.status === 503 || paperRes.status === 503) {
         if (topicRes.status === 503 || paperRes.status === 503) {
@@ -232,19 +249,24 @@ export default function Dashboard() {
       }
 
       const paperData = await paperRes.json();
+      if (!isCurrent()) return;
       setResults(topicData.data || []);
       setRelatedPapers(paperData.data || []);
     } catch (e) {
-      if (isAbortError(e)) {
-        setError('Search stopped.');
-        return;
-      }
+      // Superseded/cancelled runs report nothing — whoever aborted them owns
+      // the UI now. Without this, an aborted run's error and loading reset
+      // landed on top of the search that replaced it.
+      if (!isCurrent()) return;
+      if (isAbortError(e)) return;
       console.error(e);
       setError('Network error. Please try again.');
     } finally {
-      if (abortRef.current === controller) abortRef.current = null;
-      setLoading(false);
-      setPapersLoading(false);
+      if (isCurrent()) {
+        abortRef.current = null;
+        lastQueryRef.current = '';
+        setLoading(false);
+        setPapersLoading(false);
+      }
     }
   };
 
@@ -253,14 +275,28 @@ export default function Dashboard() {
     setCategoryPapers([]);
     setCatLoading(true);
     discover(cat.query);
+
+    catAbortRef.current?.abort();
+    const controller = new AbortController();
+    catAbortRef.current = controller;
+    const isCurrentFeed = () => catAbortRef.current === controller;
+
     try {
-      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/arxiv/feed?category=${cat.arxiv}&limit=9`);
+      const res = await authFetch(
+        `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/arxiv/feed?category=${cat.arxiv}&limit=9`,
+        { signal: controller.signal }
+      );
       const data = await res.json();
+      if (!isCurrentFeed()) return;
       setCategoryPapers(data.data || []);
     } catch (e) {
+      if (!isCurrentFeed() || isAbortError(e)) return;
       console.error(e);
     } finally {
-      setCatLoading(false);
+      if (isCurrentFeed()) {
+        catAbortRef.current = null;
+        setCatLoading(false);
+      }
     }
   };
 

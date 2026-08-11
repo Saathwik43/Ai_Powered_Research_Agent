@@ -11,8 +11,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { ghcolors } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import CodeHighlight from '../components/CodeHighlight';
 import Mermaid from '../components/Mermaid';
 import {
   isMermaidBlock,
@@ -292,9 +291,9 @@ export default function PdfAnalysis() {
         );
       }
       return isBlock && language ? (
-        <SyntaxHighlighter style={ghcolors} language={language} PreTag="div" {...props}>
+        <CodeHighlight language={language} {...props}>
           {contentStr}
-        </SyntaxHighlighter>
+        </CodeHighlight>
       ) : (
         <code className={className} {...props}>
           {children}

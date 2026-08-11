@@ -37,36 +37,35 @@ _EMAIL = os.getenv("CROSSREF_MAILTO", "")
 _CALL_TIMEOUT = 3.0
 
 
+_DOI_RE = re.compile(r"10\.\d{4,9}/\S+")
+
+
+def _clean_doi(raw: str) -> str | None:
+    if not raw or not isinstance(raw, str):
+        return None
+    s = raw.strip()
+    s = re.sub(r"^https?://(dx\.)?doi\.org/", "", s, flags=re.I)
+    s = re.sub(r"^doi:\s*", "", s, flags=re.I)
+    s = s.strip().rstrip(").,;")
+    if _DOI_RE.match(s):
+        return s.split()[0].rstrip(").,;")
+    m = _DOI_RE.search(raw)
+    return m.group(0).rstrip(").,;") if m else None
+
+
 def _extract_doi(paper: dict) -> str | None:
     """
     Try to extract a clean DOI string from a paper dict.
-
-    Sources that carry DOIs:
-      - Crossref: ``id`` field is a raw DOI string (e.g. "10.1234/...")
-      - OpenAlex: ``url`` field is a full DOI URL (e.g. "https://doi.org/10.1234/...")
-      - Others: may have ``doi`` field directly
-
-    Returns None if no DOI can be extracted.
     """
-    # Direct doi field
-    doi = paper.get("doi", "")
-    if doi:
-        # Strip URL prefix if present
-        doi = re.sub(r"^https?://doi\.org/", "", doi)
-        if doi.startswith("10."):
-            return doi
+    for key in ("doi", "id", "url"):
+        cleaned = _clean_doi(paper.get(key) or "")
+        if cleaned:
+            return cleaned
 
-    # Crossref stores DOI in id field
-    paper_id = paper.get("id", "")
-    if isinstance(paper_id, str) and paper_id.startswith("10."):
-        return paper_id
-
-    # OpenAlex stores DOI URL in url field
-    url = paper.get("url", "")
-    if isinstance(url, str) and "doi.org/" in url:
-        doi = re.sub(r"^https?://doi\.org/", "", url)
-        if doi.startswith("10."):
-            return doi
+    arxiv_url = paper.get("url") or paper.get("pdf_url") or ""
+    m = re.search(r"arxiv\.org/(?:abs|pdf)/([\w.\-]+)", arxiv_url)
+    if m:
+        return f"10.48550/arXiv.{m.group(1)}"
 
     return None
 
@@ -126,20 +125,25 @@ async def enrich_papers_with_oa(papers: list) -> list:
     if not doi_pairs:
         return papers
 
-    async with httpx.AsyncClient(timeout=_CALL_TIMEOUT) as client:
-        tasks = [_lookup_oa(client, doi) for _, doi in doi_pairs]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+    from services.api_telemetry import track_call
 
-    enriched_count = 0
-    for (idx, doi), result in zip(doi_pairs, results):
-        if isinstance(result, Exception):
-            logger.debug(f"Unpaywall gather exception for {doi}: {result}")
-            continue
-        if result and result.get("oa_url"):
-            papers[idx]["oa_url"] = result["oa_url"]
-            enriched_count += 1
+    async with track_call("Unpaywall", "enrich") as rec:
+        async with httpx.AsyncClient(timeout=_CALL_TIMEOUT) as client:
+            tasks = [_lookup_oa(client, doi) for _, doi in doi_pairs]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    if enriched_count:
-        logger.info(f"Unpaywall enriched {enriched_count}/{len(doi_pairs)} papers with OA links.")
+        enriched_count = 0
+        for (idx, doi), result in zip(doi_pairs, results):
+            if isinstance(result, Exception):
+                logger.debug(f"Unpaywall gather exception for {doi}: {result}")
+                continue
+            if result and result.get("oa_url"):
+                papers[idx]["oa_url"] = result["oa_url"]
+                papers[idx]["doi"] = papers[idx].get("doi") or doi
+                enriched_count += 1
+
+        rec.succeed(http_status=200, items=enriched_count)
+        if enriched_count:
+            logger.info(f"Unpaywall enriched {enriched_count}/{len(doi_pairs)} papers with OA links.")
 
     return papers

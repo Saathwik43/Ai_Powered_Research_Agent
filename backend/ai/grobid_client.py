@@ -5,6 +5,7 @@ parses TEI XML, returns the same shape as pdf_structure.extract_structure()
 so pdf_analysis.py can swap tiers transparently.
 """
 import logging
+import os
 import re
 import xml.etree.ElementTree as ET
 
@@ -12,9 +13,10 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-_GROBID_BASE_URL = "https://lfoppiano-grobid.hf.space"
+_GROBID_BASE_URL = os.getenv("GROBID_URL", "https://lfoppiano-grobid.hf.space").rstrip("/")
 _TEI_NS = {"tei": "http://www.tei-c.org/ns/1.0"}
-_TIMEOUT = 3.0
+_HEADER_TIMEOUT = 20.0
+_FULLTEXT_TIMEOUT = 60.0
 
 # section-key hygiene: reject figure-caption-style headings if GROBID ever
 # mis-segments (rare, but keep the same guard the heuristic tier uses)
@@ -29,7 +31,7 @@ def _text_of(elem) -> str:
     return " ".join(" ".join(parts).split())
 
 
-async def _post_pdf(client, endpoint, file_bytes):
+async def _post_pdf(client, endpoint, file_bytes, timeout):
     """POST PDF bytes to a GROBID endpoint, return TEI XML text or None on failure.
     Retries once on timeout/5xx (HF Space free tier can cold-start slow)."""
     url = _GROBID_BASE_URL + endpoint
@@ -38,7 +40,7 @@ async def _post_pdf(client, endpoint, file_bytes):
             resp = await client.post(
                 url,
                 files={"input": ("paper.pdf", file_bytes, "application/pdf")},
-                timeout=_TIMEOUT,
+                timeout=timeout,
             )
             if resp.status_code == 200 and resp.text.strip():
                 return resp.text
@@ -190,16 +192,21 @@ async def extract_via_grobid(file_bytes: bytes):
     pdf_structure.extract_structure(). Returns the same shape as that
     function otherwise, so pdf_analysis.py can swap tiers transparently.
     """
-    async with httpx.AsyncClient() as client:
-        header_xml, fulltext_xml = None, None
-        try:
-            header_xml = await _post_pdf(client, "/api/processHeaderDocument", file_bytes)
-            fulltext_xml = await _post_pdf(client, "/api/processFulltextDocument", file_bytes)
-        except Exception as e:
-            logger.warning("GROBID extraction failed entirely: %s", e)
+    from services.api_telemetry import track_call
 
-    if not header_xml and not fulltext_xml:
-        return None
+    async with track_call("GROBID", "extract") as rec:
+        async with httpx.AsyncClient() as client:
+            header_xml, fulltext_xml = None, None
+            try:
+                header_xml = await _post_pdf(client, "/api/processHeaderDocument", file_bytes, _HEADER_TIMEOUT)
+                fulltext_xml = await _post_pdf(client, "/api/processFulltextDocument", file_bytes, _FULLTEXT_TIMEOUT)
+            except Exception as e:
+                logger.warning("GROBID extraction failed entirely: %s", e)
+
+        if not header_xml and not fulltext_xml:
+            rec.fail(error="both endpoints failed")
+            return None
+        rec.succeed(http_status=200, items=1 if fulltext_xml else 0)
 
     title, authors, abstract = _parse_header(header_xml) if header_xml else ("", [], "")
     sections, headless_intro = _parse_fulltext_sections(fulltext_xml) if fulltext_xml else ({}, "")

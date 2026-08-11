@@ -2,6 +2,7 @@
 
 export const SEARCH_MAX_LEN = 200;
 export const SEARCH_MIN_ALPHA = 3;
+const ACRONYM_MAX_LEN = 6;
 
 const INJECTION_PATTERNS = [
   /ignore all previous instructions/i,
@@ -11,6 +12,31 @@ const INJECTION_PATTERNS = [
   /exec\(/i,
   /eval\(/i,
 ];
+
+const TOKEN_RE = /[A-Za-z]+/g;
+const VOWEL_RE = /[aeiouy]/i;
+const CONSONANT_RUN_RE = /[bcdfghjklmnpqrstvwxz]{5,}/i;
+const CHAR_REPEAT_RE = /(.)\1{4,}/;
+
+/** Short all-caps tokens (LLM, NLP, SVM, TCP) are legitimate query terms. */
+function isAcronym(token) {
+  return token.length >= 2 && token.length <= ACRONYM_MAX_LEN && token === token.toUpperCase();
+}
+
+/**
+ * True when a single token looks like a real word or a known-shape acronym.
+ * Checked per token, never on the whitespace-stripped query: concatenating
+ * words invents consonant runs across word boundaries ("CNN classification"
+ * -> "CNNcl") and rejects ordinary acronym-heavy research queries.
+ */
+function isWordlike(token) {
+  if (token.length < 2) return false;
+  if (isAcronym(token)) return true;
+  if (CHAR_REPEAT_RE.test(token)) return false;
+  if (!VOWEL_RE.test(token)) return false;
+  if (CONSONANT_RUN_RE.test(token)) return false;
+  return true;
+}
 
 export function normalizeSearchQuery(q) {
   return String(q || '')
@@ -43,8 +69,9 @@ export function validateSearchQuery(raw) {
     };
   }
 
-  const alpha = query.replace(/[^a-zA-Z]/g, '');
-  if (alpha.length < SEARCH_MIN_ALPHA) {
+  const tokens = query.match(TOKEN_RE) || [];
+  const alphaLen = tokens.reduce((n, t) => n + t.length, 0);
+  if (alphaLen < SEARCH_MIN_ALPHA) {
     return {
       ok: false,
       code: 'too_short',
@@ -52,10 +79,9 @@ export function validateSearchQuery(raw) {
     };
   }
 
-  const noVowels = !/[aeiouy]/i.test(alpha);
-  const consonantRun = /[bcdfghjklmnpqrstvwxz]{5,}/i.test(alpha);
-  const charRepeats = /(.)\1{4,}/i.test(alpha);
-  if (noVowels || consonantRun || charRepeats) {
+  // One real-looking token is enough — the backend's semantic layer is the
+  // authority on meaning; this only filters obvious keyboard mash.
+  if (!tokens.some(isWordlike)) {
     return {
       ok: false,
       code: 'gibberish',

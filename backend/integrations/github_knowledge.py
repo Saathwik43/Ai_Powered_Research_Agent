@@ -138,7 +138,23 @@ def search_github_knowledge(query: str) -> list:
     Search across all synced repos for markdown links matching the query.
     Returns normalized paper-like dicts with source repo tag.
     """
+    from services.api_telemetry import track_call_sync
+
     query_lower = query.lower()
+    results = []
+
+    with track_call_sync("GitHub Knowledge Repos", "search") as rec:
+        try:
+            results = _search_github_knowledge_inner(query_lower)
+            rec.succeed(items=len(results))
+            return results
+        except Exception as e:
+            rec.fail(error=str(e))
+            logger.error(f"GitHub knowledge search error: {e}")
+            return []
+
+
+def _search_github_knowledge_inner(query_lower: str) -> list:
     results = []
 
     for repo_name, repo_info in REPOS.items():

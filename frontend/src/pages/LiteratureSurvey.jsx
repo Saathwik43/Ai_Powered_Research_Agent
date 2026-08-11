@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { BookOpen, CheckCircle2, ChevronRight, Copy, Download, ExternalLink, FileText, Filter, List, Save, Search, Sparkles, User, X, Loader2, Bookmark, Unlock, ChevronDown, Trash2, Square } from 'lucide-react';
 import { InteractiveHoverButton } from '@/components/ui/interactive-hover-button';
+import { AnimatePresence, LayoutGroup, motion } from 'motion/react';
 import './LiteratureSurvey.css';
 import { useAuth } from '../context/AuthContext';
 import { useAppContext } from '../context/AppContext';
@@ -11,6 +12,11 @@ import {
   normalizeSearchQuery,
   isAbortError,
 } from '../utils/searchHeuristics';
+
+// Progressive fetch: classify one page at a time. Raising limit on Load more
+// reuses search_all + relevance caches so only the new window slice is paid for.
+const INITIAL_LIMIT = 15;
+const MAX_LIMIT = 100;
 
 export default function LiteratureSurvey() {
   const { authFetch } = useAuth();
@@ -32,10 +38,15 @@ export default function LiteratureSurvey() {
   const [saveStatus, setSaveStatus] = useState('');
   const [savedSurveys, setSavedSurveys] = useState([]);
   const [loadingSaved, setLoadingSaved] = useState(false);
+  const [serverHasMore, setServerHasMore] = useState(false);
+  const [fetchedLimit, setFetchedLimit] = useState(INITIAL_LIMIT);
   const abortRef = useRef(null);
   const inFlightQueryRef = useRef('');
 
   const PAGE_SIZE = 15;
+
+  const paperKey = (p) =>
+    p.doi || p.id || p.url || `${p.title}|${p.year}|${p.source}|${p.authors}`;
 
   useEffect(() => () => {
     abortRef.current?.abort();
@@ -78,14 +89,17 @@ export default function LiteratureSurvey() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state]);
 
+  // Explicit user stop. Owns both the abort and the resulting UI state, so the
+  // aborted request's own catch/finally can stay silent (see search()).
   const stopSearch = useCallback(() => {
     if (abortRef.current) {
       abortRef.current.abort();
       abortRef.current = null;
+      setSearchError('Search stopped.');
     }
     inFlightQueryRef.current = '';
     setLoading(false);
-  }, [setLoading]);
+  }, [setLoading, setSearchError]);
 
   const clearSearch = useCallback(() => {
     stopSearch();
@@ -112,12 +126,17 @@ export default function LiteratureSurvey() {
     }
 
     const normalized = normalizeSearchQuery(check.query);
-    if (loading && inFlightQueryRef.current === normalized) return;
+    // Read the abort ref, not `loading` — the state closure is a render behind
+    // on rapid submits and would let the duplicate through.
+    if (abortRef.current && inFlightQueryRef.current === normalized) return;
 
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
     inFlightQueryRef.current = normalized;
+    // Only the run that still owns abortRef may touch shared UI state; a run
+    // superseded by a newer search, or cancelled via stopSearch, stays silent.
+    const isCurrent = () => abortRef.current === controller;
 
     setQuery(check.query);
     setLoading(true);
@@ -129,13 +148,15 @@ export default function LiteratureSurvey() {
     setLastQuery(check.query);
     setFilterYear('All');
     setFilterSource('All');
+    setServerHasMore(false);
+    setFetchedLimit(INITIAL_LIMIT);
 
     try {
       const res = await authFetch(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature?query=${encodeURIComponent(check.query)}`,
+        `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature?query=${encodeURIComponent(check.query)}&limit=${INITIAL_LIMIT}`,
         { signal: controller.signal }
       );
-      if (controller.signal.aborted) return;
+      if (!isCurrent()) return;
       if (res.status === 429 || res.status === 503) {
         setSearchError('Rate limit exceeded. Please wait a minute before trying again.');
         setPapers([]);
@@ -147,24 +168,63 @@ export default function LiteratureSurvey() {
         return;
       }
       const data = await res.json();
+      if (!isCurrent()) return;
       setPapers(data.data || []);
+      setServerHasMore(Boolean(data.has_more));
+      setFetchedLimit(data.limit || INITIAL_LIMIT);
     } catch (e) {
-      if (isAbortError(e)) {
-        setSearchError('Search stopped.');
-        return;
-      }
+      // Superseded/cancelled runs report nothing — whoever aborted them owns
+      // the UI now. Without this, an aborted run's error and loading reset
+      // landed on top of the search that replaced it.
+      if (!isCurrent()) return;
+      if (isAbortError(e)) return;
       console.error(e);
       setSearchError('Network error. Please try again.');
       setPapers([]);
     } finally {
-      if (abortRef.current === controller) abortRef.current = null;
-      inFlightQueryRef.current = '';
-      setLoading(false);
+      if (isCurrent()) {
+        abortRef.current = null;
+        inFlightQueryRef.current = '';
+        setLoading(false);
+      }
     }
   };
 
-  const loadMore = () => {
-    setVisibleCount(prev => prev + PAGE_SIZE);
+  const loadMore = async () => {
+    if (visibleCount < filteredPapers.length) {
+      setVisibleCount(prev => Math.min(prev + PAGE_SIZE, filteredPapers.length));
+      return;
+    }
+    if (!serverHasMore || loadingMore || !lastQuery) return;
+
+    const nextLimit = Math.min(MAX_LIMIT, fetchedLimit + PAGE_SIZE);
+    if (nextLimit <= fetchedLimit) return;
+
+    setLoadingMore(true);
+    setSearchError('');
+    try {
+      const res = await authFetch(
+        `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature?query=${encodeURIComponent(lastQuery)}&limit=${nextLimit}`
+      );
+      if (res.status === 429 || res.status === 503) {
+        setSearchError('Rate limit exceeded. Please wait a minute before trying again.');
+        return;
+      }
+      if (!res.ok) {
+        setSearchError('Failed to load more results. Please try again.');
+        return;
+      }
+      const data = await res.json();
+      setPapers(data.data || []);
+      setServerHasMore(Boolean(data.has_more));
+      setFetchedLimit(data.limit || nextLimit);
+      setVisibleCount(prev => prev + PAGE_SIZE);
+    } catch (e) {
+      console.error(e);
+      setSearchError('Network error while loading more. Please try again.');
+    } finally {
+      setLoadingMore(false);
+    }
   };
 
   const filteredPapers = papers.filter(p => {
@@ -184,7 +244,7 @@ export default function LiteratureSurvey() {
   });
 
   const displayedPapers = filteredPapers.slice(0, visibleCount);
-  const hasMoreFiltered = visibleCount < filteredPapers.length;
+  const hasMoreFiltered = visibleCount < filteredPapers.length || serverHasMore;
 
   const exportSurveyToPDF = async (papersToExport, queryName) => {
     if (!papersToExport || !papersToExport.length) return;
@@ -264,27 +324,44 @@ export default function LiteratureSurvey() {
         <p className="text-muted">Search research papers from multiple academic sources in one place.</p>
       </div>
 
-      <div className="lit-tabs" role="tablist">
-        <div className={`lit-tab-indicator${activeTab === 'saved' ? ' is-saved' : ''}`} aria-hidden="true" />
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'search'}
-          className={`lit-tab${activeTab === 'search' ? ' is-active' : ''}`}
-          onClick={() => setActiveTab('search')}
-        >
-          <Search size={15} /> Search
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'saved'}
-          className={`lit-tab${activeTab === 'saved' ? ' is-active' : ''}`}
-          onClick={() => setActiveTab('saved')}
-        >
-          <Bookmark size={15} /> <span className="lit-tab-label-full">Saved </span>Surveys
-        </button>
-      </div>
+      <LayoutGroup id="lit-tabs">
+        <div className="lit-tabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'search'}
+            className={`lit-tab${activeTab === 'search' ? ' is-active' : ''}`}
+            onClick={() => setActiveTab('search')}
+          >
+            {activeTab === 'search' && (
+              <motion.span
+                layoutId="lit-tab-ink"
+                className="lit-tab-ink"
+                transition={{ type: 'spring', visualDuration: 0.22, bounce: 0.16 }}
+                aria-hidden="true"
+              />
+            )}
+            <Search size={15} /> Search
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'saved'}
+            className={`lit-tab${activeTab === 'saved' ? ' is-active' : ''}`}
+            onClick={() => setActiveTab('saved')}
+          >
+            {activeTab === 'saved' && (
+              <motion.span
+                layoutId="lit-tab-ink"
+                className="lit-tab-ink"
+                transition={{ type: 'spring', visualDuration: 0.22, bounce: 0.16 }}
+                aria-hidden="true"
+              />
+            )}
+            <Bookmark size={15} /> <span className="lit-tab-label-full">Saved </span>Surveys
+          </button>
+        </div>
+      </LayoutGroup>
 
       {activeTab === 'search' ? (
         <>
@@ -445,9 +522,20 @@ export default function LiteratureSurvey() {
           </div>
         )}
 
-        {displayedPapers.map((p, i) => (
-          <div key={p.id || i} className="lit-result-card animate-slide-up"
-            style={{ animationDelay: `${(i % 15) * 0.04}s` }}
+        <AnimatePresence mode="popLayout" initial={false}>
+        {displayedPapers.map((p) => (
+          <motion.article
+            key={paperKey(p)}
+            className="lit-result-card"
+            layout
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{
+              layout: { type: 'spring', visualDuration: 0.28, bounce: 0.16 },
+              opacity: { duration: 0.18 },
+              y: { duration: 0.2 },
+            }}
           >
             <div className="lit-result-head">
               <h3 className="lit-result-title">{p.title}</h3>
@@ -504,8 +592,9 @@ export default function LiteratureSurvey() {
                 <Search size={12} /> Scholar
               </a>
             </div>
-          </div>
+          </motion.article>
         ))}
+        </AnimatePresence>
 
         {/* Load more button */}
         {hasMoreFiltered && !loading && (

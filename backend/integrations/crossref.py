@@ -1,11 +1,24 @@
 import os
+import re
 import asyncio
 import httpx
 import logging
 import urllib.parse
 from dotenv import load_dotenv
+from services.api_telemetry import track_call
 
 load_dotenv()
+
+_JATS_RE = re.compile(r"</?jats:[^>]+>", re.IGNORECASE)
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _strip_jats(text: str) -> str:
+    if not text or "<" not in text:
+        return text or "No abstract available"
+    cleaned = _JATS_RE.sub("", text)
+    cleaned = _TAG_RE.sub("", cleaned)
+    return " ".join(cleaned.split()) or "No abstract available"
 
 MAILTO = os.getenv("CROSSREF_MAILTO", "your_email@example.com")
 CROSSREF_BASE_URL = "https://api.crossref.org/journals"
@@ -61,41 +74,45 @@ async def search_works(query: str, limit: int = 8) -> list:
         }
         headers = {"User-Agent": f"ResearchAgent/1.0 (mailto:{MAILTO})"}
         
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(url, params=params, headers=headers)
-            response.raise_for_status()
-            data = response.json()
+        async with track_call("Crossref", "search") as rec:
+            async with httpx.AsyncClient(timeout=12.0) as client:
+                response = await client.get(url, params=params, headers=headers)
+                response.raise_for_status()
+                data = response.json()
             
-        items = data.get("message", {}).get("items", [])
-        
-        papers = []
-        for item in items:
-            title = item.get("title", ["Untitled"])[0] if item.get("title") else "Untitled"
+            items = data.get("message", {}).get("items", [])
             
-            authors_list = []
-            for author in item.get("author", []):
-                name = f"{author.get('given', '')} {author.get('family', '')}".strip()
-                if name:
-                    authors_list.append(name)
-            author_str = ", ".join(authors_list[:3]) + (" et al." if len(authors_list) > 3 else "")
-            if not author_str:
-                author_str = "Unknown Authors"
-            
-            published = item.get("published-print", {}).get("date-parts", [[None]])[0][0]
-            if not published:
-                published = item.get("created", {}).get("date-parts", [[None]])[0][0]
-            
-            papers.append({
-                "id": item.get("DOI", ""),
-                "title": title,
-                "authors": author_str,
-                "year": str(published) if published else "Unknown",
-                "citations": item.get("is-referenced-by-count", 0),
-                "abstract": item.get("abstract", "No abstract available"),
-                "url": item.get("URL", ""),
-                "source": "Crossref"
-            })
-        return papers
+            papers = []
+            for item in items:
+                title = item.get("title", ["Untitled"])[0] if item.get("title") else "Untitled"
+                
+                authors_list = []
+                for author in item.get("author", []):
+                    name = f"{author.get('given', '')} {author.get('family', '')}".strip()
+                    if name:
+                        authors_list.append(name)
+                author_str = ", ".join(authors_list[:3]) + (" et al." if len(authors_list) > 3 else "")
+                if not author_str:
+                    author_str = "Unknown Authors"
+                
+                published = item.get("published-print", {}).get("date-parts", [[None]])[0][0]
+                if not published:
+                    published = item.get("created", {}).get("date-parts", [[None]])[0][0]
+
+                doi = item.get("DOI", "")
+                papers.append({
+                    "id": doi,
+                    "title": title,
+                    "authors": author_str,
+                    "year": str(published) if published else "Unknown",
+                    "citations": item.get("is-referenced-by-count", 0),
+                    "abstract": _strip_jats(item.get("abstract") or "No abstract available"),
+                    "url": item.get("URL", ""),
+                    "doi": doi,
+                    "source": "Crossref"
+                })
+            rec.succeed(http_status=response.status_code, items=len(papers))
+            return papers
     except Exception as e:
         logger.error(f"Error searching Crossref works for {query}: {e}")
         return []

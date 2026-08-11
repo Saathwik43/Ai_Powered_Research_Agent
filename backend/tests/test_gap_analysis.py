@@ -10,7 +10,7 @@ import asyncio
 from unittest.mock import patch, AsyncMock
 from fastapi.testclient import TestClient
 from main import app
-from auth import get_current_user
+from core.auth import get_current_user
 from fastapi import HTTPException
 
 # Ensure each test gets a unique rate-limit key so we don't hit the 5/min limit.

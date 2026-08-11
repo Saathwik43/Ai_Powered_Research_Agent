@@ -1,5 +1,6 @@
 import httpx
 import logging
+from services.api_telemetry import track_call
 
 logger = logging.getLogger(__name__)
 
@@ -17,11 +18,12 @@ async def search_papers(query: str, limit: int = 15) -> list:
         "resultType": "core",  # needed to get abstractText + authorList
     }
 
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(EUROPEPMC_API_URL, params=params)
-            resp.raise_for_status()
-            data = resp.json()
+    async with track_call("Europe PMC", "search") as rec:
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(EUROPEPMC_API_URL, params=params)
+                resp.raise_for_status()
+                data = resp.json()
 
             results = data.get("resultList", {}).get("result", [])
             papers = []
@@ -43,10 +45,14 @@ async def search_papers(query: str, limit: int = 15) -> list:
                     "abstract": item.get("abstractText", "") or "",
                     "url": url,
                     "pdf_url": pdf_url,
+                    "doi": doi,
                     "citations": item.get("citedByCount", 0) or 0,
                     "source": "EuropePMC",
                 })
-            return [p for p in papers if p["title"]]
-    except Exception as e:
-        logger.error(f"Europe PMC search error: {e}")
-        return []
+            papers = [p for p in papers if p["title"]]
+            rec.succeed(http_status=resp.status_code, items=len(papers))
+            return papers
+        except Exception as e:
+            rec.fail(error=str(e))
+            logger.error(f"Europe PMC search error: {e}")
+            return []

@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, BookOpen, PenTool, LayoutList, LogOut, X, ChevronLeft, ChevronRight, FileText, Shield, Clock, MessageSquare } from 'lucide-react';
+import { LayoutDashboard, BookOpen, PenTool, LayoutList, LogOut, X, ChevronLeft, ChevronRight, FileText, Shield, Clock, MessageSquare, Moon, Sun } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import './Sidebar.css';
 
 const Sidebar = ({ open, onClose, collapsed, onToggleCollapse }) => {
   const { user, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
 
   const navItems = [
@@ -121,6 +123,16 @@ const Sidebar = ({ open, onClose, collapsed, onToggleCollapse }) => {
               </div>
             </div>
           )}
+          <button
+            type="button"
+            className="theme-toggle-btn"
+            onClick={toggleTheme}
+            aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+            title={theme === 'dark' ? 'Light theme' : 'Dark theme'}
+          >
+            {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+            <span className="theme-toggle-text">{theme === 'dark' ? 'Light theme' : 'Dark theme'}</span>
+          </button>
           <button className="logout-btn" onClick={handleLogout}>
             <LogOut size={15} />
             <span className="logout-text">Sign Out</span>

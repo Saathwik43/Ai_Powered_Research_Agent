@@ -10,8 +10,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { ghcolors } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import CodeHighlight from '../components/CodeHighlight';
 import 'katex/dist/katex.min.css';
 import { MODELS } from '../constants/models';
 import { diffWords } from 'diff';
@@ -33,9 +32,9 @@ function MarkdownCode({ className, children, ...props }) {
     return <Mermaid chart={contentStr} />;
   }
   return isBlock && language ? (
-    <SyntaxHighlighter style={ghcolors} language={language} PreTag="div" {...props}>
+    <CodeHighlight language={language} {...props}>
       {contentStr}
-    </SyntaxHighlighter>
+    </CodeHighlight>
   ) : (
     <code className={className} {...props}>
       {children}
@@ -116,9 +115,9 @@ const TableOrChart = ({ node, children, ...props }) => {
         <div style={{ width: '100%', height: 300, background: 'var(--bg-card)', padding: 'var(--space-4)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={rows} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-              <XAxis dataKey={xKey} tick={{fontSize: 12}} />
-              <YAxis tick={{fontSize: 12}} />
-              <Tooltip cursor={{fill: 'var(--primary-light)'}} contentStyle={{ borderRadius: 'var(--radius-md)', border: 'none', boxShadow: 'var(--shadow-md)' }} />
+              <XAxis dataKey={xKey} tick={{ fontSize: 12, fill: 'var(--text-muted)' }} />
+              <YAxis tick={{ fontSize: 12, fill: 'var(--text-muted)' }} />
+              <Tooltip cursor={{fill: 'var(--primary-light)'}} contentStyle={{ borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text)', boxShadow: 'var(--shadow-md)' }} />
               <Bar dataKey={yKey} fill="var(--primary)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
@@ -805,13 +804,13 @@ export default function ManuscriptBuilder() {
                     <div style={{ display: 'flex', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
                       <button
                         onClick={() => setAutoMode(true)}
-                        style={{ flex: 1, padding: 'var(--space-2)', background: autoMode ? 'var(--primary)' : 'transparent', color: autoMode ? 'white' : 'var(--text)', border: 'none', cursor: 'pointer', fontSize: 'var(--fs-xs)', fontWeight: autoMode ? 600 : 400, transition: 'background-color var(--transition), color var(--transition)' }}
+                        style={{ flex: 1, padding: 'var(--space-2)', background: autoMode ? 'var(--primary)' : 'transparent', color: autoMode ? 'var(--on-primary)' : 'var(--text)', border: 'none', cursor: 'pointer', fontSize: 'var(--fs-xs)', fontWeight: autoMode ? 600 : 400, transition: 'background-color var(--transition), color var(--transition)' }}
                       >
                         Auto
                       </button>
                       <button
                         onClick={() => setAutoMode(false)}
-                        style={{ flex: 1, padding: 'var(--space-2)', background: !autoMode ? 'var(--primary)' : 'transparent', color: !autoMode ? 'white' : 'var(--text)', border: 'none', cursor: 'pointer', fontSize: 'var(--fs-xs)', fontWeight: !autoMode ? 600 : 400, transition: 'background-color var(--transition), color var(--transition)' }}
+                        style={{ flex: 1, padding: 'var(--space-2)', background: !autoMode ? 'var(--primary)' : 'transparent', color: !autoMode ? 'var(--on-primary)' : 'var(--text)', border: 'none', cursor: 'pointer', fontSize: 'var(--fs-xs)', fontWeight: !autoMode ? 600 : 400, transition: 'background-color var(--transition), color var(--transition)' }}
                       >
                         Specific
                       </button>
@@ -887,7 +886,7 @@ export default function ManuscriptBuilder() {
                     onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.boxShadow = 'none'; }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
-                      <span style={{ background: 'var(--primary)', color: 'white', borderRadius: '50%', width: '18px', height: '18px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 'var(--fs-2xs)', fontWeight: 700, flexShrink: 0 }}>{src.index}</span>
+                      <span style={{ background: 'var(--primary)', color: 'var(--on-primary)', borderRadius: '50%', width: '18px', height: '18px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 'var(--fs-2xs)', fontWeight: 700, flexShrink: 0 }}>{src.index}</span>
                       <span style={{ fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{src.title}</span>
                     </div>
                     <div style={{ color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

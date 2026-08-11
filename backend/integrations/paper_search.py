@@ -2,6 +2,7 @@ import asyncio
 import math
 import time
 import logging
+from datetime import datetime
 from integrations.openalex import search_papers as openalex_search
 from integrations.arxiv import search_papers as arxiv_search
 from integrations.semanticscholar import search_papers as s2_search
@@ -17,8 +18,17 @@ from integrations.doaj import search_papers as doaj_search
 logger = logging.getLogger(__name__)
 _cache = {}
 _embedding_cache = {}
+_inflight: dict = {}
 
-_CURRENT_YEAR = 2026
+# limit_per_source is part of the search cache key, so every caller that wants
+# to reuse one fan-out has to pass the same value. The Dashboard fires
+# /api/literature and /api/topics in parallel for the same query; both use this.
+SHARED_LIMIT_PER_SOURCE = 20
+
+# How many top-ranked papers get a semantic embedding for reranking.
+RERANK_WINDOW = 30
+
+_CURRENT_YEAR = datetime.now().year
 
 def _cosine_sim(a: list[float], b: list[float]) -> float:
     dot = sum(x*y for x, y in zip(a, b))
@@ -26,23 +36,43 @@ def _cosine_sim(a: list[float], b: list[float]) -> float:
     norm_b = sum(x*x for x in b) ** 0.5
     return dot / (norm_a * norm_b) if norm_a and norm_b else 0.0
 
-async def _get_paper_embedding(paper: dict) -> list[float] | None:
-    from ai.llm_provider import get_embedding
+def _paper_embedding_text(paper: dict) -> str:
     title = paper.get("title") or ""
     abstract = (paper.get("abstract") or "")[:500]
-    text = f"{title}. {abstract}"
-    key = hash(text)
-    
+    return f"{title}. {abstract}"
+
+
+async def _embed_papers_cached(papers: list) -> list:
+    """
+    Embeddings for *papers*, aligned by position, with None where unavailable.
+
+    Cache hits cost nothing; every miss goes into a single batched request
+    instead of one request per paper. TTL matches the previous per-paper
+    behaviour: 600s for a real embedding, 60s for a failure so a transient
+    outage is retried soon without hammering the API.
+    """
+    from ai.llm_provider import get_embeddings_batch
+
     now = time.time()
-    if key in _embedding_cache:
-        emb, expires_at = _embedding_cache[key]
-        if now < expires_at:
-            return emb
-            
-    emb = await get_embedding(text, task_type="RETRIEVAL_DOCUMENT")
-    expires_at = now + 60 if emb is None else now + 600
-    _embedding_cache[key] = (emb, expires_at)
-    return emb
+    keys = [hash(_paper_embedding_text(p)) for p in papers]
+    embeddings: list = [None] * len(papers)
+    misses: list[int] = []
+
+    for i, key in enumerate(keys):
+        cached = _embedding_cache.get(key)
+        if cached and now < cached[1]:
+            embeddings[i] = cached[0]
+        else:
+            misses.append(i)
+
+    if misses:
+        texts = [_paper_embedding_text(papers[i]) for i in misses]
+        fetched = await get_embeddings_batch(texts, task_type="RETRIEVAL_DOCUMENT")
+        for i, emb in zip(misses, fetched):
+            embeddings[i] = emb
+            _embedding_cache[keys[i]] = (emb, now + (60 if emb is None else 600))
+
+    return embeddings
 
 
 def _normalize_title(title: str) -> str:
@@ -52,10 +82,21 @@ def _normalize_title(title: str) -> str:
 
 
 def _normalize_doi(doi: str) -> str:
-    """Lowercase and strip URL prefixes for DOI."""
-    if not doi:
+    """Lowercase and strip URL prefixes. Returns '' unless the value is a real DOI."""
+    if not doi or not isinstance(doi, str):
         return ""
-    return doi.replace("https://doi.org/", "").replace("http://doi.org/", "").strip().lower()
+    cleaned = (
+        doi.replace("https://doi.org/", "")
+        .replace("http://doi.org/", "")
+        .replace("https://dx.doi.org/", "")
+        .replace("http://dx.doi.org/", "")
+        .replace("doi:", "")
+        .strip()
+        .lower()
+    )
+    if not cleaned.startswith("10."):
+        return ""
+    return cleaned
 
 
 def _deduplicate(papers: list) -> list:
@@ -65,7 +106,12 @@ def _deduplicate(papers: list) -> list:
     unique = []
     
     for paper in papers:
-        doi = paper.get("doi", paper.get("url", ""))
+        doi = paper.get("doi") or ""
+        if not _normalize_doi(doi):
+            doi = paper.get("id") or ""
+        if not _normalize_doi(doi):
+            url = paper.get("url") or ""
+            doi = url if "doi.org/" in url else ""
         norm_doi = _normalize_doi(doi)
         
         # If we have a valid DOI, try deduplicating by DOI
@@ -215,14 +261,49 @@ async def search_all(
     {"BASE", "DOAJ"} for topic-discovery, where grey-lit/broad-OA noise
     hurts more than raw coverage helps).
     """
-    exclude_sources = exclude_sources or set()
-    cache_key = f"{query}_{limit_per_source}_all_{sorted(exclude_sources)}"
+    exclude_sources = set(exclude_sources or set())
+    try:
+        from services.admin_status import get_disabled_search_tasks
+        exclude_sources |= get_disabled_search_tasks()
+    except Exception:
+        pass
+    cache_key = f"{query}_{limit_per_source}_{diversify}_{semantic_rerank}_all"
+    if exclude_sources:
+        cache_key += f"_{sorted(exclude_sources)}"
     now = time.time()
     if cache_key in _cache:
         cached_data, timestamp = _cache[cache_key]
         if now - timestamp < 600:  # 10 minutes TTL
             logger.info(f"Returning cached literature results for {query}")
             return cached_data
+
+    # Single-flight. The Dashboard fires /api/topics and /api/literature in
+    # parallel, so both miss the still-empty cache and would each fan out to
+    # every source. Identical concurrent searches share one execution instead.
+    # Shielded so a disconnecting client cannot cancel a search others await.
+    task = _inflight.get(cache_key)
+    if task is None:
+        task = asyncio.ensure_future(_execute_search(
+            query, limit_per_source, diversify, semantic_rerank,
+            source_timeout, oa_timeout, exclude_sources, cache_key,
+        ))
+        _inflight[cache_key] = task
+        task.add_done_callback(lambda t, k=cache_key: _inflight.pop(k, None))
+    return await asyncio.shield(task)
+
+
+async def _execute_search(
+    query: str,
+    limit_per_source: int,
+    diversify: bool,
+    semantic_rerank: bool,
+    source_timeout: float,
+    oa_timeout: float,
+    exclude_sources: set,
+    cache_key: str,
+) -> list:
+    """The actual fan-out. Always reached through search_all()."""
+    now = time.time()
 
     def _task(name, coro):
         if name in exclude_sources:
@@ -341,11 +422,10 @@ async def search_all(
             from ai.llm_provider import get_embedding
             query_emb = await get_embedding(query, task_type="RETRIEVAL_QUERY")
             if query_emb:
-                # Top ~30 papers for semantic reranking
-                top_candidates = unique[:30]
-                tasks = [_get_paper_embedding(p) for p in top_candidates]
-                paper_embs = await asyncio.gather(*tasks, return_exceptions=True)
-                
+                # One request for the query, one for the whole rerank window.
+                top_candidates = unique[:RERANK_WINDOW]
+                paper_embs = await _embed_papers_cached(top_candidates)
+
                 for p, p_emb in zip(top_candidates, paper_embs):
                     if isinstance(p_emb, list) and p_emb:
                         semantic_score = _cosine_sim(query_emb, p_emb)
@@ -353,10 +433,10 @@ async def search_all(
                         p["_semantic_rank"] = (0.6 * p.get("_relevance_rank", 0.0)) + (0.4 * semantic_score)
                     else:
                         p["_semantic_rank"] = p.get("_relevance_rank", 0.0)
-                        
-                for p in unique[30:]:
+
+                for p in unique[RERANK_WINDOW:]:
                     p["_semantic_rank"] = p.get("_relevance_rank", 0.0)
-                    
+
                 unique.sort(key=lambda p: p.get("_semantic_rank", 0.0), reverse=True)
         except Exception as e:
             logger.warning(f"Semantic reranking failed, falling back to lexical: {e}")
@@ -366,8 +446,9 @@ async def search_all(
 
     # Enrich with Unpaywall open-access links (non-blocking best-effort, 8s ceiling for large lists)
     try:
-        from integrations.unpaywall import enrich_papers_with_oa
-        unique = await asyncio.wait_for(enrich_papers_with_oa(unique), timeout=oa_timeout)
+        if "Unpaywall" not in exclude_sources:
+            from integrations.unpaywall import enrich_papers_with_oa
+            unique = await asyncio.wait_for(enrich_papers_with_oa(unique), timeout=oa_timeout)
     except asyncio.TimeoutError:
         import logging
         logging.getLogger(__name__).warning(f"Unpaywall enrichment exceeded {oa_timeout:g}s ceiling, returning unenriched results.")

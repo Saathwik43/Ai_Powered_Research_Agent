@@ -6,6 +6,26 @@
     <script src="https://unpkg.com/@lottiefiles/lottie-player@2.0.4/dist/lottie-player.js"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Research Agent</title>
+    <script>
+      (function () {
+        try {
+          var path = location.pathname;
+          var publicPage =
+            path === '/' ||
+            path === '/login' ||
+            path === '/signup' ||
+            path === '/forgot-password' ||
+            path === '/reset-password';
+          var theme = 'light';
+          if (!publicPage) {
+            theme = localStorage.getItem('ra_theme');
+            if (theme !== 'dark' && theme !== 'light') theme = 'light';
+          }
+          document.documentElement.setAttribute('data-theme', theme);
+          document.documentElement.style.colorScheme = theme;
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

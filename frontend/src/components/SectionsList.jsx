@@ -62,7 +62,7 @@ export default function SectionsList({ sections, activeSectionId, onSelectSectio
                 textTransform: 'uppercase',
                 letterSpacing: '0.04em',
                 background: isGenerating ? 'var(--primary)' : isActive ? 'var(--primary-light)' : isDone ? 'rgba(79, 143, 107, 0.12)' : 'var(--bg-hover)',
-                color: isGenerating ? '#FFFFFF' : isActive ? 'var(--primary)' : isDone ? 'var(--success)' : 'var(--text-subtle)'
+                color: isGenerating ? 'var(--on-primary)' : isActive ? 'var(--primary)' : isDone ? 'var(--success)' : 'var(--text-subtle)'
               }}>
                 {statusLabel}
               </span>

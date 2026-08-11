@@ -14,8 +14,8 @@ graph TD
     end
 
     subgraph Backend [Backend API - FastAPI]
-        Router[API Routes / main.py]
-        Auth[Authentication & Quotas]
+        Router[API Routes / routers/*.py]
+        Auth[Authentication & Quotas - core/ + services/]
       
         subgraph AI_Engine [AI Engine Modules]
             TD_AI[Topic Discovery]

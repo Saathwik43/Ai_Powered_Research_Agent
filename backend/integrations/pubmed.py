@@ -41,13 +41,14 @@ logger = logging.getLogger(__name__)
 PUBMED_API_KEY: str = os.getenv("PUBMED_API_KEY", "")
 _ESEARCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
 _ESUMMARY_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
+_EFETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 
 # Per-call HTTP timeout (seconds) — matches all other providers.
 _CALL_TIMEOUT = 5.0
 
-# If esearch alone exceeds this threshold we abort rather than proceed to
-# esummary, keeping total worst-case latency bounded.
-_ESEARCH_ABORT_AFTER = 3.0
+# Outer search_all() already cancels slow sources. Do not abort a healthy
+# PubMed esearch just because parallel fan-out added a few hundred ms.
+_ESEARCH_ABORT_AFTER = 8.0
 
 
 def _base_params() -> dict:
@@ -153,6 +154,33 @@ async def _esummary(client: httpx.AsyncClient, pmids: list[str]) -> list[dict]:
     return papers
 
 
+async def _efetch_abstracts(client: httpx.AsyncClient, pmids: list[str]) -> dict[str, str]:
+    """Best-effort abstract fetch. Returns {} on any failure so esummary still stands."""
+    import xml.etree.ElementTree as ET
+
+    params = _base_params()
+    params.update({
+        "id": ",".join(pmids),
+        "rettype": "abstract",
+        "retmode": "xml",
+    })
+    try:
+        resp = await client.get(_EFETCH_URL, params=params)
+        resp.raise_for_status()
+        root = ET.fromstring(resp.text)
+    except Exception as exc:
+        logger.debug("PubMed efetch skipped: %s", exc)
+        return {}
+
+    out: dict[str, str] = {}
+    for article in root.findall(".//PubmedArticle"):
+        pmid = article.findtext(".//PMID")
+        texts = [t.text or "" for t in article.findall(".//Abstract/AbstractText") if t.text]
+        if pmid and texts:
+            out[str(pmid)] = " ".join(texts)
+    return out
+
+
 async def search_papers(query: str, limit: int = 8) -> list[dict]:
     """
     Search PubMed via E-utilities and return normalised paper dicts.
@@ -166,45 +194,59 @@ async def search_papers(query: str, limit: int = 8) -> list[dict]:
 
     Always returns a list (never raises).
     """
+    from services.api_telemetry import track_call
+
     if not query or not query.strip():
         return []
 
     t0 = time.monotonic()
 
-    # ── Call 1: esearch ──────────────────────────────────────────────────────
-    try:
-        async with httpx.AsyncClient(timeout=_CALL_TIMEOUT) as client:
-            pmids = await _esearch(client, query.strip(), limit)
-    except Exception as exc:
-        logger.error(f"PubMed search_papers unexpected error in esearch phase: {exc}")
-        return []
+    async with track_call("PubMed / NCBI", "search") as rec:
+        # ── Call 1: esearch ──────────────────────────────────────────────────
+        try:
+            async with httpx.AsyncClient(timeout=_CALL_TIMEOUT) as client:
+                pmids = await _esearch(client, query.strip(), limit)
+        except Exception as exc:
+            rec.fail(error=str(exc))
+            logger.error(f"PubMed search_papers unexpected error in esearch phase: {exc}")
+            return []
 
-    elapsed_after_esearch = time.monotonic() - t0
+        elapsed_after_esearch = time.monotonic() - t0
 
-    # Abort-early guard: if esearch itself was slow, don't pile a second call on top
-    if elapsed_after_esearch > _ESEARCH_ABORT_AFTER:
-        logger.warning(
-            f"PubMed esearch took {elapsed_after_esearch:.2f}s "
-            f"(>{_ESEARCH_ABORT_AFTER}s threshold); skipping esummary to protect ceiling."
+        if elapsed_after_esearch > _ESEARCH_ABORT_AFTER:
+            rec.fail(error=f"esearch {elapsed_after_esearch:.2f}s exceeded abort guard")
+            logger.warning(
+                f"PubMed esearch took {elapsed_after_esearch:.2f}s "
+                f"(>{_ESEARCH_ABORT_AFTER}s threshold); skipping esummary to protect ceiling."
+            )
+            return []
+
+        if not pmids:
+            rec.succeed(http_status=200, items=0)
+            logger.debug("PubMed esearch returned no PMIDs for query: %r", query)
+            return []
+
+        # ── Call 2: esummary ─────────────────────────────────────────────────
+        try:
+            async with httpx.AsyncClient(timeout=_CALL_TIMEOUT) as client:
+                papers = await _esummary(client, pmids)
+                abstracts = await _efetch_abstracts(client, pmids)
+        except Exception as exc:
+            rec.fail(error=str(exc))
+            logger.error(f"PubMed search_papers unexpected error in esummary phase: {exc}")
+            return []
+
+        if abstracts:
+            for paper in papers:
+                pmid = str(paper.get("id", "")).removeprefix("pmid:")
+                if pmid in abstracts:
+                    paper["abstract"] = abstracts[pmid]
+
+        rec.succeed(http_status=200, items=len(papers))
+        total_elapsed = time.monotonic() - t0
+        logger.info(
+            f"PubMed returned {len(papers)} papers in {total_elapsed:.2f}s "
+            f"(esearch: {elapsed_after_esearch:.2f}s, "
+            f"esummary: {total_elapsed - elapsed_after_esearch:.2f}s)"
         )
-        return []
-
-    if not pmids:
-        logger.debug("PubMed esearch returned no PMIDs for query: %r", query)
-        return []
-
-    # ── Call 2: esummary ─────────────────────────────────────────────────────
-    try:
-        async with httpx.AsyncClient(timeout=_CALL_TIMEOUT) as client:
-            papers = await _esummary(client, pmids)
-    except Exception as exc:
-        logger.error(f"PubMed search_papers unexpected error in esummary phase: {exc}")
-        return []
-
-    total_elapsed = time.monotonic() - t0
-    logger.info(
-        f"PubMed returned {len(papers)} papers in {total_elapsed:.2f}s "
-        f"(esearch: {elapsed_after_esearch:.2f}s, "
-        f"esummary: {total_elapsed - elapsed_after_esearch:.2f}s)"
-    )
-    return papers
+        return papers

@@ -80,12 +80,16 @@ async def extract_pdf_text(file_bytes: bytes) -> str:
             tmp.write(file_bytes)
             temp_path = tmp.name
             
-        parser = LlamaParse(result_type="markdown")
-        # wait_for takes a coroutine
-        documents = await asyncio.wait_for(parser.aload_data(temp_path), timeout=30.0)
-        if documents:
-            text = "\n".join(doc.text for doc in documents)
-            logger.info("Successfully extracted PDF text using LlamaParse.")
+        from services.api_telemetry import track_call
+        async with track_call("LlamaCloud", "parse") as rec:
+            parser = LlamaParse(result_type="markdown")
+            documents = await asyncio.wait_for(parser.aload_data(temp_path), timeout=30.0)
+            if documents:
+                text = "\n".join(doc.text for doc in documents)
+                rec.succeed(http_status=200, items=len(documents))
+                logger.info("Successfully extracted PDF text using LlamaParse.")
+            else:
+                rec.fail(error="empty parse result")
     except asyncio.TimeoutError:
         logger.warning("LlamaParse extraction timed out. Falling back to PyMuPDF.")
     except Exception as e:

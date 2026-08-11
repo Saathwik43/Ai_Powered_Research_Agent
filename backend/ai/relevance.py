@@ -64,8 +64,15 @@ def _build_classifier_prompt(topic: str, title: str, abstract: str) -> str:
 async def _classify_relevance(topic: str, title: str, abstract: str) -> bool:
     """Single yes/no LLM call. Raises on failure — caller decides fail-open."""
     user_prompt = _build_classifier_prompt(topic, title, abstract)
+    # Pin to Groq: auto cascade was OpenAI→Gemini→Groq for every paper, so a
+    # Survey limit=100 burned ~100 OpenAI + ~200 Gemini attempts before Groq
+    # answered. Yes/no classification does not need the expensive providers.
     result = await generate_completion(
-        _CLASSIFIER_SYSTEM_PROMPT, user_prompt, max_tokens=5, temperature=0.0
+        _CLASSIFIER_SYSTEM_PROMPT,
+        user_prompt,
+        max_tokens=5,
+        temperature=0.0,
+        provider_override="groq",
     )
     return (result or "").strip().lower().startswith("yes")
 

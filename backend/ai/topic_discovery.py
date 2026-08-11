@@ -1,9 +1,13 @@
 import logging
 from ai.guardrails import validate_input_layers_a_b
 from ai.keyword_extractor import extract_top_topics
-from integrations.paper_search import search_all
-from ai.relevance import _filter_relevant_papers
+from integrations.paper_search import SHARED_LIMIT_PER_SOURCE, search_all
 logger = logging.getLogger(__name__)
+
+# Upper bound on the TF-IDF corpus, taken from the ranked head.
+TOPIC_CORPUS_SIZE = 60
+
+_NOISY_FOR_TOPICS = {"BASE", "DOAJ"}
 
 
 def _fallback_topics(intent: str):
@@ -27,16 +31,21 @@ async def discover_topics(intent: str):
 
     try:
         # ── 1. Fetch papers from ALL sources (fast, AI-free) ─────────
-        papers = await search_all(
-            intent,
-            limit_per_source=10,      # bigger sample = corpus actually reflects the query
-            semantic_rerank=True,      # rank by relevance to intent, not just recency
-            exclude_sources={"BASE", "DOAJ"},  # grey-lit/broad-OA noise skews topic extraction;
-                                                 # fine for full literature search, not for this.
-        )
+        # Arguments deliberately match the /api/literature endpoint so the
+        # Dashboard's two parallel requests share one search_all cache entry
+        # and trigger a single fan-out. BASE/DOAJ are dropped afterwards
+        # instead of via exclude_sources, which is part of the cache key:
+        # grey-lit/broad-OA noise skews topic extraction, but it is fine for
+        # the full literature search.
+        papers = await search_all(intent, limit_per_source=SHARED_LIMIT_PER_SOURCE)
 
-        papers = await _filter_relevant_papers(intent, papers)
-        
+        papers = [p for p in (papers or []) if p.get("source") not in _NOISY_FOR_TOPICS]
+
+        # Ranked head only. TF-IDF wants a clean, bounded corpus, and the
+        # per-paper relevance classifier is pure overhead here: these papers
+        # are never shown to the user, only mined for keyword phrases.
+        papers = papers[:TOPIC_CORPUS_SIZE]
+
         if not papers:
             logger.warning(f"No papers found for intent '{intent}', using fallback topics.")
             return {"data": _fallback_topics(intent), "source": "fallback"}

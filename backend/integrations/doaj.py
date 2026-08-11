@@ -1,6 +1,7 @@
 import httpx
 import logging
 import urllib.parse
+from services.api_telemetry import track_call
 
 logger = logging.getLogger(__name__)
 
@@ -15,11 +16,12 @@ async def search_papers(query: str, limit: int = 15) -> list:
     url = f"{DOAJ_API_URL}/{encoded_query}"
     params = {"pageSize": limit}
 
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(url, params=params)
-            resp.raise_for_status()
-            data = resp.json()
+    async with track_call("DOAJ", "search") as rec:
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(url, params=params)
+                resp.raise_for_status()
+                data = resp.json()
 
             results = data.get("results", [])
             papers = []
@@ -49,10 +51,14 @@ async def search_papers(query: str, limit: int = 15) -> list:
                     "abstract": bibjson.get("abstract", "") or "",
                     "url": link_url or (f"https://doi.org/{doi}" if doi else ""),
                     "pdf_url": link_url,
-                    "citations": 0,  # DOAJ doesn't provide citation counts
+                    "doi": doi,
+                    "citations": 0,
                     "source": "DOAJ",
                 })
-            return [p for p in papers if p["title"]]
-    except Exception as e:
-        logger.error(f"DOAJ search error: {e}")
-        return []
+            papers = [p for p in papers if p["title"]]
+            rec.succeed(http_status=resp.status_code, items=len(papers))
+            return papers
+        except Exception as e:
+            rec.fail(error=str(e))
+            logger.error(f"DOAJ search error: {e}")
+            return []

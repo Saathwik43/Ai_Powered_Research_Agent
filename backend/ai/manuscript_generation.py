@@ -14,7 +14,7 @@ from fastapi import HTTPException
 from ai.numerical_validator import validate_numerical_claims
 from ai.evidence_extraction import extract_evidence_for_paper
 from ai.citation_grounding import check_citation_grounding
-from database import db
+from core.database import db
 
 logger = logging.getLogger(__name__)
 
@@ -136,11 +136,13 @@ async def _prepare_generation(topic: str, section: str, context: str, citation_s
         papers = _research_cache[cache_key][0]
     else:
         logger.info(f"No valid cache for '{cache_key}', running full research pipeline.")
-        papers = await search_all(topic, limit_per_source=15) or []
+        # Slice before filtering: search_all() returns ranked results and the
+        # classifier costs one LLM call per paper, so papers past the window
+        # would be paid for and then discarded. Matches gap_analysis.
+        papers = (await search_all(topic, limit_per_source=15) or [])[:15]
         
         if papers:
             papers = await _filter_relevant_papers(topic, papers)
-            papers = papers[:15]
             
             sem = asyncio.Semaphore(3)
             async def fetch_evidence_throttled(p):
@@ -154,7 +156,7 @@ async def _prepare_generation(topic: str, section: str, context: str, citation_s
             _research_cache[cache_key] = (papers, now)
     
     try:
-            import usage_tracker
+            from services import usage_tracker
             user_id = usage_tracker.current_user_id.get()
             if not user_id:
                 user_sources = []
@@ -331,7 +333,7 @@ async def generate_section_stream(topic: str, section: str, context: str, citati
         elif chunk.get("type") == "done" or chunk.get("type") == "stopped":
             if chunk.get("type") == "done":
                 try:
-                    import usage_tracker
+                    from services import usage_tracker
                     user_id = usage_tracker.current_user_id.get()
                     if user_id:
                         word_count = len((system_prompt + " " + user_prompt + " " + full_text).split())

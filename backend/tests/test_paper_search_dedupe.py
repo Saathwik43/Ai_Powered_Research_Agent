@@ -5,7 +5,9 @@ def test_normalize_doi():
     assert _normalize_doi("10.1234/5678") == "10.1234/5678"
     assert _normalize_doi("https://doi.org/10.1234/5678") == "10.1234/5678"
     assert _normalize_doi("http://doi.org/10.1234/5678") == "10.1234/5678"
+    assert _normalize_doi("doi:10.1234/5678") == "10.1234/5678"
     assert _normalize_doi("  10.1234/5678  ") == "10.1234/5678"
+    assert _normalize_doi("https://arxiv.org/abs/1706.03762") == ""
 
 def test_deduplicate_by_doi():
     papers = [

@@ -1,12 +1,12 @@
 /* Literature Survey — curved surfaces + soft motion */
 
 .lit-page {
-  --lit-radius: 16px;
-  --lit-radius-sm: 12px;
-  --lit-ease: 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  --lit-radius: 6px;
+  --lit-radius-sm: 6px;
+  --lit-ease: 180ms ease;
   width: 100%;
+  max-width: 720px;
   min-width: 0;
-  animation: litRise 0.4s var(--lit-ease) both;
 }
 
 @keyframes litRise {
@@ -32,21 +32,23 @@
   max-width: 36rem;
 }
 
-/* Segmented tabs — pill track */
 .lit-tabs {
   position: relative;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0;
+  display: flex;
+  gap: 4px;
+  width: fit-content;
+  max-width: 100%;
   margin-bottom: 1.5rem;
-  padding: 0.3rem;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--lit-radius);
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
 }
 
 .lit-tab {
   position: relative;
+  isolation: isolate;
   z-index: 1;
   display: inline-flex;
   align-items: center;
@@ -54,57 +56,50 @@
   gap: 0.4rem;
   border: 0;
   background: transparent;
-  padding: 0.65rem 0.75rem;
+  padding: 0.55rem 0.15rem 0.7rem;
+  margin-right: 1.25rem;
   cursor: pointer;
   font-family: inherit;
-  font-size: var(--fs-sm);
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--text-muted);
-  border-radius: calc(var(--lit-radius) - 4px);
-  transition: color var(--lit-ease);
+  border-radius: 0;
 }
 
 .lit-tab.is-active {
   color: var(--text);
 }
 
-.lit-tab-indicator {
+.lit-tab-ink {
   position: absolute;
-  top: 0.3rem;
-  bottom: 0.3rem;
-  width: calc(50% - 0.3rem);
-  left: 0.3rem;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: calc(var(--lit-radius) - 4px);
-  box-shadow: 0 4px 14px rgba(15, 17, 21, 0.06);
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  top: auto;
+  height: 1px;
+  background: var(--text);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
   pointer-events: none;
-  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
-  z-index: 0;
-}
-
-.lit-tab-indicator.is-saved {
-  transform: translateX(100%);
+  z-index: 1;
 }
 
 /* Search desk — rounded capsule */
 .lit-search-desk {
   display: flex;
   align-items: stretch;
-  gap: 0.35rem;
+  gap: 0.5rem;
   margin-bottom: 1.25rem;
-  padding: 0.35rem;
-  border: 1.5px solid var(--border);
-  border-radius: var(--lit-radius);
-  background: var(--bg-card);
-  box-shadow: 0 1px 0 rgba(15, 17, 21, 0.03);
-  transition: border-color var(--lit-ease), box-shadow var(--lit-ease), transform var(--lit-ease);
+  padding: 0 0 0.75rem;
+  border: 0;
+  border-bottom: 1px solid var(--border-strong);
+  border-radius: 0;
+  background: transparent;
 }
 
 .lit-search-desk:focus-within {
   border-color: var(--text);
-  box-shadow: 0 10px 28px rgba(15, 17, 21, 0.06);
-  transform: translateY(-1px);
 }
 
 .lit-search-field {
@@ -168,13 +163,14 @@
   height: auto;
   padding: 0 1.15rem;
   background: var(--text) !important;
-  color: #fff;
+  color: var(--on-ink);
   overflow: hidden;
   transition: background var(--lit-ease), transform var(--lit-ease);
 }
 
 .lit-search-desk .lit-search-go:hover:not(:disabled) {
   background: var(--primary) !important;
+  color: var(--on-primary);
   transform: scale(1.02);
 }
 
@@ -190,7 +186,7 @@
 .lit-search-desk .lit-search-go > span {
   transform: none !important;
   opacity: 1 !important;
-  color: #fff;
+  color: inherit;
 }
 
 .lit-search-stop {
@@ -267,12 +263,11 @@
   flex-direction: column;
   gap: 0.85rem;
   margin-bottom: 1rem;
-  background: var(--bg-card);
-  padding: 1rem 1.1rem;
-  border: 1px solid var(--border);
-  border-radius: var(--lit-radius);
-  box-shadow: 0 1px 0 rgba(15, 17, 21, 0.03);
-  animation: litSoftIn 0.35s var(--lit-ease) both;
+  background: transparent;
+  padding: 0 0 1rem;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
 }
 
 .lit-filter-top {
@@ -341,19 +336,16 @@
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--lit-radius);
-  padding: 1rem 1.15rem;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  padding: 1.1rem 0;
   min-width: 0;
-  animation: litSoftIn 0.4s var(--lit-ease) both;
-  transition: transform var(--lit-ease), box-shadow var(--lit-ease), border-color var(--lit-ease);
 }
 
 .lit-result-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 28px rgba(15, 17, 21, 0.06);
-  border-color: var(--border-strong);
+  background: transparent;
 }
 
 .lit-result-head {
@@ -625,7 +617,7 @@
   .lit-filter-bar,
   .lit-result-card,
   .lit-search-desk,
-  .lit-tab-indicator {
+  .lit-tab-ink {
     animation: none !important;
     transition: none !important;
   }

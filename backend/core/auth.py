@@ -6,11 +6,11 @@ from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from database import db
+from core.database import db
 from dotenv import load_dotenv
 from google.oauth2 import id_token
 from google.auth.transport import requests
-import usage_tracker
+from services import usage_tracker
 from bson import ObjectId
 
 load_dotenv()
@@ -171,7 +171,7 @@ async def login_user(email: str, password: str) -> dict:
 # ─── Password Reset ────────────────────────────────────────────────────────────
 
 async def request_password_reset(email: str):
-    from email_utils import send_reset_email, EmailSendError
+    from core.email_utils import send_reset_email, EmailSendError
     collection = db["users"]
     user = await collection.find_one({"email": email})
     if user:

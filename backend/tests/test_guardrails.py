@@ -17,7 +17,7 @@ import pytest
 from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 from main import app
-from auth import get_current_user
+from core.auth import get_current_user
 
 app.dependency_overrides[get_current_user] = lambda: {"user_id": "test_user"}
 app.state.limiter.enabled = False
