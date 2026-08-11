@@ -96,6 +96,7 @@
   padding: 0 0 0.75rem;
   border: 0;
   border-bottom: var(--border-width) solid var(--border-strong);
+}
 
 .lit-search-desk:focus-within {
   border-color: var(--text);
