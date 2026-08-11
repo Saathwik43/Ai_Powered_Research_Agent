@@ -334,6 +334,10 @@
   padding: 0.4rem 0.6rem;
   border-radius: 10px;
   border: var(--border-width) solid var(--border-strong);
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
 
 .lit-result-card {
   display: flex;
