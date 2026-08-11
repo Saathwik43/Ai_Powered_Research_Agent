@@ -8,7 +8,7 @@ dist/
 all_fixes.patch
 
 # Local working reports and checklists
-.reports/
+reports/
 
 # Test files and artifacts
 test_*.py
