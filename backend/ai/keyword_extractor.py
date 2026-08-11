@@ -52,14 +52,49 @@ def _ngrams_for_doc(words: list[str]) -> tuple[Counter, Counter]:
     return bigrams, unigrams
 
 
+def _stemish(w: str) -> str:
+    w = w.lower()
+    if len(w) > 4 and w.endswith("ies"):
+        return w[:-3] + "y"
+    if len(w) > 3 and w.endswith("s") and not w.endswith("ss"):
+        return w[:-1]
+    return w
+
+
+def _query_tokens(query: str) -> set[str]:
+    return {_stemish(w) for w in _tokenize(query) if _valid(w)}
+
+
+def _term_relatedness(term: str, q_stems: set[str]) -> float:
+    """
+    Prefer topic phrases that share meaning with the user's query.
+
+    Without this, TF-IDF on a relevant corpus still elevates co-occurring
+    method boilerplate ("machine learning", "control systems") that appears
+    often in domain papers but is not a research *direction* for the query.
+    """
+    if not q_stems:
+        return 1.0
+    t_stems = {_stemish(w) for w in term.split() if _valid(w)}
+    if not t_stems:
+        return 0.25
+    shared = len(t_stems & q_stems)
+    if shared:
+        return 1.0 + 0.9 * shared
+    # Soft prefix match for near-stems the simple strip missed
+    for qt in q_stems:
+        for tt in t_stems:
+            if len(qt) >= 4 and len(tt) >= 4 and (qt.startswith(tt) or tt.startswith(qt)):
+                return 1.5
+    return 0.22
+
+
 def extract_top_topics(docs: list[str], query: str = "", top_n: int = 3) -> list[dict]:
     """
     Extracts the top N topics using TF-IDF across the individual papers
-    (not one merged blob). A term that shows up in every paper (e.g.
-    "machine learning") is domain-boilerplate and gets penalized by IDF
-    automatically. A term concentrated in a few papers but repeated there
-    is query-specific and scores high. No AI/LLM required, no hardcoded
-    buzzword list, no need to ban the query's own words.
+    (not one merged blob), then reweights by relatedness to *query* so
+    method-boilerplate that co-occurs in an on-topic corpus does not beat
+    query-anchored directions.
 
     docs: list of per-paper text blobs (title + abstract), one per paper.
     """
@@ -68,6 +103,8 @@ def extract_top_topics(docs: list[str], query: str = "", top_n: int = 3) -> list
         n_docs = len(docs)
         if n_docs == 0:
             return []
+
+        q_stems = _query_tokens(query)
 
         total_bigram_counts: Counter = Counter()
         total_unigram_counts: Counter = Counter()
@@ -103,25 +140,41 @@ def extract_top_topics(docs: list[str], query: str = "", top_n: int = 3) -> list
         for bg, count in total_bigram_counts.items():
             if _too_common(bigram_doc_freq[bg]):
                 continue
-            scores[bg] = _tfidf(count, bigram_doc_freq[bg]) * 2.5  # bigrams read better as topic names
+            rel = _term_relatedness(bg, q_stems)
+            # Drop zero-overlap method boilerplate when a query is present.
+            if q_stems and rel < 0.5:
+                continue
+            base = _tfidf(count, bigram_doc_freq[bg]) * 2.5  # bigrams read better as topic names
+            scores[bg] = base * rel
 
         for ug, count in total_unigram_counts.items():
             if _too_common(unigram_doc_freq[ug]):
                 continue
+            rel = _term_relatedness(ug, q_stems)
+            if q_stems and rel < 0.5:
+                continue
             part_of_bigram = any(ug in bg for bg in total_bigram_counts if total_bigram_counts[bg] > 1)
-            scores[ug] = _tfidf(count, unigram_doc_freq[ug]) * (0.5 if part_of_bigram else 1.0)
+            base = _tfidf(count, unigram_doc_freq[ug]) * (0.5 if part_of_bigram else 1.0)
+            scores[ug] = base * rel
 
         ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
 
         topics = []
+        picked_stems: list[set[str]] = []
         for term, score in ranked:
             if len(topics) >= top_n:
                 break
+            stems = {_stemish(w) for w in term.split() if _valid(w)}
+            # Skip near-duplicates of an already chosen topic
+            if any(stems and (stems <= prev or prev <= stems or len(stems & prev) / len(stems | prev) >= 0.7)
+                   for prev in picked_stems):
+                continue
             topics.append({
                 "id": len(topics) + 1,
                 "title": term.title(),
                 "impact": "High" if score > 5 else "Medium",
             })
+            picked_stems.append(stems)
 
         return topics
 
