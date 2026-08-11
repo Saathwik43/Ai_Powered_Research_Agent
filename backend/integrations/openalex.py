@@ -1,5 +1,6 @@
 import os
 import httpx
+from integrations.http_client import pooled_client
 import logging
 from dotenv import load_dotenv
 from services.api_telemetry import track_call
@@ -30,7 +31,7 @@ async def search_papers(query: str, limit: int = 5):
 
     async with track_call("OpenAlex", "search") as rec:
         try:
-            async with httpx.AsyncClient(headers=headers) as client:
+            async with pooled_client(headers=headers) as client:
                 response = await client.get(url, params=params, timeout=10.0)
                 response.raise_for_status()
                 data = response.json()

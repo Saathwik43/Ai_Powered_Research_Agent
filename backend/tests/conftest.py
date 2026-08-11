@@ -29,6 +29,24 @@ def pytest_configure(config):
     )
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _disable_rate_limiter():
+    """
+    Turn the rate limiter off for the whole suite.
+
+    Several endpoints are hit far more than their per-minute budget across a
+    run. This used to be switched off as an import side effect of
+    tests/test_guardrails.py, which meant whether a test saw a limiter depended
+    on collection order.
+    """
+    from main import app
+
+    previous = app.state.limiter.enabled
+    app.state.limiter.enabled = False
+    yield
+    app.state.limiter.enabled = previous
+
+
 def pytest_collection_modifyitems(config, items):
     if not config.getoption("--run-integration"):
         skip_integration = pytest.mark.skip(

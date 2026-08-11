@@ -634,3 +634,50 @@
     transition: none !important;
   }
 }
+
+/* ── Semantic-cache disclosure ─────────────────────────────────────────────
+   Shown whenever the server answered with a different query's cached result.
+   Deliberately not styled as an error: the result is usually right, the user
+   just needs to see the substitution and be able to override it. */
+.lit-matched-query {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin-bottom: 1rem;
+  padding: 0.625rem 0.875rem;
+  border: var(--border-width) solid var(--border);
+  border-left: 3px solid var(--text);
+  border-radius: 6px;
+  background: var(--surface-muted, transparent);
+  font-size: 0.85rem;
+}
+
+.lit-matched-query-text {
+  color: var(--text-muted);
+}
+
+.lit-matched-query-text strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.lit-matched-query-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.lit-matched-query-action:hover {
+  opacity: 0.7;
+}

@@ -7,13 +7,16 @@ The search path is expensive in two ways: the relevance classifier costs one
 LLM call per paper, and semantic reranking costs one embedding request per
 paper. These tests pin down the fixes that bound both:
 
-* GET /api/literature classifies only the window it will actually return.
+* GET /api/literature classifies a window proportional to `limit` — enough to
+  backfill past irrelevant papers, never the whole corpus.
 * Embeddings for a rerank window are fetched in batched requests.
 * Topic discovery reuses the literature endpoint's search_all cache entry
   and never invokes the per-paper classifier.
 """
 
 import asyncio
+import math
+import re
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -25,9 +28,40 @@ import integrations.paper_search as paper_search
 from ai.topic_discovery import TOPIC_CORPUS_SIZE, discover_topics
 from fastapi.testclient import TestClient
 from integrations.paper_search import SHARED_LIMIT_PER_SOURCE
+from integrations.paper_search import SearchMeta
+
+def _searched(papers):
+    """
+    Return value for a patched routers.discovery.search_all_with_meta.
+
+    The endpoint calls search_all_with_meta (it needs the semantic-cache
+    disclosure), so that is the name tests must patch. Patching plain
+    search_all silently stops intercepting and the test hits the network.
+    """
+    return (papers, SearchMeta(cache="miss"))
+
 from main import app
 from core.auth import get_current_user
-from routers.discovery import LITERATURE_MAX_LIMIT
+from routers.discovery import LITERATURE_MAX_LIMIT, _BACKFILL_HEADROOM
+from ai.relevance import BATCH_SIZE
+
+_BATCH_ENTRY_RE = re.compile(r"^(\d+)\. Title: ", re.MULTILINE)
+
+
+def _batch_classifier(system_prompt, user_prompt, *args, **kwargs):
+    """
+    Answer a batched classifier prompt in the shape the parser expects.
+
+    Returning a bare "yes" would fail to parse and silently trigger the
+    per-paper fallback, so the test would measure the fallback rather than the
+    batching it is meant to pin down.
+    """
+    numbers = _BATCH_ENTRY_RE.findall(user_prompt)
+    if numbers:
+        return "\n".join(f"{n}: yes" for n in numbers)
+    return "yes"
+
+
 
 app.dependency_overrides[get_current_user] = lambda: {"user_id": "test_user"}
 app.state.limiter.enabled = False
@@ -54,19 +88,28 @@ class TestLiteratureLimit:
         relevance_module._relevance_cache.clear()
 
     def _get(self, params):
-        with patch("routers.discovery.search_all", new_callable=AsyncMock) as mock_search, \
+        with patch("routers.discovery.search_all_with_meta", new_callable=AsyncMock) as mock_search, \
              patch("ai.relevance.generate_completion", new_callable=AsyncMock) as mock_gen:
-            mock_search.return_value = _papers(40)
-            mock_gen.return_value = "yes"
+            mock_search.return_value = _searched(_papers(40))
+            mock_gen.side_effect = _batch_classifier
             resp = client.get("/api/literature", params=params)
         return resp, mock_gen
 
-    def test_classifier_only_sees_the_returned_window(self):
-        """40 papers found, 5 requested → 5 LLM calls, not 40."""
+    def test_classifier_cost_is_proportional_to_the_request(self):
+        """
+        40 papers found, 5 requested → one backfill round, not 40 calls.
+
+        The round is `limit + _BACKFILL_HEADROOM` so the request can still be
+        filled when the ranked head is mostly irrelevant. Every paper here is
+        relevant, so one round is enough and the extra headroom is the entire
+        overhead.
+        """
         resp, mock_gen = self._get({"query": "transformer attention", "limit": 5})
         assert resp.status_code == 200
         body = resp.json()
-        assert mock_gen.call_count == 5
+        examined = 5 + _BACKFILL_HEADROOM
+        assert mock_gen.call_count == math.ceil(examined / BATCH_SIZE)
+        assert mock_gen.call_count < examined, "papers must be judged a page at a time"
         assert body["count"] == 5
         assert body["total"] == 40
         assert body["has_more"] is True
@@ -80,18 +123,23 @@ class TestLiteratureLimit:
     def test_limit_is_clamped_to_ceiling(self):
         resp, mock_gen = self._get({"query": "transformer attention", "limit": 10_000})
         assert resp.json()["limit"] == LITERATURE_MAX_LIMIT
-        # Fixture is smaller than the ceiling, so every paper is classified once.
-        assert mock_gen.call_count == 40
+        # Fixture is smaller than the ceiling, so every paper is classified once
+        # — in pages of BATCH_SIZE.
+        assert mock_gen.call_count == math.ceil(40 / BATCH_SIZE)
 
     def test_limit_is_clamped_to_floor(self):
         resp, mock_gen = self._get({"query": "transformer attention", "limit": 0})
-        assert resp.json()["limit"] == 1
-        assert mock_gen.call_count == 1
+        body = resp.json()
+        assert body["limit"] == 1
+        assert body["count"] == 1
+        assert mock_gen.call_count == math.ceil((1 + _BACKFILL_HEADROOM) / BATCH_SIZE)
 
     def test_negative_limit_does_not_empty_the_window(self):
         resp, mock_gen = self._get({"query": "transformer attention", "limit": -5})
-        assert resp.json()["limit"] == 1
-        assert mock_gen.call_count == 1
+        body = resp.json()
+        assert body["limit"] == 1
+        assert body["count"] == 1
+        assert mock_gen.call_count == math.ceil((1 + _BACKFILL_HEADROOM) / BATCH_SIZE)
 
 
 # ─── Batched embeddings ───────────────────────────────────────────────────────

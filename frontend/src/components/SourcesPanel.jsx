@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { UploadCloud, FileText, Table, Image as ImageIcon, Link as LinkIcon, Trash2, Plus, Sparkles, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Spinner } from './Loader';
+import { useSearchRequest } from '../hooks/useSearchRequest';
+import { isAbortError } from '../utils/searchHeuristics';
 
 export default function SourcesPanel({ topic }) {
   const { authFetch } = useAuth();
@@ -13,28 +15,45 @@ export default function SourcesPanel({ topic }) {
   const [urlInput, setUrlInput] = useState('');
   const [mode, setMode] = useState('file'); // 'file' | 'url'
   const fileInputRef = useRef(null);
+  const { run: runFetch } = useSearchRequest();
 
   const fetchSources = async () => {
-    if (!topic || !topic.trim()) {
+    const trimmed = (topic || '').trim();
+    if (!trimmed) {
       setSources([]);
       return;
     }
-    setLoading(true);
-    setError('');
-    try {
-      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/sources?topic=${encodeURIComponent(topic.trim())}`);
-      if (!res.ok) throw new Error('Failed to fetch sources');
-      const data = await res.json();
-      setSources(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(err.message || 'Error loading sources');
-    } finally {
-      setLoading(false);
-    }
+    // Cancellable and self-superseding: this refetches on every keystroke in
+    // the topic field, and without cancellation a slow early response could
+    // land after a fast later one and show the wrong topic's sources.
+    await runFetch(trimmed, async ({ signal, isCurrent }) => {
+      setLoading(true);
+      setError('');
+      try {
+        const res = await authFetch(
+          `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/sources?topic=${encodeURIComponent(trimmed)}`,
+          { signal }
+        );
+        if (!isCurrent()) return;
+        if (!res.ok) throw new Error('Failed to fetch sources');
+        const data = await res.json();
+        if (!isCurrent()) return;
+        setSources(Array.isArray(data) ? data : []);
+      } catch (err) {
+        if (!isCurrent() || isAbortError(err)) return;
+        setError(err.message || 'Error loading sources');
+      } finally {
+        if (isCurrent()) setLoading(false);
+      }
+    });
   };
 
   useEffect(() => {
-    fetchSources();
+    // Debounced: `topic` is bound to a text input, so an undebounced effect
+    // fired one request per keystroke.
+    const id = setTimeout(() => { void fetchSources(); }, 250);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [topic]);
 
   const handleUploadFile = async (file) => {

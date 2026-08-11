@@ -26,6 +26,7 @@ import re
 import asyncio
 import logging
 import httpx
+from integrations.http_client import pooled_client
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -70,7 +71,7 @@ def _extract_doi(paper: dict) -> str | None:
     return None
 
 
-async def _lookup_oa(client: httpx.AsyncClient, doi: str) -> dict | None:
+async def _lookup_oa(client: "BoundClient", doi: str) -> dict | None:
     """
     Look up a single DOI on Unpaywall and return the best OA location, or None.
     """
@@ -128,7 +129,7 @@ async def enrich_papers_with_oa(papers: list) -> list:
     from services.api_telemetry import track_call
 
     async with track_call("Unpaywall", "enrich") as rec:
-        async with httpx.AsyncClient(timeout=_CALL_TIMEOUT) as client:
+        async with pooled_client(timeout=_CALL_TIMEOUT) as client:
             tasks = [_lookup_oa(client, doi) for _, doi in doi_pairs]
             results = await asyncio.gather(*tasks, return_exceptions=True)
 

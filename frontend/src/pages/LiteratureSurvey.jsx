@@ -12,6 +12,7 @@ import {
   normalizeSearchQuery,
   isAbortError,
 } from '../utils/searchHeuristics';
+import { useSearchRequest } from '../hooks/useSearchRequest';
 
 // Progressive fetch: classify one page at a time. Raising limit on Load more
 // reuses search_all + relevance caches so only the new window slice is paid for.
@@ -40,17 +41,14 @@ export default function LiteratureSurvey() {
   const [loadingSaved, setLoadingSaved] = useState(false);
   const [serverHasMore, setServerHasMore] = useState(false);
   const [fetchedLimit, setFetchedLimit] = useState(INITIAL_LIMIT);
-  const abortRef = useRef(null);
-  const inFlightQueryRef = useRef('');
+  // Set when the server answered from a semantically similar query's cache.
+  const [matchedQuery, setMatchedQuery] = useState('');
+  const { run: runSearch, stop: stopRequest } = useSearchRequest();
 
   const PAGE_SIZE = 15;
 
   const paperKey = (p) =>
     p.doi || p.id || p.url || `${p.title}|${p.year}|${p.source}|${p.authors}`;
-
-  useEffect(() => () => {
-    abortRef.current?.abort();
-  }, []);
 
   const fetchSavedSurveys = async () => {
     setLoadingSaved(true);
@@ -80,14 +78,9 @@ export default function LiteratureSurvey() {
   // Explicit user stop. Owns both the abort and the resulting UI state, so the
   // aborted request's own catch/finally can stay silent (see search()).
   const stopSearch = useCallback(() => {
-    if (abortRef.current) {
-      abortRef.current.abort();
-      abortRef.current = null;
-      setSearchError('Search stopped.');
-    }
-    inFlightQueryRef.current = '';
+    if (stopRequest()) setSearchError('Search stopped.');
     setLoading(false);
-  }, [setLoading, setSearchError]);
+  }, [stopRequest, setLoading, setSearchError]);
 
   const clearSearch = useCallback(() => {
     stopSearch();
@@ -100,12 +93,15 @@ export default function LiteratureSurvey() {
     setFilterSource('All');
     setVisibleCount(15);
     setSaveStatus('');
+    setMatchedQuery('');
   }, [
     stopSearch, setQuery, setPapers, setSearchError, setHasSearched,
     setLastQuery, setFilterYear, setFilterSource, setVisibleCount,
   ]);
 
-  const search = async (q = query, newSearch = true) => {
+  // `fresh` bypasses the server's semantic cache — sent by the "Search instead
+  // for X" link when the user rejects a semantically matched result.
+  const search = async (q = query, newSearch = true, fresh = false) => {
     const check = validateSearchQuery(q);
     if (!check.ok) {
       setSearchError(check.message);
@@ -113,69 +109,69 @@ export default function LiteratureSurvey() {
       return;
     }
 
-    const normalized = normalizeSearchQuery(check.query);
-    // Read the abort ref, not `loading` — the state closure is a render behind
-    // on rapid submits and would let the duplicate through.
-    if (abortRef.current && inFlightQueryRef.current === normalized) return;
+    // useSearchRequest owns cancellation: it drops duplicate submits for the
+    // same key, aborts the previous run, and hands each run an isCurrent()
+    // so a superseded run cannot write over the run that replaced it.
+    await runSearch(normalizeSearchQuery(check.query), async ({ signal, isCurrent }) => {
+      setQuery(check.query);
+      setLoading(true);
+      if (newSearch) setPapers([]);
+      setVisibleCount(15);
+      setSaveStatus('');
+      setSearchError('');
+      setHasSearched(true);
+      setLastQuery(check.query);
+      setFilterYear('All');
+      setFilterSource('All');
+      setServerHasMore(false);
+      setFetchedLimit(INITIAL_LIMIT);
+      setMatchedQuery('');
 
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-    inFlightQueryRef.current = normalized;
-    // Only the run that still owns abortRef may touch shared UI state; a run
-    // superseded by a newer search, or cancelled via stopSearch, stays silent.
-    const isCurrent = () => abortRef.current === controller;
-
-    setQuery(check.query);
-    setLoading(true);
-    if (newSearch) setPapers([]);
-    setVisibleCount(15);
-    setSaveStatus('');
-    setSearchError('');
-    setHasSearched(true);
-    setLastQuery(check.query);
-    setFilterYear('All');
-    setFilterSource('All');
-    setServerHasMore(false);
-    setFetchedLimit(INITIAL_LIMIT);
-
-    try {
-      const res = await authFetch(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature?query=${encodeURIComponent(check.query)}&limit=${INITIAL_LIMIT}`,
-        { signal: controller.signal }
-      );
-      if (!isCurrent()) return;
-      if (res.status === 429 || res.status === 503) {
-        setSearchError('Rate limit exceeded. Please wait a minute before trying again.');
+      try {
+        const res = await authFetch(
+          `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature?query=${encodeURIComponent(check.query)}&limit=${INITIAL_LIMIT}${fresh ? '&fresh=true' : ''}`,
+          { signal }
+        );
+        if (!isCurrent()) return;
+        if (res.status === 429 || res.status === 503) {
+          setSearchError('Rate limit exceeded. Please wait a minute before trying again.');
+          setPapers([]);
+          return;
+        }
+        if (!res.ok) {
+          setSearchError('Failed to fetch literature. Please try again.');
+          setPapers([]);
+          return;
+        }
+        const data = await res.json();
+        if (!isCurrent()) return;
+        if (data.coherence_check === 'failed') {
+          // Server-side guardrail rejected the query. Say so rather than
+          // showing an empty result set, which reads as "nothing published".
+          setSearchError(`"${check.query}" doesn't look like a research topic. Try a specific field or subject area.`);
+          setPapers([]);
+          setServerHasMore(false);
+          return;
+        }
+        setPapers(data.data || []);
+        setServerHasMore(Boolean(data.has_more));
+        setFetchedLimit(data.limit || INITIAL_LIMIT);
+        // Non-null only when the server answered from a *different* query's
+        // cached result. Surfacing it is mandatory — see services/semantic_cache.py.
+        setMatchedQuery(data.matched_query || '');
+      } catch (e) {
+        // Superseded/cancelled runs report nothing — whoever aborted them owns
+        // the UI now. Without this, an aborted run's error and loading reset
+        // landed on top of the search that replaced it.
+        if (!isCurrent()) return;
+        if (isAbortError(e)) return;
+        console.error(e);
+        setSearchError('Network error. Please try again.');
         setPapers([]);
-        return;
+      } finally {
+        if (isCurrent()) setLoading(false);
       }
-      if (!res.ok) {
-        setSearchError('Failed to fetch literature. Please try again.');
-        setPapers([]);
-        return;
-      }
-      const data = await res.json();
-      if (!isCurrent()) return;
-      setPapers(data.data || []);
-      setServerHasMore(Boolean(data.has_more));
-      setFetchedLimit(data.limit || INITIAL_LIMIT);
-    } catch (e) {
-      // Superseded/cancelled runs report nothing — whoever aborted them owns
-      // the UI now. Without this, an aborted run's error and loading reset
-      // landed on top of the search that replaced it.
-      if (!isCurrent()) return;
-      if (isAbortError(e)) return;
-      console.error(e);
-      setSearchError('Network error. Please try again.');
-      setPapers([]);
-    } finally {
-      if (isCurrent()) {
-        abortRef.current = null;
-        inFlightQueryRef.current = '';
-        setLoading(false);
-      }
-    }
+    });
   };
 
   // Auto-run search when navigated here from Dashboard with a query in state.
@@ -220,7 +216,16 @@ export default function LiteratureSurvey() {
         return;
       }
       const data = await res.json();
-      setPapers(data.data || []);
+      // Append what is new instead of replacing the list. Replacing threw away
+      // the rendered rows and remounted every card, which reset scroll
+      // position mid-read; it also briefly emptied `papers` if the wider
+      // request came back with a shorter relevant set.
+      const incoming = data.data || [];
+      setPapers(prev => {
+        const seen = new Set(prev.map(paperKey));
+        const fresh = incoming.filter(p => !seen.has(paperKey(p)));
+        return fresh.length ? [...prev, ...fresh] : prev;
+      });
       setServerHasMore(Boolean(data.has_more));
       setFetchedLimit(data.limit || nextLimit);
       setVisibleCount(prev => prev + PAGE_SIZE);
@@ -415,6 +420,24 @@ export default function LiteratureSurvey() {
           <span className="lit-search-alert-text"><X size={15} /> {searchError}</span>
           <button type="button" className="lit-search-alert-dismiss" onClick={() => setSearchError('')} aria-label="Dismiss">
             Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* The server answered with a semantically similar query's results.
+          Never render these papers without this banner — the user must be able
+          to see the substitution and reject it. */}
+      {matchedQuery && !loading && (
+        <div className="lit-matched-query" role="status">
+          <span className="lit-matched-query-text">
+            Showing results for <strong>{matchedQuery}</strong>
+          </span>
+          <button
+            type="button"
+            className="lit-matched-query-action"
+            onClick={() => search(lastQuery, true, true)}
+          >
+            Search instead for “{lastQuery}” <ChevronRight size={13} />
           </button>
         </div>
       )}

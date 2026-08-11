@@ -36,6 +36,9 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.warning("Could not load admin source toggles on startup", exc_info=True)
     yield
+    # Return the shared search connection pool cleanly on shutdown.
+    from integrations.http_client import aclose as close_http_pool
+    await close_http_pool()
 
 app = FastAPI(title="AI-Powered Research Paper Publishing Agent", lifespan=lifespan, debug=False)
 

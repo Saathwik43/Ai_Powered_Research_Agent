@@ -361,13 +361,15 @@ class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
         If ALL sources time out (done is empty), search_all() returns the stale
         cache entry rather than an empty list.
 
-        Cache key format is "{query}_{limit}", so we must pre-populate with the
-        exact key that search_all("cached_query", limit=5) will produce.
+        The cache key is built from the *canonical* query (see
+        core/query_key.py), so it is derived here the same way search_all()
+        derives it rather than hardcoded.
         """
         import integrations.paper_search as ps_module
+        from core.query_key import canonical_key
 
         # Pre-populate with the EXACT key search_all() will compute.
-        cache_key = "cached_query_5_False_False_all"
+        cache_key = f"{canonical_key('cached_query')}_5_False_False_all"
         stale_papers = [
             {"id": "cached-001", "title": "Stale Cached Paper", "source": "OpenAlex"}
         ]

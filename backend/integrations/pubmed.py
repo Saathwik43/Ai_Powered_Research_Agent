@@ -32,6 +32,7 @@ import os
 import time
 import logging
 import httpx
+from integrations.http_client import pooled_client
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -59,7 +60,7 @@ def _base_params() -> dict:
     return params
 
 
-async def _esearch(client: httpx.AsyncClient, query: str, limit: int) -> list[str]:
+async def _esearch(client: "BoundClient", query: str, limit: int) -> list[str]:
     """
     Call esearch.fcgi and return a list of PMIDs (strings).
 
@@ -82,7 +83,7 @@ async def _esearch(client: httpx.AsyncClient, query: str, limit: int) -> list[st
         return []
 
 
-async def _esummary(client: httpx.AsyncClient, pmids: list[str]) -> list[dict]:
+async def _esummary(client: "BoundClient", pmids: list[str]) -> list[dict]:
     """
     Call esummary.fcgi for the given PMIDs and return normalised paper dicts.
 
@@ -154,7 +155,7 @@ async def _esummary(client: httpx.AsyncClient, pmids: list[str]) -> list[dict]:
     return papers
 
 
-async def _efetch_abstracts(client: httpx.AsyncClient, pmids: list[str]) -> dict[str, str]:
+async def _efetch_abstracts(client: "BoundClient", pmids: list[str]) -> dict[str, str]:
     """Best-effort abstract fetch. Returns {} on any failure so esummary still stands."""
     import xml.etree.ElementTree as ET
 
@@ -204,7 +205,7 @@ async def search_papers(query: str, limit: int = 8) -> list[dict]:
     async with track_call("PubMed / NCBI", "search") as rec:
         # ── Call 1: esearch ──────────────────────────────────────────────────
         try:
-            async with httpx.AsyncClient(timeout=_CALL_TIMEOUT) as client:
+            async with pooled_client(timeout=_CALL_TIMEOUT) as client:
                 pmids = await _esearch(client, query.strip(), limit)
         except Exception as exc:
             rec.fail(error=str(exc))
@@ -228,7 +229,7 @@ async def search_papers(query: str, limit: int = 8) -> list[dict]:
 
         # ── Call 2: esummary ─────────────────────────────────────────────────
         try:
-            async with httpx.AsyncClient(timeout=_CALL_TIMEOUT) as client:
+            async with pooled_client(timeout=_CALL_TIMEOUT) as client:
                 papers = await _esummary(client, pmids)
                 abstracts = await _efetch_abstracts(client, pmids)
         except Exception as exc:

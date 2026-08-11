@@ -1,7 +1,10 @@
 import asyncio
+import hashlib
 import math
+import re
 import time
 import logging
+from dataclasses import dataclass
 from datetime import datetime
 from integrations.openalex import search_papers as openalex_search
 from integrations.arxiv import search_papers as arxiv_search
@@ -14,10 +17,18 @@ from integrations.core_api import search_papers as core_search
 from integrations.base_search import search_papers as base_search
 from integrations.europepmc import search_papers as europepmc_search
 from integrations.doaj import search_papers as doaj_search
+from core.query_key import canonical_key
+from core.ttl_cache import TTLCache
+from services import semantic_cache
 
 logger = logging.getLogger(__name__)
-_cache = {}
-_embedding_cache = {}
+# Bounded so a long-lived process cannot accumulate results and 3072-float
+# embedding vectors forever. The TTL here is a *retention* ceiling; the
+# freshness checks at the call sites are shorter and still authoritative —
+# search results stay readable past 600s specifically so a total source outage
+# can fall back to a stale entry rather than returning nothing.
+_cache = TTLCache(maxsize=500, ttl=1800)
+_embedding_cache = TTLCache(maxsize=5000, ttl=900)
 _inflight: dict = {}
 
 # limit_per_source is part of the search cache key, so every caller that wants
@@ -28,7 +39,10 @@ SHARED_LIMIT_PER_SOURCE = 20
 # How many top-ranked papers get a semantic embedding for reranking.
 RERANK_WINDOW = 30
 
-_CURRENT_YEAR = datetime.now().year
+def _current_year() -> int:
+    """Read the year per call — a module constant goes stale on New Year in a
+    long-running process and silently skews every recency score after that."""
+    return datetime.now().year
 
 def _cosine_sim(a: list[float], b: list[float]) -> float:
     dot = sum(x*y for x, y in zip(a, b))
@@ -40,6 +54,11 @@ def _paper_embedding_text(paper: dict) -> str:
     title = paper.get("title") or ""
     abstract = (paper.get("abstract") or "")[:500]
     return f"{title}. {abstract}"
+
+
+def _embedding_cache_key(text: str) -> str:
+    """Stable content digest — survives restarts and is safe to share."""
+    return hashlib.blake2b(text.encode("utf-8"), digest_size=16).hexdigest()
 
 
 async def _embed_papers_cached(papers: list) -> list:
@@ -54,7 +73,10 @@ async def _embed_papers_cached(papers: list) -> list:
     from ai.llm_provider import get_embeddings_batch
 
     now = time.time()
-    keys = [hash(_paper_embedding_text(p)) for p in papers]
+    # Content digest, not hash(): str.__hash__ is salted per process, so the
+    # same text keys differently after a restart and the cache can never be
+    # shared across workers or persisted.
+    keys = [_embedding_cache_key(_paper_embedding_text(p)) for p in papers]
     embeddings: list = [None] * len(papers)
     misses: list[int] = []
 
@@ -76,9 +98,137 @@ async def _embed_papers_cached(papers: list) -> list:
 
 
 def _normalize_title(title: str) -> str:
-    """Lowercase, strip punctuation for dedup comparison."""
-    import re
-    return re.sub(r"[^a-z0-9 ]", "", title.lower()).strip()
+    """
+    Lowercase, fold every punctuation run to a single space, collapse
+    whitespace.
+
+    Folding to a space rather than deleting matters: deleting turned
+    "deep-learning" into "deeplearning" while "deep — learning" became
+    "deep  learning" (two spaces), so the same title from two sources produced
+    two different keys and both copies survived dedup.
+    """
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", (title or "").lower()).split())
+
+
+# arXiv identity appears as an abs/pdf URL, a bare "arXiv:2301.00001" string,
+# or a DataCite DOI ("10.48550/arXiv.2301.00001"). All three name one paper.
+_ARXIV_URL_RE = re.compile(r"arxiv\.org/(?:abs|pdf)/(?P<id>[^\s?#]+)", re.I)
+_ARXIV_TOKEN_RE = re.compile(
+    r"arxiv[:.\-/\s]\s*(?P<id>\d{4}\.\d{4,5}|[a-z\-]+(?:\.[a-z]{2})?/\d{7})", re.I
+)
+_ARXIV_VERSION_RE = re.compile(r"v\d+$", re.I)
+
+# Placeholder values integrations emit when a field is unavailable. Treated as
+# absent when merging duplicates so a real value always wins.
+_PLACEHOLDERS = {
+    "", "unknown", "unknown authors", "untitled",
+    "no abstract available", "no abstract available.",
+}
+
+
+def _normalize_arxiv_id(paper: dict) -> str:
+    """arXiv identifier for *paper*, version suffix stripped, or ''."""
+    for field in ("arxiv_id", "id", "url", "pdf_url", "doi"):
+        value = paper.get(field)
+        if not isinstance(value, str) or not value:
+            continue
+        for pattern in (_ARXIV_URL_RE, _ARXIV_TOKEN_RE):
+            match = pattern.search(value)
+            if not match:
+                continue
+            arxiv_id = match.group("id").strip().lower().removesuffix(".pdf")
+            arxiv_id = _ARXIV_VERSION_RE.sub("", arxiv_id)
+            if arxiv_id:
+                return arxiv_id
+    return ""
+
+
+def _paper_doi(paper: dict) -> str:
+    """Normalized DOI from the doi field, the id field, or a doi.org URL."""
+    for candidate in (paper.get("doi"), paper.get("id")):
+        normalized = _normalize_doi(candidate or "")
+        if normalized:
+            return normalized
+    url = paper.get("url") or ""
+    return _normalize_doi(url) if "doi.org/" in url else ""
+
+
+def _identity_keys(paper: dict) -> list[str]:
+    """
+    Every identifier under which *paper* should be recognised as already seen.
+
+    A paper matches an existing one if they share **any** key, which is what
+    merges an arXiv preprint with its published version: the preprint carries
+    the arXiv id, the published record carries the DOI, and both carry the
+    title.
+    """
+    keys = []
+
+    doi = _paper_doi(paper)
+    if doi:
+        keys.append(f"doi:{doi}")
+
+    arxiv_id = _normalize_arxiv_id(paper)
+    if arxiv_id:
+        keys.append(f"arxiv:{arxiv_id}")
+
+    title = _normalize_title(paper.get("title") or "")
+    if title:
+        # Full title, never a 60-char prefix — truncation collapsed
+        # "…Segmentation Part I" and "…Part II" into one paper. Short titles
+        # ("Editorial", "Corrigendum") are too generic to stand alone, so they
+        # are qualified by year.
+        if len(title) >= 10:
+            keys.append(f"title:{title}")
+        else:
+            year = str(paper.get("year") or "").strip()
+            keys.append(f"title:{title}|{year}")
+
+    return keys
+
+
+def _is_present(value) -> bool:
+    """True when *value* carries real information rather than a placeholder."""
+    if value is None or value == [] or value == {}:
+        return False
+    if isinstance(value, str):
+        return value.strip().lower() not in _PLACEHOLDERS
+    return True
+
+
+def _citation_count(paper: dict) -> int:
+    try:
+        return int(paper.get("citations") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _merge_into(kept: dict, other: dict) -> None:
+    """
+    Fold *other* into *kept* in place, keeping *kept*'s position in the result.
+
+    The more-cited record wins field conflicts — it is almost always the
+    published version, which carries better metadata than the preprint. The
+    loser still fills in anything the winner is missing (typically the
+    preprint's free ``pdf_url``), so merging strictly adds information.
+    """
+    kept_citations = _citation_count(kept)
+    other_citations = _citation_count(other)
+    authoritative, secondary = (other, kept) if other_citations > kept_citations else (kept, other)
+
+    merged = {}
+    for source in (secondary, authoritative):
+        for key, value in source.items():
+            if _is_present(value):
+                merged[key] = value
+    # Preserve any private ranking fields already attached to kept.
+    for key, value in kept.items():
+        if key.startswith("_"):
+            merged[key] = value
+    merged["citations"] = max(kept_citations, other_citations)
+
+    kept.clear()
+    kept.update(merged)
 
 
 def _normalize_doi(doi: str) -> str:
@@ -100,42 +250,40 @@ def _normalize_doi(doi: str) -> str:
 
 
 def _deduplicate(papers: list) -> list:
-    """Remove duplicate papers by DOI, falling back to normalized title similarity."""
-    seen_dois = set()
-    seen_titles = set()
-    unique = []
-    
+    """
+    Collapse records that describe the same paper, merging their metadata.
+
+    Identity is DOI, arXiv id, or normalized title — sharing *any* of the three
+    is a match. Duplicates are merged rather than discarded, so the surviving
+    record is the union of what every source knew about the paper.
+
+    A record with no usable identifier at all (no DOI, no arXiv id, no title)
+    is dropped: it cannot be deduplicated, cited, or opened.
+    """
+    unique: list = []
+    index_by_key: dict[str, int] = {}
+
     for paper in papers:
-        doi = paper.get("doi") or ""
-        if not _normalize_doi(doi):
-            doi = paper.get("id") or ""
-        if not _normalize_doi(doi):
-            url = paper.get("url") or ""
-            doi = url if "doi.org/" in url else ""
-        norm_doi = _normalize_doi(doi)
-        
-        # If we have a valid DOI, try deduplicating by DOI
-        if norm_doi:
-            if norm_doi in seen_dois:
-                continue
-        
-        # Fall back to title deduplication if no DOI or it's a new DOI
-        title = paper.get("title", "")
-        norm_title = _normalize_title(title)[:60]
-        
-        if not norm_title or norm_title in seen_titles:
-            # If title is empty or already seen, we consider it a duplicate (even if DOI is new, to be safe)
-            if not norm_doi: # Only skip if there's also no DOI to match on
-                continue
-            elif norm_title in seen_titles:
-                continue
-                
-        # Unique paper
-        seen_titles.add(norm_title)
-        if norm_doi:
-            seen_dois.add(norm_doi)
-        unique.append(paper)
-        
+        keys = _identity_keys(paper)
+        if not keys:
+            continue
+
+        hit = next((index_by_key[k] for k in keys if k in index_by_key), None)
+        if hit is None:
+            unique.append(paper)
+            position = len(unique) - 1
+        else:
+            _merge_into(unique[hit], paper)
+            position = hit
+            # The merge can add identifiers (e.g. the preprint contributed an
+            # arXiv id), so re-register to catch a third copy arriving later.
+            keys = _identity_keys(unique[hit])
+
+        for key in keys:
+            # setdefault, not assignment: the first record to claim a key keeps
+            # it, so a merge can never steal another paper's identity.
+            index_by_key.setdefault(key, position)
+
     return unique
 
 
@@ -204,7 +352,7 @@ def _compute_score(query: str, paper: dict) -> float:
     # 4. Recency bonus — linear decay over 10 years (20% weight)
     year = paper.get("year", "")
     try:
-        recency = max(0.0, 1.0 - (_CURRENT_YEAR - int(year)) / 10.0) if str(year).isdigit() else 0.3
+        recency = max(0.0, 1.0 - (_current_year() - int(year)) / 10.0) if str(year).isdigit() else 0.3
     except (ValueError, TypeError):
         recency = 0.3
         
@@ -244,6 +392,21 @@ def _apply_diversity_quota(papers: list) -> list:
     return diverse + deferred
 
 
+@dataclass(frozen=True)
+class SearchMeta:
+    """
+    How a result was obtained.
+
+    ``matched_query`` is set only when the semantic cache answered with a
+    *different* query's results. Callers must surface it — see
+    services/semantic_cache.py on why silent substitution is not acceptable.
+    """
+
+    cache: str  # "miss" | "exact" | "semantic"
+    matched_query: str | None = None
+    similarity: float | None = None
+
+
 async def search_all(
     query: str,
     limit_per_source: int = 15,
@@ -252,14 +415,43 @@ async def search_all(
     source_timeout: float = 20.0,
     oa_timeout: float = 8.0,
     exclude_sources: set = None,
+    allow_semantic_cache: bool = True,
 ) -> list:
+    """
+    Query all configured integrations in parallel and return ranked papers.
+
+    Thin wrapper over search_all_with_meta() for callers that do not need to
+    know how the result was obtained.
+    """
+    papers, _meta = await search_all_with_meta(
+        query, limit_per_source, diversify, semantic_rerank,
+        source_timeout, oa_timeout, exclude_sources, allow_semantic_cache,
+    )
+    return papers
+
+
+async def search_all_with_meta(
+    query: str,
+    limit_per_source: int = 15,
+    diversify: bool = False,
+    semantic_rerank: bool = True,
+    source_timeout: float = 20.0,
+    oa_timeout: float = 8.0,
+    exclude_sources: set = None,
+    allow_semantic_cache: bool = True,
+) -> tuple[list, SearchMeta]:
     """
     Query all configured integrations in parallel using asyncio.
     Aggregates, deduplicates, and ranks results.
 
+    Resolution order: exact canonical cache → semantic cache → real fan-out.
+
     exclude_sources: optional set of source names to skip entirely (e.g.
     {"BASE", "DOAJ"} for topic-discovery, where grey-lit/broad-OA noise
     hurts more than raw coverage helps).
+
+    allow_semantic_cache: set False to force a real search for this query —
+    what the UI's "search instead for X" escape hatch sends.
     """
     exclude_sources = set(exclude_sources or set())
     try:
@@ -267,29 +459,131 @@ async def search_all(
         exclude_sources |= get_disabled_search_tasks()
     except Exception:
         pass
-    cache_key = f"{query}_{limit_per_source}_{diversify}_{semantic_rerank}_all"
+    # Canonical identity, not the raw string: "Machine Learning", "machine
+    # learning" and a Title-Cased topic label from the Dashboard are one entry
+    # and one fan-out. The raw *query* still goes to the sources and to
+    # _rank_papers below — only the cache key is canonicalised.
+    bucket_key = f"{limit_per_source}_{diversify}_{semantic_rerank}"
     if exclude_sources:
-        cache_key += f"_{sorted(exclude_sources)}"
+        bucket_key += f"_{sorted(exclude_sources)}"
+    cache_key = f"{canonical_key(query)}_{bucket_key}_all"
     now = time.time()
     if cache_key in _cache:
         cached_data, timestamp = _cache[cache_key]
         if now - timestamp < 600:  # 10 minutes TTL
             logger.info(f"Returning cached literature results for {query}")
-            return cached_data
+            return cached_data, SearchMeta(cache="exact")
 
     # Single-flight. The Dashboard fires /api/topics and /api/literature in
     # parallel, so both miss the still-empty cache and would each fan out to
     # every source. Identical concurrent searches share one execution instead.
     # Shielded so a disconnecting client cannot cancel a search others await.
-    task = _inflight.get(cache_key)
+    #
+    # This must cover the ENTIRE resolve path, embedding lookup included.
+    # Awaiting anything between the cache check and this registration lets two
+    # concurrent identical searches both observe an empty _inflight and both
+    # fan out — which is exactly what happened when the semantic-cache lookup
+    # was awaited above this point.
+    inflight_key = f"{cache_key}|semantic={allow_semantic_cache}"
+    task = _inflight.get(inflight_key)
     if task is None:
-        task = asyncio.ensure_future(_execute_search(
+        task = asyncio.ensure_future(_resolve_search(
             query, limit_per_source, diversify, semantic_rerank,
             source_timeout, oa_timeout, exclude_sources, cache_key,
+            bucket_key, allow_semantic_cache,
         ))
-        _inflight[cache_key] = task
-        task.add_done_callback(lambda t, k=cache_key: _inflight.pop(k, None))
+        _inflight[inflight_key] = task
+        task.add_done_callback(lambda t, k=inflight_key: _inflight.pop(k, None))
     return await asyncio.shield(task)
+
+
+async def _resolve_search(
+    query: str,
+    limit_per_source: int,
+    diversify: bool,
+    semantic_rerank: bool,
+    source_timeout: float,
+    oa_timeout: float,
+    exclude_sources: set,
+    cache_key: str,
+    bucket_key: str,
+    allow_semantic_cache: bool,
+) -> tuple[list, SearchMeta]:
+    """Semantic-cache lookup, then the real fan-out. Runs under single-flight."""
+    # The query embedding is needed by the rerank step anyway, so fetching it
+    # here costs nothing on a true miss — it is handed to _execute_search
+    # rather than fetched twice.
+    query_embedding = await _query_embedding(query) if semantic_rerank else None
+
+    if allow_semantic_cache and query_embedding:
+        hit = semantic_cache.lookup(bucket_key, cache_key, query_embedding)
+        if hit is not None:
+            papers = hit.papers
+            if hit.needs_rerank:
+                # Below the verbatim threshold the stored *ordering* is not
+                # trusted, only the candidate pool. Re-ranking against this
+                # query costs no network call: paper embeddings are already
+                # cached by content digest.
+                papers = await _rank_and_rerank(query, papers, query_embedding)
+            return papers, SearchMeta(
+                cache="semantic",
+                matched_query=hit.matched_query,
+                similarity=round(hit.similarity, 4),
+            )
+
+    papers = await _execute_search(
+        query, limit_per_source, diversify, semantic_rerank,
+        source_timeout, oa_timeout, exclude_sources, cache_key,
+        bucket_key, query_embedding,
+    )
+    return papers, SearchMeta(cache="miss")
+
+
+async def _query_embedding(query: str) -> list | None:
+    """Embedding for *query*, or None when embeddings are unavailable."""
+    try:
+        from ai.llm_provider import get_embedding
+        return await get_embedding(query, task_type="RETRIEVAL_QUERY")
+    except Exception as e:
+        logger.warning(f"Query embedding failed, semantic cache disabled for this search: {e}")
+        return None
+
+
+async def _rank_and_rerank(query: str, papers: list, query_embedding: list | None) -> list:
+    """
+    Lexical rank, then blend in semantic similarity over the rerank window.
+
+    Shared by the fan-out path and the semantic cache's rerank tier so both
+    produce identically-scored orderings.
+    """
+    papers = _rank_papers(query, papers)
+
+    if not query_embedding:
+        return papers
+
+    try:
+        top_candidates = papers[:RERANK_WINDOW]
+        paper_embs = await _embed_papers_cached(top_candidates)
+
+        # Every paper is scored on the SAME scale: 0.6 lexical + 0.4 semantic,
+        # with semantic = 0 wherever it is unknown (outside the rerank window,
+        # or embedding unavailable).
+        #
+        # Leaving unscored papers on raw lexical inverted the ranking at the
+        # window boundary: paper 31 at lexical 0.70 beat paper 5 whose blend
+        # was 0.6*0.70 + 0.4*0.50 = 0.62, purely because it was never reranked.
+        for p, p_emb in zip(top_candidates, paper_embs):
+            semantic_score = _cosine_sim(query_embedding, p_emb) if isinstance(p_emb, list) and p_emb else 0.0
+            p["_semantic_rank"] = (0.6 * p.get("_relevance_rank", 0.0)) + (0.4 * semantic_score)
+
+        for p in papers[RERANK_WINDOW:]:
+            p["_semantic_rank"] = 0.6 * p.get("_relevance_rank", 0.0)
+
+        papers.sort(key=lambda p: p.get("_semantic_rank", 0.0), reverse=True)
+    except Exception as e:
+        logger.warning(f"Semantic reranking failed, falling back to lexical: {e}")
+
+    return papers
 
 
 async def _execute_search(
@@ -301,8 +595,10 @@ async def _execute_search(
     oa_timeout: float,
     exclude_sources: set,
     cache_key: str,
+    bucket_key: str = "",
+    query_embedding: list | None = None,
 ) -> list:
-    """The actual fan-out. Always reached through search_all()."""
+    """The actual fan-out. Always reached through search_all_with_meta()."""
     now = time.time()
 
     def _task(name, coro):
@@ -414,32 +710,12 @@ async def _execute_search(
     # Deduplicate
     unique = _deduplicate(merged)
 
-    # Rank by combined lexical relevance score instead of source order
-    unique = _rank_papers(query, unique)
-    
-    if semantic_rerank:
-        try:
-            from ai.llm_provider import get_embedding
-            query_emb = await get_embedding(query, task_type="RETRIEVAL_QUERY")
-            if query_emb:
-                # One request for the query, one for the whole rerank window.
-                top_candidates = unique[:RERANK_WINDOW]
-                paper_embs = await _embed_papers_cached(top_candidates)
-
-                for p, p_emb in zip(top_candidates, paper_embs):
-                    if isinstance(p_emb, list) and p_emb:
-                        semantic_score = _cosine_sim(query_emb, p_emb)
-                        # Blended score: 0.6 lexical + 0.4 semantic
-                        p["_semantic_rank"] = (0.6 * p.get("_relevance_rank", 0.0)) + (0.4 * semantic_score)
-                    else:
-                        p["_semantic_rank"] = p.get("_relevance_rank", 0.0)
-
-                for p in unique[RERANK_WINDOW:]:
-                    p["_semantic_rank"] = p.get("_relevance_rank", 0.0)
-
-                unique.sort(key=lambda p: p.get("_semantic_rank", 0.0), reverse=True)
-        except Exception as e:
-            logger.warning(f"Semantic reranking failed, falling back to lexical: {e}")
+    # Rank by combined relevance score instead of source order. The query
+    # embedding was already fetched by the caller for the semantic-cache
+    # lookup, so this reuses it rather than paying for a second request.
+    if semantic_rerank and query_embedding is None:
+        query_embedding = await _query_embedding(query)
+    unique = await _rank_and_rerank(query, unique, query_embedding if semantic_rerank else None)
 
     if diversify:
         unique = _apply_diversity_quota(unique)
@@ -457,4 +733,7 @@ async def _execute_search(
         logging.getLogger(__name__).warning(f"Unpaywall enrichment failed (non-fatal): {e}")
 
     _cache[cache_key] = (unique, now)
+    # Remember the meaning of this query too, so a paraphrase can reuse it.
+    if query_embedding:
+        semantic_cache.store(bucket_key, cache_key, query_embedding, query, unique)
     return unique

@@ -20,6 +20,8 @@ The generate_completion call happens *inside* ai/relevance.py, so the correct
 patch target for the classifier is `ai.relevance.generate_completion`.
 """
 
+import math
+import re
 import unittest
 from unittest.mock import patch, AsyncMock
 import integrations.paper_search as _ps_module  # for cache clearing
@@ -87,19 +89,51 @@ for _t in IRRELEVANT_TITLES:
 assert len(FERROELECTRIC_FIXTURE) == 16
 
 
-def _mock_classifier(system_prompt, user_prompt, max_tokens=5, temperature=0.0):
-    """Return 'no' for cross-domain irrelevant papers, 'yes' for all others."""
+_BATCH_ENTRY_RE = re.compile(r"^(\d+)\. Title: (.*?)(?=^\d+\. Title: |\Z)", re.MULTILINE | re.DOTALL)
+
+
+def _mock_classifier(system_prompt, user_prompt, max_tokens=5, temperature=0.0, **kwargs):
+    """
+    Return 'no' for cross-domain irrelevant papers, 'yes' for all others.
+
+    **kwargs absorbs provider_override, which _classify_relevance passes to pin
+    the classifier to Groq. Without it the mock raises TypeError, the filter
+    fails open, and every paper is returned — the test then fails for a reason
+    that has nothing to do with relevance.
+    """
     irrelevant_kws = [
         "gravitational wave", "ligo", "dark matter", "lux-zeplin",
         "higgs boson", "lhc", "collider",
     ]
-    prompt_lower = user_prompt.lower()
-    if any(kw in prompt_lower for kw in irrelevant_kws):
-        return "no"
-    return "yes"
+
+    def _verdict(text):
+        return "no" if any(kw in text.lower() for kw in irrelevant_kws) else "yes"
+
+    # The classifier judges a numbered page of papers per call. Answer in the
+    # same shape so the batch path is what the test actually exercises; a
+    # single-word reply would fail to parse and silently fall back to
+    # per-paper calls, testing the fallback instead of the feature.
+    entries = _BATCH_ENTRY_RE.findall(user_prompt)
+    if entries:
+        return "\n".join(f"{number}: {_verdict(body)}" for number, body in entries)
+
+    return _verdict(user_prompt)
 
 
 import ai.relevance as _relevance_module
+from ai.relevance import BATCH_SIZE
+from integrations.paper_search import SearchMeta
+
+def _searched(papers):
+    """
+    Return value for a patched routers.discovery.search_all_with_meta.
+
+    The endpoint calls search_all_with_meta (it needs the semantic-cache
+    disclosure), so that is the name tests must patch. Patching plain
+    search_all silently stops intercepting and the test hits the network.
+    """
+    return (papers, SearchMeta(cache="miss"))
+
 
 def _clear_search_cache():
     """Clear the 10-minute search_all and relevance caches between tests to prevent stale data."""
@@ -120,14 +154,14 @@ class TestLiteratureEndpointRelevanceFilter(unittest.IsolatedAsyncioTestCase):
     # Correct patch targets:
     #   routers.discovery.search_all — bound name in routers/discovery.py (from ... import search_all)
     #   ai.relevance.generate_completion — called inside _filter_relevant_papers
-    @patch("routers.discovery.search_all", new_callable=AsyncMock)
+    @patch("routers.discovery.search_all_with_meta", new_callable=AsyncMock)
     @patch("ai.relevance.generate_completion", new_callable=AsyncMock)
     def test_returns_13_relevant_papers(self, mock_gen, mock_search):
         """
         With 16-paper fixture: 13 relevant + 3 cross-domain irrelevant.
         Endpoint must return exactly 13 papers.
         """
-        mock_search.return_value = FERROELECTRIC_FIXTURE
+        mock_search.return_value = _searched(FERROELECTRIC_FIXTURE)
         mock_gen.side_effect = _mock_classifier
 
         resp = client.get(
@@ -143,14 +177,14 @@ class TestLiteratureEndpointRelevanceFilter(unittest.IsolatedAsyncioTestCase):
             f"Titles returned: {[p['title'] for p in data['data']]}",
         )
 
-    @patch("routers.discovery.search_all", new_callable=AsyncMock)
+    @patch("routers.discovery.search_all_with_meta", new_callable=AsyncMock)
     @patch("ai.relevance.generate_completion", new_callable=AsyncMock)
     def test_excluded_papers_are_the_three_cross_domain(self, mock_gen, mock_search):
         """
         The exact 3 excluded titles must match the cross-domain irrelevant ones —
         not just 'some 3' but these specific ones by name.
         """
-        mock_search.return_value = FERROELECTRIC_FIXTURE
+        mock_search.return_value = _searched(FERROELECTRIC_FIXTURE)
         mock_gen.side_effect = _mock_classifier
 
         resp = client.get(
@@ -174,11 +208,11 @@ class TestLiteratureEndpointRelevanceFilter(unittest.IsolatedAsyncioTestCase):
                 f"Relevant paper was incorrectly excluded: '{relevant_title}'",
             )
 
-    @patch("routers.discovery.search_all", new_callable=AsyncMock)
+    @patch("routers.discovery.search_all_with_meta", new_callable=AsyncMock)
     @patch("ai.relevance.generate_completion", new_callable=AsyncMock)
     def test_response_shape_preserved(self, mock_gen, mock_search):
         """Response shape {'data': [...], 'count': N} must be unchanged."""
-        mock_search.return_value = FERROELECTRIC_FIXTURE
+        mock_search.return_value = _searched(FERROELECTRIC_FIXTURE)
         mock_gen.side_effect = _mock_classifier
 
         resp = client.get(
@@ -192,16 +226,18 @@ class TestLiteratureEndpointRelevanceFilter(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(body["data"], list)
         self.assertEqual(body["count"], len(body["data"]))
 
-    @patch("routers.discovery.search_all", new_callable=AsyncMock)
+    @patch("routers.discovery.search_all_with_meta", new_callable=AsyncMock)
     @patch("ai.relevance.generate_completion", new_callable=AsyncMock)
     def test_filter_uses_ai_relevance_not_manuscript_generation(self, mock_gen, mock_search):
         """
         Patch target MUST be ai.relevance.generate_completion — not
         ai.manuscript_generation.generate_completion.  If mock_gen.call_count
         is 0, either search_all returned [] or the wrong module was patched.
-        16 papers with no relevance_score each trigger one LLM call.
+
+        Papers are classified a page at a time, so 16 papers with no
+        relevance_score cost ceil(16 / BATCH_SIZE) calls, not 16.
         """
-        mock_search.return_value = FERROELECTRIC_FIXTURE
+        mock_search.return_value = _searched(FERROELECTRIC_FIXTURE)
         mock_gen.side_effect = _mock_classifier
 
         resp = client.get(
@@ -209,12 +245,15 @@ class TestLiteratureEndpointRelevanceFilter(unittest.IsolatedAsyncioTestCase):
             params={"query": "ferroelectric nematic liquid crystal electroviscosity", "limit": 16},
         )
         self.assertEqual(resp.status_code, 200)
-        # 16 papers, all missing relevance_score → 16 generate_completion calls
+        expected_calls = math.ceil(len(FERROELECTRIC_FIXTURE) / BATCH_SIZE)
         self.assertEqual(
             mock_gen.call_count,
-            16,
-            f"Expected 16 generate_completion calls (one per paper), got {mock_gen.call_count}. "
-            "If 0: either routers.discovery.search_all patch didn't fire or wrong generate_completion target.",
+            expected_calls,
+            f"Expected {expected_calls} batched generate_completion call(s) for "
+            f"{len(FERROELECTRIC_FIXTURE)} papers, got {mock_gen.call_count}. "
+            "If 0: the search patch didn't fire or the wrong generate_completion "
+            "target was patched. If 16: the batch reply failed to parse and the "
+            "per-paper fallback ran.",
         )
 
 
@@ -224,11 +263,11 @@ class TestLiteratureEndpointFailOpen(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         _clear_search_cache()
 
-    @patch("routers.discovery.search_all", new_callable=AsyncMock)
+    @patch("routers.discovery.search_all_with_meta", new_callable=AsyncMock)
     @patch("ai.relevance.generate_completion", new_callable=AsyncMock)
     def test_classifier_failure_returns_all_papers(self, mock_gen, mock_search):
         """When Groq is down, all papers pass through (fail-open)."""
-        mock_search.return_value = FERROELECTRIC_FIXTURE
+        mock_search.return_value = _searched(FERROELECTRIC_FIXTURE)
         mock_gen.side_effect = Exception("Groq rate limit")
 
         resp = client.get(

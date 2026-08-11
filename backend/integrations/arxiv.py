@@ -1,4 +1,6 @@
 import httpx
+from integrations.http_client import pooled_client
+from core.ttl_cache import TTLCache
 import xml.etree.ElementTree as ET
 import logging
 import os
@@ -111,7 +113,7 @@ async def search_papers(query: str, limit: int = 8) -> list:
     from services.api_telemetry import track_call
     async with track_call("arXiv", "search") as rec:
         try:
-            async with httpx.AsyncClient(timeout=15.0, headers=headers) as client:
+            async with pooled_client(headers=headers, timeout=15.0) as client:
                 resp = await client.get(ARXIV_SEARCH_URL, params=params)
                 resp.raise_for_status()
                 root = ET.fromstring(resp.text)
@@ -125,11 +127,22 @@ async def search_papers(query: str, limit: int = 8) -> list:
             return []
 
 
+_FEED_CACHE = TTLCache(maxsize=64, ttl=900)
+
+
 async def fetch_category_feed(category_code: str, limit: int = 10) -> list:
     """
     Fetch latest papers from an arXiv category.
     e.g. category_code = 'cs.AI'
+
+    Cached for 15 minutes. The Dashboard's left rail refetches on every click,
+    and arXiv category listings change on the order of hours — not per click.
     """
+    cache_key = f"{category_code}:{limit}"
+    cached = _FEED_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
     params = {
         "search_query": f"cat:{category_code}",
         "start": 0,
@@ -141,12 +154,17 @@ async def fetch_category_feed(category_code: str, limit: int = 10) -> list:
     headers = {"User-Agent": f"AI-Powered-Research-Agent/1.0 (contact: {email})" if email else "AI-Powered-Research-Agent/1.0"}
     
     try:
-        async with httpx.AsyncClient(timeout=15.0, headers=headers) as client:
+        async with pooled_client(headers=headers, timeout=15.0) as client:
             resp = await client.get(ARXIV_SEARCH_URL, params=params)
             resp.raise_for_status()
             root = ET.fromstring(resp.text)
             entries = root.findall("atom:entry", NS)
-            return [_parse_entry(e) for e in entries]
+            papers = [_parse_entry(e) for e in entries]
+            # Only cache a real result — an empty list from a transient error
+            # would otherwise stick for the full TTL.
+            if papers:
+                _FEED_CACHE[cache_key] = papers
+            return papers
     except Exception as e:
         logger.error(f"arXiv category feed error ({category_code}): {e}")
         return []
@@ -200,7 +218,7 @@ async def fetch_latex_source(arxiv_id: str) -> dict | None:
     back to GROBID/PDF extraction in that case."""
     url = f"https://arxiv.org/e-print/{arxiv_id}"
     try:
-        async with httpx.AsyncClient(timeout=20) as client:
+        async with pooled_client(timeout=20.0) as client:
             resp = await client.get(url)
             if resp.status_code != 200:
                 return None

@@ -1,3 +1,4 @@
+import os
 import unittest
 from unittest.mock import patch, AsyncMock, MagicMock
 import time
@@ -200,19 +201,52 @@ class TestManuscriptGeneration(unittest.IsolatedAsyncioTestCase):
 
 
 class TestProviderCascadeOrder(unittest.IsolatedAsyncioTestCase):
-    """Test the auto cascade ordering in llm_provider.py directly."""
+    """
+    Auto-mode cascade order.
+
+    generate_completion() builds its provider list at call time from the
+    environment: OpenAI -> Gemini -> Groq -> Cerebras -> Mistral -> HuggingFace,
+    each included only when its key is configured (Groq and HuggingFace are
+    always in the list). These tests set that environment explicitly.
+
+    Leaving availability to the ambient environment made the outcome depend on
+    which keys the developer happened to have exported, and made a "cascade"
+    test capable of issuing a real API call to an unpatched provider. It also
+    produced a pair of tests asserting opposite things about Gemini, one of
+    which had to fail on every run.
+    """
+
+    ONLY_GROQ = {"OPENAI_API_KEY": "", "GEMINI_API_KEY": "", "CEREBRAS_API_KEY": "", "MISTRAL_API_KEY": ""}
+    GEMINI_AND_GROQ = {**ONLY_GROQ, "GEMINI_API_KEY": "test-key"}
 
     @patch('ai.llm_provider.LLM_PROVIDER', 'auto')
     @patch('ai.llm_provider._generate_groq', new_callable=AsyncMock)
-    @patch('ai.llm_provider._generate_openrouter', new_callable=AsyncMock)
     @patch('ai.llm_provider._generate_huggingface', new_callable=AsyncMock)
     @patch('ai.llm_provider._generate_gemini', new_callable=AsyncMock)
-    async def test_auto_cascade_excludes_gemini(self, mock_gemini, mock_hf, mock_or, mock_groq):
-        """In auto mode, Gemini should NOT be tried. Only Groq → OpenRouter → HuggingFace."""
+    async def test_gemini_is_tried_before_groq_when_configured(self, mock_gemini, mock_hf, mock_groq):
+        """Quality-first ordering: a configured Gemini short-circuits the rest."""
+        from ai.llm_provider import generate_completion
+        mock_gemini.return_value = ("Gemini result", 100)
+
+        with patch.dict(os.environ, self.GEMINI_AND_GROQ):
+            result = await generate_completion("system", "user", max_tokens=100)
+
+        self.assertEqual(result, "Gemini result")
+        mock_gemini.assert_called()
+        mock_groq.assert_not_called()
+        mock_hf.assert_not_called()
+
+    @patch('ai.llm_provider.LLM_PROVIDER', 'auto')
+    @patch('ai.llm_provider._generate_groq', new_callable=AsyncMock)
+    @patch('ai.llm_provider._generate_huggingface', new_callable=AsyncMock)
+    @patch('ai.llm_provider._generate_gemini', new_callable=AsyncMock)
+    async def test_unconfigured_providers_are_skipped(self, mock_gemini, mock_hf, mock_groq):
+        """No GEMINI_API_KEY means Gemini is never in the list at all."""
         from ai.llm_provider import generate_completion
         mock_groq.return_value = ("Groq result", 100)
 
-        result = await generate_completion("system", "user", max_tokens=100)
+        with patch.dict(os.environ, self.ONLY_GROQ):
+            result = await generate_completion("system", "user", max_tokens=100)
 
         self.assertEqual(result, "Groq result")
         mock_groq.assert_called()
@@ -220,24 +254,33 @@ class TestProviderCascadeOrder(unittest.IsolatedAsyncioTestCase):
 
     @patch('ai.llm_provider.LLM_PROVIDER', 'auto')
     @patch('ai.llm_provider._generate_groq', new_callable=AsyncMock)
-    @patch('ai.llm_provider._generate_openrouter', new_callable=AsyncMock)
     @patch('ai.llm_provider._generate_huggingface', new_callable=AsyncMock)
     @patch('ai.llm_provider._generate_gemini', new_callable=AsyncMock)
-    async def test_auto_cascade_order_gemini_first(self, mock_gemini, mock_hf, mock_or, mock_groq):
-        """
-        In auto mode, Gemini (after OpenAI) is tried first for quality priority.
-        If Gemini succeeds, Groq/OpenRouter/HuggingFace should not be called.
-        """
+    async def test_failure_falls_through_to_the_next_provider(self, mock_gemini, mock_hf, mock_groq):
         from ai.llm_provider import generate_completion
-        mock_gemini.return_value = ("Gemini result", 100)
+        mock_gemini.side_effect = RuntimeError("Gemini is down")
+        mock_groq.return_value = ("Groq result", 100)
 
-        result = await generate_completion("system", "user", max_tokens=100)
+        with patch.dict(os.environ, self.GEMINI_AND_GROQ):
+            result = await generate_completion("system", "user", max_tokens=100)
 
-        self.assertEqual(result, "Gemini result")
+        self.assertEqual(result, "Groq result")
         mock_gemini.assert_called()
-        mock_groq.assert_not_called()
-        mock_or.assert_not_called()
-        mock_hf.assert_not_called()
+        mock_groq.assert_called()
+
+    @patch('ai.llm_provider.LLM_PROVIDER', 'auto')
+    @patch('ai.llm_provider._generate_groq', new_callable=AsyncMock)
+    @patch('ai.llm_provider._generate_huggingface', new_callable=AsyncMock)
+    @patch('ai.llm_provider._generate_gemini', new_callable=AsyncMock)
+    async def test_all_providers_failing_raises(self, mock_gemini, mock_hf, mock_groq):
+        from ai.llm_provider import generate_completion
+        mock_gemini.side_effect = RuntimeError("down")
+        mock_groq.side_effect = RuntimeError("down")
+        mock_hf.side_effect = RuntimeError("down")
+
+        with patch.dict(os.environ, self.GEMINI_AND_GROQ):
+            with self.assertRaises(RuntimeError):
+                await generate_completion("system", "user", max_tokens=100)
 
 
 if __name__ == '__main__':

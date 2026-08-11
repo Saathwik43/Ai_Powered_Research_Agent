@@ -11,15 +11,10 @@ import {
   normalizeSearchQuery,
   isAbortError,
 } from '../utils/searchHeuristics';
+import { useSearchRequest } from '../hooks/useSearchRequest';
 import './Dashboard.css';
 
-const SUGGESTIONS = [
-  'machine learning in healthcare', 'deep learning for NLP', 'computer vision',
-  'cybersecurity threat detection', 'quantum computing', 'federated learning',
-  'large language models', 'autonomous vehicles', 'reinforcement learning',
-  'explainable AI', 'edge computing', 'generative AI', 'drug discovery AI',
-  'natural language processing', 'neural architecture search', 'robotics',
-];
+
 
 const CATEGORIES = [
   { title: 'Artificial Intelligence', subtitle: 'LLMs, agents & reasoning', arxiv: 'cs.AI', query: 'artificial intelligence', Icon: Brain },
@@ -130,45 +125,56 @@ export default function Dashboard() {
 
   const debounce = useRef(null);
   const inputWrap = useRef(null);
-  const abortRef = useRef(null);
-  const catAbortRef = useRef(null);
-  const lastQueryRef = useRef('');
   const navigate = useNavigate();
+  // Two independent request slots: the topic/paper search and the arXiv
+  // category feed run concurrently and must cancel independently.
+  const { run: runDiscover, stop: stopDiscoverRequest } = useSearchRequest();
+  const { run: runCategoryFeed, stop: stopCategoryFeed } = useSearchRequest();
+  const { run: runSuggest } = useSearchRequest();
 
-  useEffect(() => () => {
-    clearTimeout(debounce.current);
-    abortRef.current?.abort();
-    catAbortRef.current?.abort();
-  }, []);
+  useEffect(() => () => clearTimeout(debounce.current), []);
 
+  // Suggestions come from /api/suggest, which ranks prefix, word-prefix and
+  // initials matches over queries this deployment has actually run. The old
+  // client-side `SUGGESTIONS.filter(s => s.includes(...))` could not match an
+  // acronym at all — "CNN" and "ML" returned nothing.
   const handleInputChange = useCallback((val) => {
     setTopic(val);
     clearTimeout(debounce.current);
     if (!val.trim()) { setSuggestions([]); setShowSug(false); return; }
     debounce.current = setTimeout(() => {
-      const f = SUGGESTIONS.filter(s => s.includes(val.toLowerCase())).slice(0, 6);
-      setSuggestions(f);
-      setShowSug(f.length > 0);
+      void runSuggest(val.trim().toLowerCase(), async ({ signal, isCurrent }) => {
+        try {
+          const res = await authFetch(
+            `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/suggest?q=${encodeURIComponent(val.trim())}`,
+            { signal }
+          );
+          if (!res.ok || !isCurrent()) return;
+          const data = await res.json();
+          if (!isCurrent()) return;
+          const found = data.data || [];
+          setSuggestions(found);
+          setShowSug(found.length > 0);
+        } catch (e) {
+          // A failed suggestion lookup is not worth surfacing — the user is
+          // mid-typing and the search itself still works.
+          if (isCurrent() && !isAbortError(e)) setShowSug(false);
+        }
+      });
     }, 180);
-  }, []);
+  }, [authFetch, runSuggest]);
 
   // Explicit user stop. Owns both the abort and the resulting UI state, so the
   // aborted request's own catch/finally can stay silent (see discover()).
   const stopDiscover = useCallback(() => {
-    if (abortRef.current) {
-      abortRef.current.abort();
-      abortRef.current = null;
-      setError('Search stopped.');
-    }
-    lastQueryRef.current = '';
+    if (stopDiscoverRequest()) setError('Search stopped.');
     setLoading(false);
     setPapersLoading(false);
-  }, []);
+  }, [stopDiscoverRequest]);
 
   const clearSearch = useCallback(() => {
     stopDiscover();
-    catAbortRef.current?.abort();
-    catAbortRef.current = null;
+    stopCategoryFeed();
     setCatLoading(false);
     clearTimeout(debounce.current);
     setTopic('');
@@ -180,12 +186,11 @@ export default function Dashboard() {
     setHasSearched(false);
     setActiveCategory(null);
     setCategoryPapers([]);
-    lastQueryRef.current = '';
     sessionStorage.removeItem('dash_topic');
     sessionStorage.removeItem('dash_results');
     sessionStorage.removeItem('dash_relatedPapers');
     sessionStorage.removeItem('dash_hasSearched');
-  }, [stopDiscover]);
+  }, [stopDiscover, stopCategoryFeed]);
 
   const discover = async (q = topic) => {
     const check = validateSearchQuery(q);
@@ -194,93 +199,82 @@ export default function Dashboard() {
       if (check.code === 'empty') setHasSearched(false);
       return;
     }
-    const normalized = normalizeSearchQuery(check.query);
-    // Ignore duplicate submits while a matching search is already in flight.
-    // Read the abort ref, not `loading` — the state closure is a render behind
-    // on rapid Enter presses and would let the duplicate through.
-    if (abortRef.current && lastQueryRef.current === normalized) return;
+    // useSearchRequest drops duplicate submits for the same key, aborts the
+    // previous run, and hands each run an isCurrent() so a superseded run
+    // cannot write over the run that replaced it.
+    await runDiscover(normalizeSearchQuery(check.query), async ({ signal, isCurrent }) => {
+      clearTimeout(debounce.current);
+      setTopic(check.query);
+      setShowSug(false);
+      setLoading(true);
+      setPapersLoading(true);
+      setRelatedPapers([]);
+      setError('');
+      setHasSearched(true);
+      try {
+        const [topicRes, paperRes] = await Promise.all([
+          authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/topics?intent=${encodeURIComponent(check.query)}`, {
+            signal,
+          }),
+          authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature?query=${encodeURIComponent(check.query)}&limit=6`, {
+            signal,
+          }),
+        ]);
 
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-    // Only the run that still owns abortRef may touch shared UI state; a run
-    // superseded by a newer search, or cancelled via stopDiscover, stays silent.
-    const isCurrent = () => abortRef.current === controller;
+        if (!isCurrent()) return;
 
-    lastQueryRef.current = normalized;
-    clearTimeout(debounce.current);
-    setTopic(check.query);
-    setShowSug(false);
-    setLoading(true);
-    setPapersLoading(true);
-    setRelatedPapers([]);
-    setError('');
-    setHasSearched(true);
-    try {
-      const [topicRes, paperRes] = await Promise.all([
-        authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/topics?intent=${encodeURIComponent(check.query)}`, {
-          signal: controller.signal,
-        }),
-        authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature?query=${encodeURIComponent(check.query)}&limit=6`, {
-          signal: controller.signal,
-        }),
-      ]);
-
-      if (!isCurrent()) return;
-
-      if (topicRes.status === 429 || paperRes.status === 429 || topicRes.status === 503 || paperRes.status === 503) {
-        if (topicRes.status === 503 || paperRes.status === 503) {
-          try {
-            const data = await (topicRes.status === 503 ? topicRes : paperRes).json();
-            if (data?.detail?.verification_unavailable) {
-              setError('Verification temporarily unavailable, please try again shortly.');
-              setResults([]);
-              setRelatedPapers([]);
-              return;
-            }
-          } catch (e) {}
+        if (topicRes.status === 429 || paperRes.status === 429 || topicRes.status === 503 || paperRes.status === 503) {
+          if (topicRes.status === 503 || paperRes.status === 503) {
+            try {
+              const data = await (topicRes.status === 503 ? topicRes : paperRes).json();
+              if (data?.detail?.verification_unavailable) {
+                setError('Verification temporarily unavailable, please try again shortly.');
+                setResults([]);
+                setRelatedPapers([]);
+                return;
+              }
+            } catch (e) {}
+          }
+          setError('Rate limit exceeded. Please wait a minute before trying again.');
+          return;
         }
-        setError('Rate limit exceeded. Please wait a minute before trying again.');
-        return;
-      }
-      if (!topicRes.ok) {
-        const topicData = await topicRes.json().catch(() => ({}));
-        setError(topicData.detail || 'Failed to discover topics. Please try again.');
-        return;
-      }
-      if (!paperRes.ok) {
-        setError('Failed to fetch literature data. Please try again.');
-        return;
-      }
+        if (!topicRes.ok) {
+          const topicData = await topicRes.json().catch(() => ({}));
+          setError(topicData.detail || 'Failed to discover topics. Please try again.');
+          return;
+        }
+        if (!paperRes.ok) {
+          setError('Failed to fetch literature data. Please try again.');
+          return;
+        }
 
-      const topicData = await topicRes.json();
-      if (topicData.coherence_check === 'failed') {
-        setError(`"${check.query}" doesn't look like a research topic. Try a specific field or subject area.`);
-        setResults([]);
-        setRelatedPapers([]);
-        return;
-      }
+        const topicData = await topicRes.json();
+        if (topicData.coherence_check === 'failed') {
+          setError(`"${check.query}" doesn't look like a research topic. Try a specific field or subject area.`);
+          setResults([]);
+          setRelatedPapers([]);
+          return;
+        }
 
-      const paperData = await paperRes.json();
-      if (!isCurrent()) return;
-      setResults(topicData.data || []);
-      setRelatedPapers(paperData.data || []);
-    } catch (e) {
-      // Superseded/cancelled runs report nothing — whoever aborted them owns
-      // the UI now. Without this, an aborted run's error and loading reset
-      // landed on top of the search that replaced it.
-      if (!isCurrent()) return;
-      if (isAbortError(e)) return;
-      console.error(e);
-      setError('Network error. Please try again.');
-    } finally {
-      if (isCurrent()) {
-        abortRef.current = null;
-        lastQueryRef.current = '';
-        setLoading(false);
-        setPapersLoading(false);
+        const paperData = await paperRes.json();
+        if (!isCurrent()) return;
+        setResults(topicData.data || []);
+        setRelatedPapers(paperData.data || []);
+      } catch (e) {
+        // Superseded/cancelled runs report nothing — whoever aborted them owns
+        // the UI now. Without this, an aborted run's error and loading reset
+        // landed on top of the search that replaced it.
+        if (!isCurrent()) return;
+        if (isAbortError(e)) return;
+        console.error(e);
+        setError('Network error. Please try again.');
+      } finally {
+        if (isCurrent()) {
+          setLoading(false);
+          setPapersLoading(false);
+        }
       }
-    }
+    });
   };
 
   const openCategory = async (cat) => {
@@ -289,28 +283,24 @@ export default function Dashboard() {
     setCatLoading(true);
     discover(cat.query);
 
-    catAbortRef.current?.abort();
-    const controller = new AbortController();
-    catAbortRef.current = controller;
-    const isCurrentFeed = () => catAbortRef.current === controller;
-
-    try {
-      const res = await authFetch(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/arxiv/feed?category=${cat.arxiv}&limit=9`,
-        { signal: controller.signal }
-      );
-      const data = await res.json();
-      if (!isCurrentFeed()) return;
-      setCategoryPapers(data.data || []);
-    } catch (e) {
-      if (!isCurrentFeed() || isAbortError(e)) return;
-      console.error(e);
-    } finally {
-      if (isCurrentFeed()) {
-        catAbortRef.current = null;
-        setCatLoading(false);
+    // Keyed by category so clicking the same rail item twice is a no-op while
+    // its feed is loading, but switching categories cancels the previous one.
+    await runCategoryFeed(cat.arxiv, async ({ signal, isCurrent }) => {
+      try {
+        const res = await authFetch(
+          `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/arxiv/feed?category=${cat.arxiv}&limit=9`,
+          { signal }
+        );
+        const data = await res.json();
+        if (!isCurrent()) return;
+        setCategoryPapers(data.data || []);
+      } catch (e) {
+        if (!isCurrent() || isAbortError(e)) return;
+        console.error(e);
+      } finally {
+        if (isCurrent()) setCatLoading(false);
       }
-    }
+    });
   };
 
   useEffect(() => {
@@ -547,17 +537,20 @@ export default function Dashboard() {
                 <ol className="dashboard-stream-list">
                   {results.map((t, i) => {
                     const score = impactScore(t.impact);
+                    // Search the raw extracted phrase, not the Title-Cased
+                    // label — `title` is for display only.
+                    const surveyQuery = t.query || t.title;
                     return (
                       <li key={i}>
                         <div
                           className={`dashboard-direction${i === 0 ? ' is-lead' : ''}`}
                           role="button"
                           tabIndex={0}
-                          onClick={() => navigate('/literature-survey', { state: { query: t.title, autoSearch: true } })}
+                          onClick={() => navigate('/literature-survey', { state: { query: surveyQuery, autoSearch: true } })}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' || e.key === ' ') {
                               e.preventDefault();
-                              navigate('/literature-survey', { state: { query: t.title, autoSearch: true } });
+                              navigate('/literature-survey', { state: { query: surveyQuery, autoSearch: true } });
                             }
                           }}
                         >
@@ -585,7 +578,7 @@ export default function Dashboard() {
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   navigate('/literature-survey', {
-                                    state: { query: t.title, autoSearch: true },
+                                    state: { query: surveyQuery, autoSearch: true },
                                   });
                                 }}
                               >

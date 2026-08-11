@@ -5,6 +5,7 @@ import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
+from ai.guardrails import validate_input_layers_a_b
 from ai.relevance import _filter_relevant_papers
 from ai.topic_discovery import discover_topics
 from core.auth import get_current_user
@@ -20,8 +21,18 @@ from integrations.github_knowledge import (
     sync_all_repositories,
     sync_repository,
 )
-from integrations.paper_search import SHARED_LIMIT_PER_SOURCE, search_all
+from integrations.paper_search import (
+    SHARED_LIMIT_PER_SOURCE,
+    search_all,
+    search_all_with_meta,
+)
 from schemas import GithubSyncPayload, LiteratureSavePayload
+from services.query_history import (
+    _suggest_rank,
+    normalize_suggest_input,
+    recent_queries,
+    record_query,
+)
 
 router = APIRouter(tags=["discovery"])
 
@@ -29,7 +40,13 @@ router = APIRouter(tags=["discovery"])
 # ─── Topic Discovery ───────────────────────────────────────────────────────────
 
 @router.get("/api/topics")
-async def get_topics(intent: str, current_user: dict = Depends(get_current_user)):
+@limiter.limit("5/minute")
+async def get_topics(request: Request, intent: str, current_user: dict = Depends(get_current_user)):
+    """
+    Rate-limited to match /api/literature. The Dashboard fires both for one
+    query and they trigger the same 11-source fan-out; throttling only one of
+    them let the other keep burning source quota after the limit tripped.
+    """
     result = await discover_topics(intent)
     return result
 
@@ -39,6 +56,35 @@ async def get_topics(intent: str, current_user: dict = Depends(get_current_user)
 LITERATURE_DEFAULT_LIMIT = 50
 LITERATURE_MAX_LIMIT = 100
 
+# Extra papers classified per round beyond what is still needed, so a round
+# that drops several irrelevant papers usually still fills the request without
+# a second round. Higher wastes LLM calls; lower needs more round-trips.
+_BACKFILL_HEADROOM = 10
+
+
+async def _collect_relevant(query: str, papers: list, wanted: int) -> tuple[list, int]:
+    """
+    Classify *papers* in ranked order until *wanted* relevant ones are found.
+
+    Returns ``(relevant, examined)``. Slicing to *wanted* before filtering — as
+    this endpoint used to do — meant a request for 15 papers could return 6,
+    with no attempt to backfill from the ranked papers sitting right behind the
+    window. Classifying in rounds keeps the LLM cost proportional to what is
+    actually returned while still filling the request.
+    """
+    relevant: list = []
+    examined = 0
+
+    while examined < len(papers) and len(relevant) < wanted:
+        need = wanted - len(relevant)
+        batch = papers[examined:examined + need + _BACKFILL_HEADROOM]
+        if not batch:
+            break
+        examined += len(batch)
+        relevant.extend(await _filter_relevant_papers(query, batch))
+
+    return relevant[:wanted], examined
+
 
 @router.get("/api/literature")
 @limiter.limit("5/minute")
@@ -46,30 +92,116 @@ async def get_literature(
     request: Request,
     query: str,
     limit: int = LITERATURE_DEFAULT_LIMIT,
+    fresh: bool = False,
     current_user: dict = Depends(get_current_user),
 ):
     """
-    Unified literature search across OpenAlex, arXiv, and GitHub knowledge bases.
-    Applies the shared relevance filter used by manuscript generation so noisy
-    cross-domain results do not leak into the literature view.
+    Unified literature search across every configured source.
 
-    search_all() returns results already ranked, so the response window is cut
-    to *limit* before relevance classification: the classifier costs one LLM
-    call per paper, and papers past the window are never returned.
+    Applies the shared relevance filter used by manuscript generation so noisy
+    cross-domain results do not leak into the literature view, backfilling from
+    the ranked tail so *limit* means what it says.
+
+    fresh=true bypasses the semantic cache — what the UI's "search instead for
+    X" link sends when the user rejects a semantically matched result.
     """
+    if not validate_input_layers_a_b(query):
+        # Mirrors /api/topics: the same guardrail, so a query the Dashboard
+        # rejects on one request cannot fan out to 11 sources on the other.
+        return {
+            "data": [], "count": 0, "total": 0,
+            "has_more": False, "limit": 0, "coherence_check": "failed",
+        }
+
     effective_limit = max(1, min(limit, LITERATURE_MAX_LIMIT))
 
-    papers = await search_all(query, limit_per_source=SHARED_LIMIT_PER_SOURCE)
+    papers, meta = await search_all_with_meta(
+        query,
+        # Deliberately NOT scaled down for small limits. /api/topics fires in
+        # parallel for the same query with this exact value, and the shared
+        # cache entry is keyed on it — a Dashboard limit=6 asking for fewer
+        # per source would split them into two separate fan-outs, which costs
+        # far more than the papers it saves fetching.
+        limit_per_source=SHARED_LIMIT_PER_SOURCE,
+        allow_semantic_cache=not fresh,
+    )
     total = len(papers)
-    window = papers[:effective_limit]
-    filtered = await _filter_relevant_papers(query, window)
-    return {
+    filtered, examined = await _collect_relevant(query, papers, effective_limit)
+    response = {
         "data": filtered,
         "count": len(filtered),
         "total": total,
-        "has_more": total > len(window),
+        # Unclassified papers remain, so another page is genuinely available.
+        "has_more": examined < total,
         "limit": effective_limit,
     }
+    if filtered:
+        # Only successful queries become suggestions — proposing a query that
+        # finds nothing is worse than proposing nothing.
+        record_query(query)
+
+    if meta.matched_query:
+        # The user asked one question and is being shown another question's
+        # results. Say so — the UI renders this as "Showing results for X,
+        # search instead for Y".
+        response["matched_query"] = meta.matched_query
+        response["cache"] = meta.cache
+    return response
+
+
+# ─── Query Suggestions ─────────────────────────────────────────────────────────
+
+# Seed list: what a first-time user sees before anyone has searched anything.
+# Real suggestions come from queries this deployment has actually run.
+_SEED_SUGGESTIONS = [
+    "machine learning in healthcare", "deep learning for NLP", "computer vision",
+    "cybersecurity threat detection", "quantum computing", "federated learning",
+    "large language models", "autonomous vehicles", "reinforcement learning",
+    "explainable AI", "edge computing", "generative AI", "drug discovery AI",
+    "natural language processing", "neural architecture search", "robotics",
+    "graph neural networks", "transformer attention mechanisms",
+    "protein structure prediction", "climate modelling",
+]
+
+SUGGEST_LIMIT = 8
+
+
+@router.get("/api/suggest")
+async def suggest_queries(q: str = "", current_user: dict = Depends(get_current_user)):
+    """
+    Autocomplete for the search box.
+
+    Ranked so acronyms work, which plain substring matching could not do:
+    "CNN" matched nothing in the old hardcoded list because no entry contained
+    that literal substring.
+
+      1. prefix match on the whole phrase   ("mac" → "machine learning …")
+      2. prefix match on any word           ("learn" → "machine learning …")
+      3. initials match                     ("nas"  → "neural architecture search")
+      4. substring anywhere                 (fallback)
+    """
+    prefix = normalize_suggest_input(q)
+    pool = recent_queries() + _SEED_SUGGESTIONS
+
+    seen: set[str] = set()
+    candidates: list[str] = []
+    for phrase in pool:
+        key = phrase.lower()
+        if key not in seen:
+            seen.add(key)
+            candidates.append(phrase)
+
+    if not prefix:
+        return {"data": candidates[:SUGGEST_LIMIT]}
+
+    scored = []
+    for phrase in candidates:
+        rank = _suggest_rank(prefix, phrase)
+        if rank is not None:
+            scored.append((rank, len(phrase), phrase))
+
+    scored.sort()
+    return {"data": [phrase for _rank, _length, phrase in scored[:SUGGEST_LIMIT]]}
 
 
 # ─── arXiv — Keyword Search ────────────────────────────────────────────────────
@@ -77,6 +209,8 @@ async def get_literature(
 @router.get("/api/arxiv/search")
 async def arxiv_search_endpoint(query: str, limit: int = 10, current_user: dict = Depends(get_current_user)):
     """Search arXiv directly by keyword."""
+    if not validate_input_layers_a_b(query):
+        return {"data": [], "count": 0, "coherence_check": "failed"}
     from integrations.arxiv import search_papers as arxiv_search
     papers = await arxiv_search(query, limit=limit)
     return {"data": papers, "count": len(papers)}
@@ -171,6 +305,8 @@ async def get_github_papers(repo: str = "papers-we-love", category: str = "", cu
 @router.get("/api/github/search")
 async def search_github(query: str, current_user: dict = Depends(get_current_user)):
     """Search all synced GitHub repos for papers matching the query."""
+    if not validate_input_layers_a_b(query):
+        return {"data": [], "count": 0, "coherence_check": "failed"}
     results = await asyncio.to_thread(search_github_knowledge, query)
     return {"data": results, "count": len(results)}
 

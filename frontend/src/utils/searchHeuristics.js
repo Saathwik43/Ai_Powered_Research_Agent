@@ -38,11 +38,54 @@ function isWordlike(token) {
   return true;
 }
 
+/**
+ * Pure grammar / closed-class words. Mirrors GRAMMAR_STOPS in
+ * backend/core/query_key.py — the two must stay identical, or the client's
+ * in-flight dedupe guard and the server's cache will disagree on which
+ * queries are the same query.
+ */
+const GRAMMAR_STOPS = new Set([
+  'a', 'about', 'above', 'after', 'again', 'against', 'all', 'am', 'an', 'and', 'any', 'are', 'as', 'at',
+  'be', 'because', 'been', 'before', 'being', 'below', 'between', 'both', 'but', 'by', 'can', 'cannot',
+  'could', 'did', 'do', 'does', 'doing', 'down', 'during', 'each', 'few', 'for', 'from', 'further',
+  'had', 'has', 'have', 'having', 'he', 'her', 'here', 'hers', 'herself', 'him', 'himself', 'his', 'how',
+  'if', 'in', 'into', 'is', 'it', 'its', 'itself', 'let', 'me', 'more', 'most', 'my', 'myself',
+  'no', 'nor', 'not', 'of', 'off', 'on', 'once', 'only', 'or', 'other', 'ought', 'our', 'ours',
+  'ourselves', 'out', 'over', 'own', 'same', 'she', 'should', 'so', 'some', 'such', 'than', 'that',
+  'the', 'their', 'theirs', 'them', 'themselves', 'then', 'there', 'these', 'they', 'this', 'those',
+  'through', 'to', 'too', 'under', 'until', 'up', 'very', 'was', 'we', 'were', 'what', 'when', 'where',
+  'which', 'while', 'who', 'whom', 'why', 'will', 'with', 'would', 'you', 'your', 'yours', 'yourself',
+]);
+
+/** Plural folding only — see the `stem` docstring in core/query_key.py. */
+function stem(word) {
+  const w = word.toLowerCase();
+  if (w.length > 4 && w.endsWith('ies')) return `${w.slice(0, -3)}y`;
+  if (w.length > 3 && w.endsWith('s') && !w.endsWith('ss')) return w.slice(0, -1);
+  return w;
+}
+
+/**
+ * Cache identity for a query. Port of canonical_key() in
+ * backend/core/query_key.py: NFKC → casefold → strip punctuation → drop
+ * grammar words → stem → dedupe → sort.
+ *
+ * Identity only. Never send this to the API or show it to the user — it
+ * discards word order and inflection.
+ */
 export function normalizeSearchQuery(q) {
-  return String(q || '')
-    .trim()
-    .replace(/\s+/g, ' ')
-    .toLowerCase();
+  const display = String(q || '').trim().replace(/\s+/g, ' ');
+  const folded = display.normalize('NFKC').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  if (!folded) return '';
+
+  const words = folded.split(' ');
+  // Length is not a filter: "vitamin d", "e coli" and "k means" each depend
+  // on their one-letter token.
+  let content = words.filter(w => !GRAMMAR_STOPS.has(w)).map(stem);
+  // An all-grammar query ("what is the") still needs a distinct key.
+  if (!content.length) content = words.map(stem);
+
+  return [...new Set(content)].sort().join(' ');
 }
 
 /**

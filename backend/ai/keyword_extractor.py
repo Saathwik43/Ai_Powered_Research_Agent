@@ -3,22 +3,13 @@ import math
 from collections import Counter
 import logging
 
+from core.query_key import GRAMMAR_STOPS, stem as _stemish
+
 logger = logging.getLogger(__name__)
 
-# Pure grammar / closed-class words. Used for query tokenization and for
-# deciding whether a bigram edge is just glue ("of the").
-GRAMMAR_STOPS = {
-    "a", "about", "above", "after", "again", "against", "all", "am", "an", "and", "any", "are", "as", "at",
-    "be", "because", "been", "before", "being", "below", "between", "both", "but", "by", "can", "cannot",
-    "could", "did", "do", "does", "doing", "down", "during", "each", "few", "for", "from", "further",
-    "had", "has", "have", "having", "he", "her", "here", "hers", "herself", "him", "himself", "his", "how",
-    "if", "in", "into", "is", "it", "its", "itself", "let", "me", "more", "most", "my", "myself",
-    "no", "nor", "not", "of", "off", "on", "once", "only", "or", "other", "ought", "our", "ours",
-    "ourselves", "out", "over", "own", "same", "she", "should", "so", "some", "such", "than", "that",
-    "the", "their", "theirs", "them", "themselves", "then", "there", "these", "they", "this", "those",
-    "through", "to", "too", "under", "until", "up", "very", "was", "we", "were", "what", "when", "where",
-    "which", "while", "who", "whom", "why", "will", "with", "would", "you", "your", "yours", "yourself",
-}
+# GRAMMAR_STOPS and _stemish live in core.query_key so cache-key
+# canonicalisation and topic extraction tokenise identically. Importing them
+# rather than redefining is what keeps the two from drifting apart.
 
 # Academic filler for *unigram* topics only. Keep domain nouns like "data",
 # "model", "method", "analysis" out of standalone topic lists, but still allow
@@ -65,15 +56,6 @@ def _ngrams_for_doc(words: list[str]) -> tuple[Counter, Counter]:
             if _valid(w1) or _valid(w2):
                 bigrams[f"{w1} {w2}"] += 1
     return bigrams, unigrams
-
-
-def _stemish(w: str) -> str:
-    w = w.lower()
-    if len(w) > 4 and w.endswith("ies"):
-        return w[:-3] + "y"
-    if len(w) > 3 and w.endswith("s") and not w.endswith("ss"):
-        return w[:-1]
-    return w
 
 
 def _query_tokens(query: str) -> set[str]:
@@ -209,6 +191,9 @@ def extract_top_topics(docs: list[str], query: str = "", top_n: int = 3) -> list
                 out.append({
                     "id": 0,  # renumbered below
                     "title": term.title(),
+                    # Display label and search value are separate: the caller
+                    # searches `query`, never the Title-Cased `title`.
+                    "query": term,
                     "impact": "High" if score > 5 else "Medium",
                 })
                 picked_stems.append(stems)

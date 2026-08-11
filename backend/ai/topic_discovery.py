@@ -11,10 +11,12 @@ _NOISY_FOR_TOPICS = {"BASE", "DOAJ"}
 
 
 def _fallback_topics(intent: str):
+    # `query` is the intent itself, not the decorated title: we found nothing
+    # to narrow with, so searching "Advancements in X" would only add noise.
     return [
-        {"id": 1, "title": f"Advancements in {intent}", "impact": "High"},
-        {"id": 2, "title": f"Emerging Applications of {intent}", "impact": "High"},
-        {"id": 3, "title": f"Challenges and Future Directions in {intent}", "impact": "Medium"},
+        {"id": 1, "title": f"Advancements in {intent}", "query": intent, "impact": "High"},
+        {"id": 2, "title": f"Emerging Applications of {intent}", "query": intent, "impact": "High"},
+        {"id": 3, "title": f"Challenges and Future Directions in {intent}", "query": intent, "impact": "Medium"},
     ]
 
 

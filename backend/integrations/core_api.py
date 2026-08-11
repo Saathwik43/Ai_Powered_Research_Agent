@@ -1,5 +1,6 @@
 import os
 import httpx
+from integrations.http_client import pooled_client
 import logging
 from services.api_telemetry import track_call
 
@@ -23,7 +24,7 @@ async def search_papers(query: str, limit: int = 15) -> list:
 
     async with track_call("CORE", "search") as rec:
         try:
-            async with httpx.AsyncClient(timeout=8.0, headers=headers, follow_redirects=True) as client:
+            async with pooled_client(headers=headers, timeout=8.0) as client:
                 resp = await client.get(CORE_API_URL, params=params)
                 if resp.status_code == 401:
                     rec.fail(http_status=401, error="CORE API key rejected or trial expired")

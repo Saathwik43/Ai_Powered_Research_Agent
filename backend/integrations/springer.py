@@ -1,5 +1,6 @@
 import os
 import httpx
+from integrations.http_client import pooled_client
 import logging
 from services.api_telemetry import track_call
 
@@ -31,7 +32,7 @@ async def search_papers(query: str, limit: int = 15) -> list:
 
     async with track_call("Springer Nature", "search") as rec:
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with pooled_client(timeout=15.0) as client:
                 resp = await client.get(SPRINGER_API_URL, params=params)
                 resp.raise_for_status()
                 data = resp.json()

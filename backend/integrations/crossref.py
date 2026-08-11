@@ -2,6 +2,7 @@ import os
 import re
 import asyncio
 import httpx
+from integrations.http_client import pooled_client
 import logging
 import urllib.parse
 from dotenv import load_dotenv
@@ -35,7 +36,7 @@ async def get_venue_metadata(issn: str):
         
         # Enforce rate limits by offloading to another thread or just async sleep
         await asyncio.sleep(0.5) 
-        async with httpx.AsyncClient() as client:
+        async with pooled_client() as client:
             response = await client.get(url, headers=headers)
             response.raise_for_status()
             data = response.json()
@@ -53,7 +54,7 @@ async def search_journals(query: str):
         headers = {"User-Agent": f"ResearchAgent/1.0 (mailto:{MAILTO})"}
         
         await asyncio.sleep(0.5) 
-        async with httpx.AsyncClient() as client:
+        async with pooled_client() as client:
             response = await client.get(url, headers=headers)
             response.raise_for_status()
             data = response.json()
@@ -75,7 +76,7 @@ async def search_works(query: str, limit: int = 8) -> list:
         headers = {"User-Agent": f"ResearchAgent/1.0 (mailto:{MAILTO})"}
         
         async with track_call("Crossref", "search") as rec:
-            async with httpx.AsyncClient(timeout=12.0) as client:
+            async with pooled_client(timeout=12.0) as client:
                 response = await client.get(url, params=params, headers=headers)
                 response.raise_for_status()
                 data = response.json()

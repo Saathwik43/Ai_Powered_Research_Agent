@@ -1,6 +1,7 @@
 import os
 import asyncio
 import httpx
+from integrations.http_client import pooled_client
 import logging
 from dotenv import load_dotenv
 from services.api_telemetry import track_call
@@ -53,7 +54,7 @@ async def search_papers(query: str, limit: int = 8) -> list:
 
     async with track_call("Semantic Scholar", "search") as rec:
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with pooled_client(timeout=15.0) as client:
                 last_status = None
                 for attempt in range(3):
                     resp = await client.get(S2_SEARCH_URL, params=params, headers=headers)
