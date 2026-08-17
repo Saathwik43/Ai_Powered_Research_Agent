@@ -18,6 +18,13 @@ from integrations.base_search import search_papers as base_search
 from integrations.europepmc import search_papers as europepmc_search
 from integrations.doaj import search_papers as doaj_search
 from core.query_key import canonical_key
+from core.paper_identity import (
+    identity_keys,
+    normalize_arxiv_id,
+    normalize_doi,
+    normalize_title,
+    paper_doi,
+)
 from core.ttl_cache import TTLCache
 from services import semantic_cache
 
@@ -97,26 +104,14 @@ async def _embed_papers_cached(papers: list) -> list:
     return embeddings
 
 
-def _normalize_title(title: str) -> str:
-    """
-    Lowercase, fold every punctuation run to a single space, collapse
-    whitespace.
-
-    Folding to a space rather than deleting matters: deleting turned
-    "deep-learning" into "deeplearning" while "deep — learning" became
-    "deep  learning" (two spaces), so the same title from two sources produced
-    two different keys and both copies survived dedup.
-    """
-    return " ".join(re.sub(r"[^a-z0-9]+", " ", (title or "").lower()).split())
-
-
-# arXiv identity appears as an abs/pdf URL, a bare "arXiv:2301.00001" string,
-# or a DataCite DOI ("10.48550/arXiv.2301.00001"). All three name one paper.
-_ARXIV_URL_RE = re.compile(r"arxiv\.org/(?:abs|pdf)/(?P<id>[^\s?#]+)", re.I)
-_ARXIV_TOKEN_RE = re.compile(
-    r"arxiv[:.\-/\s]\s*(?P<id>\d{4}\.\d{4,5}|[a-z\-]+(?:\.[a-z]{2})?/\d{7})", re.I
-)
-_ARXIV_VERSION_RE = re.compile(r"v\d+$", re.I)
+# Identity lives in core/paper_identity.py, shared with ai/relevance.py so the
+# dedupe index and the relevance-verdict cache cannot drift apart. Aliased here
+# because this module's callers and tests already speak these names.
+_normalize_title = normalize_title
+_normalize_doi = normalize_doi
+_paper_doi = paper_doi
+_normalize_arxiv_id = normalize_arxiv_id
+_identity_keys = identity_keys
 
 # Placeholder values integrations emit when a field is unavailable. Treated as
 # absent when merging duplicates so a real value always wins.
@@ -124,67 +119,6 @@ _PLACEHOLDERS = {
     "", "unknown", "unknown authors", "untitled",
     "no abstract available", "no abstract available.",
 }
-
-
-def _normalize_arxiv_id(paper: dict) -> str:
-    """arXiv identifier for *paper*, version suffix stripped, or ''."""
-    for field in ("arxiv_id", "id", "url", "pdf_url", "doi"):
-        value = paper.get(field)
-        if not isinstance(value, str) or not value:
-            continue
-        for pattern in (_ARXIV_URL_RE, _ARXIV_TOKEN_RE):
-            match = pattern.search(value)
-            if not match:
-                continue
-            arxiv_id = match.group("id").strip().lower().removesuffix(".pdf")
-            arxiv_id = _ARXIV_VERSION_RE.sub("", arxiv_id)
-            if arxiv_id:
-                return arxiv_id
-    return ""
-
-
-def _paper_doi(paper: dict) -> str:
-    """Normalized DOI from the doi field, the id field, or a doi.org URL."""
-    for candidate in (paper.get("doi"), paper.get("id")):
-        normalized = _normalize_doi(candidate or "")
-        if normalized:
-            return normalized
-    url = paper.get("url") or ""
-    return _normalize_doi(url) if "doi.org/" in url else ""
-
-
-def _identity_keys(paper: dict) -> list[str]:
-    """
-    Every identifier under which *paper* should be recognised as already seen.
-
-    A paper matches an existing one if they share **any** key, which is what
-    merges an arXiv preprint with its published version: the preprint carries
-    the arXiv id, the published record carries the DOI, and both carry the
-    title.
-    """
-    keys = []
-
-    doi = _paper_doi(paper)
-    if doi:
-        keys.append(f"doi:{doi}")
-
-    arxiv_id = _normalize_arxiv_id(paper)
-    if arxiv_id:
-        keys.append(f"arxiv:{arxiv_id}")
-
-    title = _normalize_title(paper.get("title") or "")
-    if title:
-        # Full title, never a 60-char prefix — truncation collapsed
-        # "…Segmentation Part I" and "…Part II" into one paper. Short titles
-        # ("Editorial", "Corrigendum") are too generic to stand alone, so they
-        # are qualified by year.
-        if len(title) >= 10:
-            keys.append(f"title:{title}")
-        else:
-            year = str(paper.get("year") or "").strip()
-            keys.append(f"title:{title}|{year}")
-
-    return keys
 
 
 def _is_present(value) -> bool:
@@ -229,24 +163,6 @@ def _merge_into(kept: dict, other: dict) -> None:
 
     kept.clear()
     kept.update(merged)
-
-
-def _normalize_doi(doi: str) -> str:
-    """Lowercase and strip URL prefixes. Returns '' unless the value is a real DOI."""
-    if not doi or not isinstance(doi, str):
-        return ""
-    cleaned = (
-        doi.replace("https://doi.org/", "")
-        .replace("http://doi.org/", "")
-        .replace("https://dx.doi.org/", "")
-        .replace("http://dx.doi.org/", "")
-        .replace("doi:", "")
-        .strip()
-        .lower()
-    )
-    if not cleaned.startswith("10."):
-        return ""
-    return cleaned
 
 
 def _deduplicate(papers: list) -> list:
@@ -369,27 +285,12 @@ def _rank_papers(query: str, papers: list) -> list:
     papers.sort(key=lambda p: p["_relevance_rank"], reverse=True)
     return papers
 
-def _apply_diversity_quota(papers: list) -> list:
-    """Greedily pick top-scored papers but skip/defer a paper if its source already has 9+ picks in the top-15."""
-    diverse = []
-    deferred = []
-    source_counts = {}
-    
-    for p in papers:
-        source = p.get("source", "Unknown")
-        if source.startswith("GitHub"):
-            source = "GitHub"
-            
-        if len(diverse) < 15:
-            if source_counts.get(source, 0) >= 9:
-                deferred.append(p)
-            else:
-                diverse.append(p)
-                source_counts[source] = source_counts.get(source, 0) + 1
-        else:
-            deferred.append(p)
-            
-    return diverse + deferred
+# A `diversify` flag once gated a source quota here (max 9 papers per source in
+# the top 15). No caller ever set it, the 15/9 numbers ignored the requested
+# limit, and the dead flag still widened the search cache key — two callers
+# differing only in a parameter that did nothing paid two full 11-source
+# fan-outs. Flag and quota removed together (audit A12). Source balance, if it
+# is wanted again, belongs in _compute_score where it can see the real limit.
 
 
 @dataclass(frozen=True)
@@ -410,7 +311,6 @@ class SearchMeta:
 async def search_all(
     query: str,
     limit_per_source: int = 15,
-    diversify: bool = False,
     semantic_rerank: bool = True,
     source_timeout: float = 20.0,
     oa_timeout: float = 8.0,
@@ -424,7 +324,7 @@ async def search_all(
     know how the result was obtained.
     """
     papers, _meta = await search_all_with_meta(
-        query, limit_per_source, diversify, semantic_rerank,
+        query, limit_per_source, semantic_rerank,
         source_timeout, oa_timeout, exclude_sources, allow_semantic_cache,
     )
     return papers
@@ -433,7 +333,6 @@ async def search_all(
 async def search_all_with_meta(
     query: str,
     limit_per_source: int = 15,
-    diversify: bool = False,
     semantic_rerank: bool = True,
     source_timeout: float = 20.0,
     oa_timeout: float = 8.0,
@@ -463,7 +362,7 @@ async def search_all_with_meta(
     # learning" and a Title-Cased topic label from the Dashboard are one entry
     # and one fan-out. The raw *query* still goes to the sources and to
     # _rank_papers below — only the cache key is canonicalised.
-    bucket_key = f"{limit_per_source}_{diversify}_{semantic_rerank}"
+    bucket_key = f"{limit_per_source}_{semantic_rerank}"
     if exclude_sources:
         bucket_key += f"_{sorted(exclude_sources)}"
     cache_key = f"{canonical_key(query)}_{bucket_key}_all"
@@ -488,7 +387,7 @@ async def search_all_with_meta(
     task = _inflight.get(inflight_key)
     if task is None:
         task = asyncio.ensure_future(_resolve_search(
-            query, limit_per_source, diversify, semantic_rerank,
+            query, limit_per_source, semantic_rerank,
             source_timeout, oa_timeout, exclude_sources, cache_key,
             bucket_key, allow_semantic_cache,
         ))
@@ -500,7 +399,6 @@ async def search_all_with_meta(
 async def _resolve_search(
     query: str,
     limit_per_source: int,
-    diversify: bool,
     semantic_rerank: bool,
     source_timeout: float,
     oa_timeout: float,
@@ -532,7 +430,7 @@ async def _resolve_search(
             )
 
     papers = await _execute_search(
-        query, limit_per_source, diversify, semantic_rerank,
+        query, limit_per_source, semantic_rerank,
         source_timeout, oa_timeout, exclude_sources, cache_key,
         bucket_key, query_embedding,
     )
@@ -589,7 +487,6 @@ async def _rank_and_rerank(query: str, papers: list, query_embedding: list | Non
 async def _execute_search(
     query: str,
     limit_per_source: int,
-    diversify: bool,
     semantic_rerank: bool,
     source_timeout: float,
     oa_timeout: float,
@@ -716,9 +613,6 @@ async def _execute_search(
     if semantic_rerank and query_embedding is None:
         query_embedding = await _query_embedding(query)
     unique = await _rank_and_rerank(query, unique, query_embedding if semantic_rerank else None)
-
-    if diversify:
-        unique = _apply_diversity_quota(unique)
 
     # Enrich with Unpaywall open-access links (non-blocking best-effort, 8s ceiling for large lists)
     try:

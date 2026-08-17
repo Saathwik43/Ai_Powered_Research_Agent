@@ -26,6 +26,7 @@ import time
 import re
 
 from ai.llm_provider import generate_completion
+from core.paper_identity import paper_identity
 from core.query_key import canonical_key
 from core.ttl_cache import TTLCache
 
@@ -34,7 +35,7 @@ logger = logging.getLogger(__name__)
 __all__ = ["_filter_relevant_papers"]
 
 # In-memory relevance classification cache.
-# Key: (topic_lower, normalised_title_prefix)  →  Value: (is_relevant: bool, timestamp)
+# Key: (canonical_topic, paper_identity)  →  Value: (is_relevant: bool, timestamp)
 # TTL: 600s (10 minutes), matching search_all's cache TTL.
 # Bounded: the TTL below is the authoritative freshness gate, the cache's
 # own retention window is a little longer so nothing expires mid-check.
@@ -52,14 +53,20 @@ _FAILURE_TTL = 60
 
 def _cache_key(topic: str, paper: dict) -> tuple:
     """
-    Stable cache key from canonical topic + first 60 chars of normalised title.
+    Stable cache key from canonical topic + full paper identity.
 
     The topic half uses the same canonicalisation as search_all's cache key, so
     a verdict computed for "Machine Learning" is reused for "machine learning"
     instead of being re-billed as a fresh LLM call.
+
+    The paper half is ``core.paper_identity`` — DOI, else arXiv id, else the
+    full normalised title — the same notion of identity the dedupe index uses.
+    It was a 60-character title prefix, so two genuinely different papers
+    sharing that prefix ("…for Medical Image Segmentation Part I" / "Part II")
+    shared one yes/no verdict, and the second was included or dropped on the
+    first one's classification (audit A5).
     """
-    title = re.sub(r"[^a-z0-9 ]", "", (paper.get("title", "") or "").lower()).strip()[:60]
-    return (canonical_key(topic), title)
+    return (canonical_key(topic), paper_identity(paper))
 
 
 _CLASSIFIER_SYSTEM_PROMPT = (

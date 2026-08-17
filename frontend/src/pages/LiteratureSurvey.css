@@ -5,8 +5,12 @@
   --lit-radius-sm: 6px;
   --lit-ease: 180ms ease;
   width: 100%;
-  max-width: 720px;
+  max-width: 860px;
   min-width: 0;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
 }
 
 @keyframes litRise {
@@ -20,11 +24,11 @@
 }
 
 .lit-masthead {
-  margin-bottom: 1.5rem;
+  margin-bottom: 1.75rem;
 }
 
 .lit-masthead h1 {
-  margin-bottom: 0.25rem;
+  margin: 0 0 0.35rem;
 }
 
 .lit-masthead p {
@@ -41,31 +45,40 @@
 .lit-tabs {
   position: relative;
   display: flex;
-  gap: 4px;
-  width: fit-content;
+  align-items: stretch;
+  gap: 0;
+  width: 100%;
   max-width: 100%;
-  margin-bottom: 1.5rem;
+  margin: 0 0 1.5rem;
   padding: 0;
   background: transparent;
   border: 0;
   border-bottom: var(--border-width) solid var(--border-strong);
-  position: relative;
   isolation: isolate;
+}
+
+.lit-tab {
+  position: relative;
   z-index: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.4rem;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0.65rem 1.1rem 0.8rem;
   border: 0;
+  border-radius: 0;
   background: transparent;
-  padding: 0.55rem 0.15rem 0.7rem;
-  margin-right: 1.25rem;
   cursor: pointer;
   font-family: inherit;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 0.875rem;
+  font-weight: 600;
   color: var(--text-muted);
-  border-radius: 0;
+  transition: color var(--lit-ease);
+}
+
+.lit-tab:hover {
+  color: var(--text);
 }
 
 .lit-tab.is-active {
@@ -78,7 +91,7 @@
   right: 0;
   bottom: -1px;
   top: auto;
-  height: 1px;
+  height: 2px;
   background: var(--text);
   border: 0;
   border-radius: 0;
@@ -87,19 +100,21 @@
   z-index: 1;
 }
 
-/* Search desk — rounded capsule */
+/* Search desk */
 .lit-search-desk {
   display: flex;
   align-items: stretch;
-  gap: 0.5rem;
+  gap: 0.65rem;
   margin-bottom: 1.25rem;
-  padding: 0 0 0.75rem;
-  border: 0;
-  border-bottom: var(--border-width) solid var(--border-strong);
+  padding: 0.35rem 0.35rem 0.35rem 0.15rem;
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--lit-radius);
+  background: var(--bg-card, var(--bg-elevated));
 }
 
 .lit-search-desk:focus-within {
   border-color: var(--text);
+  box-shadow: 0 0 0 1px var(--text);
 }
 
 .lit-search-field {
@@ -343,7 +358,8 @@
 .lit-result-card {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.55rem;
+  padding: 1.1rem 0;
   background: transparent;
   border: 0;
   border-bottom: var(--border-width) solid var(--border);
@@ -352,6 +368,13 @@
 
 .lit-result-card:hover {
   background: transparent;
+}
+
+.lit-results {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
 }
 
 .lit-result-head {
@@ -466,8 +489,10 @@
   align-items: center;
   justify-content: center;
   text-align: center;
-  gap: 0.55rem;
-  padding: 2.5rem 1.25rem;
+  gap: 0.65rem;
+  min-height: 14rem;
+  margin-top: 0.5rem;
+  padding: 3rem 1.5rem;
   border: 1.5px dashed var(--border-strong, var(--border));
   border-radius: var(--lit-radius);
   background: var(--bg-elevated);
@@ -479,6 +504,83 @@
 .lit-empty svg {
   margin: 0 !important;
   color: var(--text-subtle);
+}
+
+.lit-loading {
+  margin-top: 0.75rem;
+}
+
+.lit-loading-banner {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding: 1rem 1.1rem;
+  background: rgba(0, 87, 255, 0.04);
+  border: 1px solid rgba(0, 87, 255, 0.12);
+  border-radius: var(--lit-radius);
+}
+
+.lit-loading-icon {
+  display: inline-flex;
+  color: var(--primary);
+  animation: spin 3s linear infinite;
+}
+
+.lit-loading-banner h2 {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  margin: 0 0 0.25rem;
+  color: var(--primary);
+}
+
+.lit-loading-banner p {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.lit-loading-bar {
+  width: 100%;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 1rem;
+}
+
+.lit-loading-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--primary);
+  animation: litProgress 15s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
+}
+
+@keyframes litProgress {
+  from { width: 0%; }
+  to { width: 95%; }
+}
+
+.lit-load-more {
+  display: flex;
+  justify-content: center;
+  padding: 1.25rem 0 0.5rem;
+}
+
+.lit-load-more .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 1.25rem;
+}
+
+.lit-saved-loading {
+  display: flex;
+  justify-content: center;
+  padding: 3rem 1rem;
 }
 
 @keyframes cardIn {
@@ -516,16 +618,18 @@
   }
 
   .lit-tabs {
-    margin-bottom: 1rem;
+    margin-bottom: 1.15rem;
   }
 
   .lit-tab {
-    padding: 0.55rem 0.5rem;
+    flex: 1 1 0;
+    padding: 0.6rem 0.65rem 0.75rem;
     font-size: 0.8rem;
   }
 
   .lit-search-desk {
     margin-bottom: 1rem;
+    padding: 0.3rem;
   }
 
   .lit-search-desk .lit-search-go {
@@ -547,8 +651,8 @@
   }
 
   .lit-empty {
-    padding: 1.75rem 1rem;
-    min-height: 9rem;
+    padding: 2.25rem 1rem;
+    min-height: 11rem;
   }
 
   .lit-filter-bar {

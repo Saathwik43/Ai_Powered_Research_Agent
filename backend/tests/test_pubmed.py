@@ -369,7 +369,7 @@ class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
         from core.query_key import canonical_key
 
         # Pre-populate with the EXACT key search_all() will compute.
-        cache_key = f"{canonical_key('cached_query')}_5_False_False_all"
+        cache_key = f"{canonical_key('cached_query')}_5_False_all"
         stale_papers = [
             {"id": "cached-001", "title": "Stale Cached Paper", "source": "OpenAlex"}
         ]

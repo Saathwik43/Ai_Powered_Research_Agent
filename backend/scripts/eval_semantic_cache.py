@@ -121,4 +121,9 @@ async def main() -> int:
 
 
 if __name__ == "__main__":
+    # The report is box-drawing characters; a Windows console defaults to
+    # cp1252 and the run dies at the first print — after paying for every
+    # embedding.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     raise SystemExit(asyncio.run(main()))

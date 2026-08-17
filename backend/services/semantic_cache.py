@@ -16,9 +16,12 @@ An exact-string cache can never be wrong. A semantic cache is a guess, so the
 tiers trade hit rate against how much of the stored result is trusted:
 
     cosine >= VERBATIM_THRESHOLD (0.97)  serve the stored ranking untouched
-    cosine >= RERANK_THRESHOLD   (0.94)  reuse the stored *papers*, but re-rank
+    cosine >= RERANK_THRESHOLD   (0.92)  reuse the stored *papers*, but re-rank
                                          them against the query actually typed
     below                                miss — run the real search
+
+Both numbers are now measured, not guessed — see the threshold note below and
+``scripts/eval_semantic_cache.py``, which is the regression suite for them.
 
 The middle tier is where most of the value is. Re-ranking costs no network
 call (paper embeddings are already cached by content digest) and guarantees
@@ -40,10 +43,25 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
-# Serve the stored ranking as-is at or above this similarity.
+# Measured with scripts/eval_semantic_cache.py against gemini-embedding-001
+# (24 labelled pairs, 2026-08-17). The two populations overlap — the closest
+# different-meaning pair ("reinforcement learning robotics" vs "supervised
+# learning robotics", and "machine learning" vs "deep learning") both sit at
+# 0.8862, above the loosest same-meaning pair ("graph neural networks" ~ "GNN
+# architectures", 0.8235 — an acronym expansion the embedding barely relates).
+# So no threshold serves every true paraphrase; the thresholds below are picked
+# for zero false hits with margin, and the acronym cases stay misses.
+
+# Serve the stored ranking as-is at or above this similarity. Left at 0.97:
+# this tier trusts the stored *ordering*, so it buys margin with hit rate.
 VERBATIM_THRESHOLD = 0.97
 # Between this and VERBATIM_THRESHOLD, reuse the papers but re-rank them.
-RERANK_THRESHOLD = 0.94
+# Lowered 0.94 -> 0.92 on the measurement: 0.92 still admits none of the 12
+# different-meaning pairs (0.034 clear of the highest at 0.8862) and serves
+# 7/12 same-meaning pairs instead of 5. This tier re-ranks against the typed
+# query, so a marginal hit costs a slightly different candidate pool, never a
+# ranking computed for someone else's question.
+RERANK_THRESHOLD = 0.92
 
 TTL_SECONDS = 600
 

@@ -495,33 +495,25 @@ export default function LiteratureSurvey() {
       )}
 
       {/* Papers */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+      <div className="lit-results">
         {loading && (
-          <div style={{ marginTop: 'var(--space-6)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', marginBottom: 'var(--space-5)', background: 'rgba(0, 87, 255, 0.04)', border: '1px solid rgba(0, 87, 255, 0.1)', padding: 'var(--space-4)', borderRadius: 'var(--radius-lg)' }}>
-              <div style={{ animation: 'spin 3s linear infinite' }}>
-                <Sparkles size={24} style={{ color: 'var(--primary)' }} />
+          <div className="lit-loading">
+            <div className="lit-loading-banner">
+              <div className="lit-loading-icon">
+                <Sparkles size={22} />
               </div>
               <div>
-                <h2 style={{ fontSize: 'var(--fs-md)', fontWeight: 600, margin: '0 0 var(--space-1) 0', color: 'var(--primary)' }}>
-                  Searching Literature...
-                </h2>
-                <p style={{ margin: 0, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                <h2>Searching Literature...</h2>
+                <p>
                   <Spinner size={12} /> Querying multiple academic libraries simultaneously. This deep search may take a few seconds...
                 </p>
               </div>
             </div>
-            
-            <div style={{ width: '100%', height: '4px', background: 'var(--border)', borderRadius: '2px', overflow: 'hidden', marginBottom: 'var(--space-5)' }}>
-              <div style={{ height: '100%', background: 'var(--primary)', width: '0%', animation: 'progressAnim 15s cubic-bezier(0.1, 0.8, 0.3, 1) forwards' }} />
+
+            <div className="lit-loading-bar" aria-hidden="true">
+              <div className="lit-loading-bar-fill" />
             </div>
-            <style>{`
-              @keyframes progressAnim {
-                0% { width: 0%; }
-                100% { width: 95%; } 
-              }
-            `}</style>
-            
+
             <div className="skeleton-card" />
             <div className="skeleton-card" style={{ animationDelay: '0.1s' }} />
             <div className="skeleton-card" style={{ animationDelay: '0.2s' }} />
@@ -624,12 +616,9 @@ export default function LiteratureSurvey() {
         ))}
         </AnimatePresence>
 
-        {/* Load more button */}
         {hasMoreFiltered && !loading && (
-          <div style={{ display: 'flex', justifyContent: 'center', padding: 'var(--space-4) 0' }}>
-            <button className="btn btn-secondary" onClick={loadMore} disabled={loadingMore}
-              style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', padding: 'var(--space-3) var(--space-5)' }}
-            >
+          <div className="lit-load-more">
+            <button className="btn btn-secondary" onClick={loadMore} disabled={loadingMore}>
               {loadingMore ? <Spinner size={16} /> : <><ChevronDown size={16} /> Load more results</>}
             </button>
           </div>
@@ -637,12 +626,12 @@ export default function LiteratureSurvey() {
       </div>
         </>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+        <div className="lit-results">
           {loadingSaved ? (
-            <div style={{ display: 'flex', justifyContent: 'center', padding: 'var(--space-6)' }}><Spinner /></div>
+            <div className="lit-saved-loading"><Spinner /></div>
           ) : savedSurveys.length === 0 ? (
-            <div className="empty-state">
-              <Bookmark size={38} style={{ margin: '0 auto var(--space-3)', color: 'var(--text-subtle)', display: 'block' }} />
+            <div className="lit-empty">
+              <Bookmark size={28} />
               You haven't saved any surveys yet.
             </div>
           ) : (
