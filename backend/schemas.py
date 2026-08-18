@@ -43,6 +43,9 @@ class ManuscriptEditPayload(BaseModel):
     section: str = "abstract"
     current_content: str
     instructions: str
+    # Without this the editor silently grounded every revision against IEEE,
+    # even on a draft the user is writing in APA.
+    citation_style: str = "ieee"
 
 class ManuscriptSavePayload(BaseModel):
     topic: str

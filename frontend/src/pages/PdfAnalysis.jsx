@@ -30,10 +30,16 @@ pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/b
 const REMARK_PLUGINS = [remarkGfm, remarkMath];
 const REHYPE_PLUGINS = [[rehypeKatex, { strict: false, throwOnError: false, errorColor: 'inherit' }]];
 
+// `kind: 'gaps'` runs the backend's structured gap-analysis branch, which
+// returns { type: 'structured', data } and renders into Findings. Everything
+// else is free-text chat. Asking for gaps in prose returns a normal `custom`
+// message, which the Findings tab filters out -- so this needs its own trigger.
+const GAP_ANALYSIS_LABEL = 'Analyse research gaps in this paper';
+
 const SUGGESTIONS = [
   { label: 'Main contribution', prompt: "What's the main contribution of this paper?" },
   { label: 'Limitations', prompt: 'What are the key limitations and weaknesses?' },
-  { label: 'Research gaps', prompt: 'Identify research gaps and future directions.' },
+  { label: 'Research gaps', kind: 'gaps' },
   { label: 'Methodology', prompt: 'Explain the methodology used in this paper.' },
   { label: 'Key findings', prompt: 'Summarize the key findings and results.' },
   { label: 'Follow-up work', prompt: 'Suggest potential follow-up research directions.' },
@@ -451,22 +457,35 @@ export default function PdfAnalysis() {
     }
   };
 
-  const runAnalysis = async (promptOverride = null) => {
-    const finalPrompt = promptOverride !== null ? promptOverride : customPrompt;
-    if (!extractedText || !finalPrompt.trim()) return;
+  /**
+   * kind 'ask'  -> free-text question, backend returns { type: 'custom' }
+   * kind 'gaps' -> omits custom_prompt entirely, which is how the backend
+   *                selects its structured gap-analysis branch and returns
+   *                { type: 'structured', data } for the Findings tab.
+   */
+  const submitAnalysis = async ({ prompt = '', kind = 'ask' } = {}) => {
+    const isGaps = kind === 'gaps';
+    const finalPrompt = isGaps ? '' : prompt;
+    if (!extractedText) return;
+    if (!isGaps && !finalPrompt.trim()) return;
 
-    const userMsg = { id: Date.now(), role: 'user', type: 'text', content: finalPrompt };
+    const userMsg = {
+      id: Date.now(),
+      role: 'user',
+      type: 'text',
+      content: isGaps ? GAP_ANALYSIS_LABEL : finalPrompt,
+    };
     const loadingMsg = { id: Date.now() + 1, role: 'assistant', type: 'text', isLoading: true, content: '' };
 
     setMessages((prev) => [...prev, userMsg, loadingMsg]);
-    if (promptOverride === null) setCustomPrompt('');
     setIsAnalyzing(true);
     setMode('ask');
 
     try {
       const formData = new FormData();
       formData.append('text', extractedText);
-      if (finalPrompt) formData.append('custom_prompt', finalPrompt);
+      // Deliberately omitted for 'gaps' -- its absence is the branch selector.
+      if (!isGaps) formData.append('custom_prompt', finalPrompt);
       if (structure) formData.append('structure', JSON.stringify(structure));
       if (activeChatId) formData.append('chat_id', activeChatId);
       formData.append('history', JSON.stringify(historyPayload(messages)));
@@ -514,10 +533,25 @@ export default function PdfAnalysis() {
     }
   };
 
+  /** Send whatever is in the composer, then clear it. */
+  const sendComposer = () => {
+    const prompt = customPrompt;
+    if (!prompt.trim()) return;
+    setCustomPrompt('');
+    submitAnalysis({ prompt });
+  };
+
+  const runGapAnalysis = () => submitAnalysis({ kind: 'gaps' });
+
+  const runSuggestion = (suggestion) =>
+    suggestion.kind === 'gaps'
+      ? runGapAnalysis()
+      : submitAnalysis({ prompt: suggestion.prompt });
+
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      runAnalysis();
+      sendComposer();
     }
   };
 
@@ -796,8 +830,14 @@ export default function PdfAnalysis() {
                     {messages.length === 1 && (
                       <div className="pdf-suggestions">
                         {SUGGESTIONS.map((s) => (
-                          <button key={s.label} type="button" className="pdf-suggestion-chip" onClick={() => runAnalysis(s.prompt)}>
-                            <Search size={13} />
+                          <button
+                            key={s.label}
+                            type="button"
+                            className="pdf-suggestion-chip"
+                            disabled={isAnalyzing}
+                            onClick={() => runSuggestion(s)}
+                          >
+                            {s.kind === 'gaps' ? <Layers size={13} /> : <Search size={13} />}
                             {s.label}
                           </button>
                         ))}
@@ -806,6 +846,18 @@ export default function PdfAnalysis() {
                     <div ref={chatEndRef} />
                   </div>
                   <div className="pdf-input-container">
+                    <div className="pdf-composer-actions">
+                      <button
+                        type="button"
+                        className="pdf-suggestion-chip"
+                        onClick={runGapAnalysis}
+                        disabled={isAnalyzing || isExtracting}
+                        title="Run a structured gap analysis — results appear under Findings"
+                      >
+                        <Layers size={13} />
+                        Analyse gaps
+                      </button>
+                    </div>
                     <div className="pdf-input-wrapper">
                       <textarea
                         ref={inputRef}
@@ -820,7 +872,7 @@ export default function PdfAnalysis() {
                       <button
                         type="button"
                         className="pdf-send-btn"
-                        onClick={() => runAnalysis()}
+                        onClick={sendComposer}
                         disabled={!customPrompt.trim() || isAnalyzing || isExtracting}
                       >
                         {isAnalyzing ? <Spinner size={16} /> : <Send size={16} />}
@@ -837,10 +889,20 @@ export default function PdfAnalysis() {
                     <div className="pdf-empty-stage compact">
                       <Layers size={28} />
                       <h2>No findings yet</h2>
-                      <p>Ask for research gaps or a methodology diagram — results land here.</p>
-                      <button type="button" className="pdf-new-chat-btn" onClick={() => setMode('ask')}>
-                        Go to Ask
-                      </button>
+                      <p>Run a gap analysis, or ask for a diagram in Ask — results land here.</p>
+                      <div className="pdf-empty-actions">
+                        <button
+                          type="button"
+                          className="pdf-new-chat-btn"
+                          onClick={runGapAnalysis}
+                          disabled={isAnalyzing || isExtracting}
+                        >
+                          {isAnalyzing ? 'Analysing…' : 'Analyse gaps'}
+                        </button>
+                        <button type="button" className="pdf-new-chat-btn" onClick={() => setMode('ask')}>
+                          Go to Ask
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <div className="pdf-findings-stack">

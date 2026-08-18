@@ -32,6 +32,41 @@ import time
 logger = logging.getLogger(__name__)
 
 _gemini_caches = {}
+# Remembers contexts the API refused to cache, so a context that sits just under
+# the real minimum doesn't cost an extra failed round-trip on every request.
+_gemini_cache_failures = {}
+
+_GEMINI_CACHE_TTL_SECONDS = 1800
+_GEMINI_CACHE_FAILURE_TTL = 300
+
+# Minimum context size worth caching.
+#
+# This was 32768, which is the minimum for the *gemini-1.5* generation. The
+# default model here is `gemini-flash-latest`, where the floor is ~1k tokens.
+# At 32768 the gate never opened: PDF chat caps its context at 40 000 chars,
+# which the old `words * 1.3` estimator scored at ~8.7k -- 3.8x below the gate --
+# so the full context was re-sent on every single chat message.
+_GEMINI_CACHE_MIN_TOKENS = 2048
+
+# ~4 chars/token is the standard rule of thumb and holds up on dense academic
+# prose. `len(text.split()) * 1.3` under-counts it by roughly a third, because
+# academic tokens are longer than the ~0.75 words/token that ratio assumes.
+_CHARS_PER_TOKEN = 4
+
+
+def estimate_tokens(text: str) -> int:
+    return len(text or "") // _CHARS_PER_TOKEN
+
+
+def _sweep_expired(now: float) -> None:
+    """Drop lapsed entries; without this both dicts grow for process lifetime."""
+    for name, expiry in list(_gemini_caches.items()):
+        if now >= expiry[1]:
+            del _gemini_caches[name]
+    for name, failed_at in list(_gemini_cache_failures.items()):
+        if now - failed_at >= _GEMINI_CACHE_FAILURE_TTL:
+            del _gemini_cache_failures[name]
+
 
 async def get_or_create_gemini_cache(cache_key: str, system_instruction: str, shared_context: str, model: str = None) -> str | None:
     global _gemini_client
@@ -41,32 +76,46 @@ async def get_or_create_gemini_cache(cache_key: str, system_instruction: str, sh
             return None
         _gemini_client = genai.Client(api_key=key)
 
+    model_name = model or os.getenv("GEMINI_MODEL", "gemini-flash-latest")
+    # A cached content handle is bound to the model that created it, so the model
+    # has to be part of the key -- otherwise a handle made for flash would be
+    # handed to a pro request and rejected.
+    scoped_key = f"{cache_key}|{model_name}"
+
     now = time.time()
-    if cache_key in _gemini_caches:
-        cache_name, expiry = _gemini_caches[cache_key]
+    _sweep_expired(now)
+
+    entry = _gemini_caches.get(scoped_key)
+    if entry:
+        cache_name, expiry = entry
         if now < expiry:
             return cache_name
-        else:
-            del _gemini_caches[cache_key]
+        del _gemini_caches[scoped_key]
 
-    token_est = len(shared_context.split()) * 1.3
-    if token_est < 32768:
+    if estimate_tokens(shared_context) < _GEMINI_CACHE_MIN_TOKENS:
+        return None
+
+    if scoped_key in _gemini_cache_failures:
         return None
 
     try:
-        model_name = model or os.getenv("GEMINI_MODEL", "gemini-flash-latest")
         cache = await _gemini_client.aio.caches.create(
             model=model_name,
             config=genai_types.CreateCachedContentConfig(
                 contents=[shared_context],
                 system_instruction=system_instruction or None,
-                ttl="1800s"
+                ttl=f"{_GEMINI_CACHE_TTL_SECONDS}s"
             )
         )
-        _gemini_caches[cache_key] = (cache.name, now + 1800)
+        _gemini_caches[scoped_key] = (cache.name, now + _GEMINI_CACHE_TTL_SECONDS)
+        logger.info(
+            f"Gemini context cache created for {scoped_key} "
+            f"(~{estimate_tokens(shared_context)} tokens)"
+        )
         return cache.name
     except Exception as e:
-        logger.warning(f"Failed to create Gemini cache for {cache_key}: {e}")
+        _gemini_cache_failures[scoped_key] = now
+        logger.warning(f"Failed to create Gemini cache for {scoped_key}: {e}")
         return None
 
 # Providers and configurations
@@ -740,11 +789,43 @@ async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: in
         yield {"type": "stopped", "reason": "error", "message": f"Unknown provider {effective_provider}"}
 
 
-async def stream_completion_auto(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float, cached_content: str = None):
+async def stream_completion_auto(
+    system_prompt: str,
+    user_prompt: str,
+    max_tokens: int,
+    temperature: float,
+    cached_content: str = None,
+    gemini_cache_resolver=None,
+    user_prompt_cached: str = None,
+):
+    """
+    Cascade across providers, resuming from partial output on failure.
+
+    *gemini_cache_resolver* is an awaitable factory that materialises a Gemini
+    context cache. It is invoked only when the cascade actually reaches Gemini,
+    because creating a cache the run never uses costs an API round-trip for
+    nothing. When it yields a handle, *user_prompt_cached* (the same prompt with
+    the shared context removed) is used for that leg, so the context is sent
+    once via the cache rather than twice.
+    """
     fixed_order = ("openai", "gemini", "groq", "cerebras", "mistral", "huggingface")
     full_accumulated_text = ""
-    
+
     for provider in fixed_order:
+        leg_prompt = user_prompt
+        leg_cache = cached_content if provider == "gemini" else None
+
+        if provider == "gemini" and not leg_cache and gemini_cache_resolver and not full_accumulated_text:
+            # Skipped once output exists: a resumed leg carries a continuation
+            # note, so the context-free prompt would no longer be equivalent.
+            try:
+                leg_cache = await gemini_cache_resolver()
+            except Exception as e:
+                logger.warning(f"Gemini cache resolution failed, sending context inline: {e}")
+                leg_cache = None
+            if leg_cache and user_prompt_cached:
+                leg_prompt = user_prompt_cached
+
         if full_accumulated_text:
             word_count = len(full_accumulated_text.split())
             estimated_tokens = word_count * 1.3
@@ -753,14 +834,14 @@ async def stream_completion_auto(system_prompt: str, user_prompt: str, max_token
                 return
 
             continuation_note = f"\n\n---\nA partial draft has already been written below. Continue seamlessly from exactly where it stops — do not repeat, rephrase, or restart any part of it, and match its existing tone/style:\n\n{full_accumulated_text}\n---\n"
-            effective_user_prompt = user_prompt + continuation_note
+            effective_user_prompt = leg_prompt + continuation_note
         else:
-            effective_user_prompt = user_prompt
+            effective_user_prompt = leg_prompt
 
         yield {"type": "provider_active", "provider": provider, "continuing": bool(full_accumulated_text)}
-        
+
         try:
-            async for chunk in stream_completion(system_prompt, effective_user_prompt, max_tokens, temperature, provider, None, cached_content if provider == "gemini" else None):
+            async for chunk in stream_completion(system_prompt, effective_user_prompt, max_tokens, temperature, provider, None, leg_cache):
                 if chunk.get("type") == "chunk":
                     full_accumulated_text += chunk.get("text", "")
                     yield chunk

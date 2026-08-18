@@ -79,8 +79,18 @@ async def draft_manuscript_stream(request: Request, payload: ManuscriptStreamPay
 @router.post("/api/manuscript/edit")
 @limiter.limit("5/minute")
 async def edit_manuscript_section(request: Request, payload: ManuscriptEditPayload, current_user: dict = Depends(get_current_user)):
-    content = await edit_section(payload.topic, payload.section, payload.current_content, payload.instructions)
-    return {"section": payload.section, "content": content}
+    content, flags = await edit_section(
+        payload.topic,
+        payload.section,
+        payload.current_content,
+        payload.instructions,
+        payload.citation_style,
+    )
+    # Flags travel with the revision so the diff view can warn *before* the user
+    # accepts it, rather than leaving the previous generation's verdict on screen.
+    response = {"section": payload.section, "content": content}
+    response.update(flags)
+    return response
 
 @router.post("/api/manuscript/save")
 @limiter.limit("20/minute")

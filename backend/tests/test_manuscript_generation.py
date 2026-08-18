@@ -1,3 +1,4 @@
+import contextlib
 import os
 import unittest
 from unittest.mock import patch, AsyncMock, MagicMock
@@ -281,6 +282,504 @@ class TestProviderCascadeOrder(unittest.IsolatedAsyncioTestCase):
         with patch.dict(os.environ, self.GEMINI_AND_GROQ):
             with self.assertRaises(RuntimeError):
                 await generate_completion("system", "user", max_tokens=100)
+
+
+class _FakeCursor:
+    def __init__(self, docs):
+        self._docs = docs
+
+    def sort(self, *args, **kwargs):
+        return self
+
+    async def to_list(self, length):
+        return self._docs
+
+
+class _FakeSources:
+    """Stands in for db['sources'], returning per-user uploads."""
+
+    def __init__(self, by_user):
+        self._by_user = by_user
+
+    def find(self, query, *args, **kwargs):
+        return _FakeCursor(self._by_user.get(query.get("user_id"), []))
+
+
+class TestResearchCacheIsolation(unittest.IsolatedAsyncioTestCase):
+    """
+    Regression: _prepare_generation used to append the caller's private uploaded
+    sources directly onto the list object stored in _research_cache. Because that
+    cache is keyed on topic alone and shared process-wide, this caused:
+
+      1. user sources duplicated once per section generated on the topic,
+      2. [N] markers shifting between sections, so the compiled References list
+         no longer matched the citations in previously generated sections,
+      3. one user's private document text appearing in the next user's prompt
+         and reference list.
+
+    The cached list must stay pure public literature; per-user material may only
+    exist on a copy.
+    """
+
+    TOPIC = "convolutional neural networks"
+
+    LITERATURE = [
+        {"title": "paper0", "abstract": "abs0", "evidence": {"results": "r0"}},
+        {"title": "paper1", "abstract": "abs1", "evidence": {"results": "r1"}},
+        {"title": "paper2", "abstract": "abs2", "evidence": {"results": "r2"}},
+    ]
+
+    USER_SOURCES = {
+        "userA": [{"filename": "A_private.pdf", "raw_text": "A confidential results"}],
+        "userB": [{"filename": "B_private.pdf", "raw_text": "B confidential results"}],
+    }
+
+    def setUp(self):
+        manuscript_generation._research_cache.clear()
+
+    async def _prepare_as(self, user_id, section):
+        from services import usage_tracker
+        token = usage_tracker.current_user_id.set(user_id)
+        try:
+            result = await manuscript_generation._prepare_generation(
+                self.TOPIC, section, "", "ieee"
+            )
+        finally:
+            usage_tracker.current_user_id.reset(token)
+        references_mapping, papers, err = result[2], result[4], result[5]
+        self.assertIsNone(err, "topic guardrail unexpectedly rejected the test topic")
+        return [p["title"] for p in papers], references_mapping
+
+    def _pipeline(self):
+        """Enter every upstream patch this class needs; returns an ExitStack."""
+        stack = contextlib.ExitStack()
+        for patcher in (
+            patch.object(manuscript_generation, "search_all",
+                         new=AsyncMock(return_value=[dict(p) for p in self.LITERATURE])),
+            patch.object(manuscript_generation, "_filter_relevant_papers",
+                         new=AsyncMock(side_effect=lambda topic, papers: papers)),
+            patch.object(manuscript_generation, "extract_evidence_for_paper",
+                         new=AsyncMock(return_value=({"results": "r"}, "llm-fallback"))),
+            patch.object(manuscript_generation, "db",
+                         {"sources": _FakeSources(self.USER_SOURCES)}),
+        ):
+            stack.enter_context(patcher)
+        return stack
+
+    async def test_user_sources_are_not_duplicated_across_sections(self):
+        with self._pipeline():
+            expected = ["paper0", "paper1", "paper2", "A_private.pdf"]
+            for section in ("abstract", "methodology", "results"):
+                titles, _ = await self._prepare_as("userA", section)
+                self.assertEqual(titles, expected, f"section {section!r} drifted")
+
+    async def test_citation_numbers_are_stable_across_sections(self):
+        with self._pipeline():
+            _, first = await self._prepare_as("userA", "abstract")
+            baseline = {k: v["title"] for k, v in first.items()}
+            self.assertEqual(baseline["4"], "A_private.pdf")
+
+            for section in ("methodology", "results"):
+                _, mapping = await self._prepare_as("userA", section)
+                self.assertEqual(
+                    {k: v["title"] for k, v in mapping.items()}, baseline,
+                    f"[N] markers changed meaning in section {section!r}",
+                )
+
+    async def test_one_users_upload_never_reaches_another_user(self):
+        with self._pipeline():
+            await self._prepare_as("userA", "abstract")
+            titles, _ = await self._prepare_as("userB", "abstract")
+
+            self.assertNotIn("A_private.pdf", titles,
+                             "user A's private upload leaked into user B's references")
+            self.assertEqual(titles, ["paper0", "paper1", "paper2", "B_private.pdf"])
+
+    async def test_cached_entry_holds_only_public_literature(self):
+        with self._pipeline():
+            await self._prepare_as("userA", "abstract")
+            await self._prepare_as("userA", "methodology")
+
+            cached, _fetched_at = manuscript_generation._research_cache[self.TOPIC]
+            self.assertEqual([p["title"] for p in cached], ["paper0", "paper1", "paper2"])
+
+    async def test_empty_search_is_negatively_cached(self):
+        """An empty result must not re-run the whole pipeline on every retry."""
+        search = AsyncMock(return_value=[])
+        with patch.object(manuscript_generation, "search_all", new=search), \
+             patch.object(manuscript_generation, "_filter_relevant_papers",
+                          new=AsyncMock(side_effect=lambda topic, papers: papers)), \
+             patch.object(manuscript_generation, "db",
+                          {"sources": _FakeSources({})}):
+            await self._prepare_as("userA", "abstract")
+            await self._prepare_as("userA", "methodology")
+
+        self.assertEqual(search.await_count, 1, "empty search result was not cached")
+
+
+class TestGeminiCachePlan(unittest.IsolatedAsyncioTestCase):
+    """
+    Regression: the Gemini cache key was md5(f"{topic}:{provider}:{model}") --
+    it did not include the context it was caching, while the cached path
+    deliberately omitted context from the user prompt. So whichever section ran
+    first froze the context for every later section on that topic: if lit_review
+    ran first its gap-analysis block leaked into the Abstract, and if a section
+    with fewer than two papers ran first, later sections silently lost their
+    reference list while still being told to cite [N] markers.
+    """
+
+    TOPIC = "convolutional neural networks"
+
+    def _key(self, context, model=None, topic=None):
+        return manuscript_generation._gemini_cache_plan(
+            topic or self.TOPIC, context, "sys", model
+        )["cache_key"]
+
+    def test_key_changes_with_context(self):
+        self.assertNotEqual(self._key("reference list A"), self._key("reference list B"))
+
+    def test_key_is_stable_for_identical_context(self):
+        self.assertEqual(self._key("reference list A"), self._key("reference list A"))
+
+    def test_key_changes_with_model_and_topic(self):
+        base = self._key("ctx")
+        self.assertNotEqual(base, self._key("ctx", model="gemini-pro-latest"))
+        self.assertNotEqual(base, self._key("ctx", topic="graph neural networks"))
+
+    def test_plan_wraps_context_in_delimiters(self):
+        plan = manuscript_generation._gemini_cache_plan(self.TOPIC, "REFS", "sys", None)
+        self.assertIn("<context>", plan["shared_context"])
+        self.assertIn("REFS", plan["shared_context"])
+        self.assertEqual(plan["system_instruction"], "sys")
+
+    async def test_no_context_means_no_plan(self):
+        """Nothing to cache when there is no literature context."""
+        manuscript_generation._research_cache.clear()
+        with patch.object(manuscript_generation, "search_all", new=AsyncMock(return_value=[])),              patch.object(manuscript_generation, "_filter_relevant_papers",
+                          new=AsyncMock(side_effect=lambda t, p: p)),              patch.object(manuscript_generation, "db", {"sources": _FakeSources({})}):
+            prep = await manuscript_generation._prepare_generation(
+                self.TOPIC, "abstract", "", "ieee"
+            )
+        self.assertIsNone(prep.cache_plan)
+        self.assertIsNone(prep.cached_content)
+
+    async def test_prompt_keeps_context_when_nothing_is_cached(self):
+        """Dropping context without a cache to hold it would lose the references."""
+        manuscript_generation._research_cache.clear()
+        with patch.object(manuscript_generation, "search_all", new=AsyncMock(return_value=[])),              patch.object(manuscript_generation, "_filter_relevant_papers",
+                          new=AsyncMock(side_effect=lambda t, p: p)),              patch.object(manuscript_generation, "db", {"sources": _FakeSources({})}):
+            prep = await manuscript_generation._prepare_generation(
+                self.TOPIC, "abstract", "UNIQUE-CONTEXT-MARKER", "ieee"
+            )
+        self.assertIsNone(prep.cached_content)
+        self.assertIn("UNIQUE-CONTEXT-MARKER", prep.user_prompt)
+        self.assertNotIn("UNIQUE-CONTEXT-MARKER", prep.user_prompt_cached)
+
+
+class _FakeRefCollection:
+    """Minimal stand-in for db['manuscript_references']."""
+
+    def __init__(self):
+        self.docs = {}
+
+    def find(self, query, *args, **kwargs):
+        return _FakeCursor([])
+
+    async def find_one(self, query, *args, **kwargs):
+        return self.docs.get((query.get("user_id"), query.get("topic")))
+
+    async def update_one(self, query, update, upsert=False):
+        self.docs[(query["user_id"], query["topic"])] = update["$set"]
+
+
+class TestEditSectionGrounding(unittest.IsolatedAsyncioTestCase):
+    """
+    Regression: edit_section called _prepare_generation purely to obtain
+    references_mapping, discarding the other six return values including the
+    prompt it had just built. On a cold research cache that meant search_all
+    across 11 sources, two batched classifier calls, up to 15 evidence
+    extractions and -- for lit_review -- a full analyze_gaps run, all to answer
+    "make paragraph two shorter".
+    """
+
+    TOPIC = "convolutional neural networks"
+    LONG_ABSTRACT = "A long abstract sentence describing the study. " * 40
+
+    def setUp(self):
+        manuscript_generation._research_cache.clear()
+        self.refs = _FakeRefCollection()
+        self.counters = {"search": 0, "filter": 0, "evidence": 0}
+
+    def _pipeline_spies(self):
+        async def search(*a, **k):
+            self.counters["search"] += 1
+            return [
+                {"title": f"paper{i}", "abstract": self.LONG_ABSTRACT,
+                 "authors": "A. Author", "year": "2024"}
+                for i in range(15)
+            ]
+
+        async def filt(topic, papers):
+            self.counters["filter"] += 1
+            return papers
+
+        async def evidence(paper):
+            self.counters["evidence"] += 1
+            return ({"results": "Accuracy 92%.", "method": "A CNN."}, "llm-fallback")
+
+        stack = contextlib.ExitStack()
+        for patcher in (
+            patch.object(manuscript_generation, "search_all", new=search),
+            patch.object(manuscript_generation, "_filter_relevant_papers", new=filt),
+            patch.object(manuscript_generation, "extract_evidence_for_paper", new=evidence),
+            patch.object(manuscript_generation, "db",
+                         {"sources": _FakeSources({}), "manuscript_references": self.refs}),
+        ):
+            stack.enter_context(patcher)
+        return stack
+
+    async def _generate_then_edit(self, section="abstract"):
+        from services import usage_tracker
+        token = usage_tracker.current_user_id.set("userA")
+        try:
+            with self._pipeline_spies():
+                with patch.object(manuscript_generation, "generate_completion",
+                                  new=AsyncMock(return_value="draft")),                      patch.object(manuscript_generation, "check_citation_grounding",
+                                  new=AsyncMock(return_value={})):
+                    await manuscript_generation.generate_section(self.TOPIC, section, "ctx")
+
+                # Cold research cache: a restart, or past the 1h TTL.
+                manuscript_generation._research_cache.clear()
+                for key in self.counters:
+                    self.counters[key] = 0
+
+                captured = {}
+
+                async def capture(system_prompt, user_prompt, **kwargs):
+                    captured["prompt"] = user_prompt
+                    return "revised text"
+
+                with patch.object(manuscript_generation, "generate_completion", new=capture):
+                    await manuscript_generation.edit_section(
+                        self.TOPIC, section, "Some paragraph.", "Make it shorter."
+                    )
+                return captured["prompt"]
+        finally:
+            usage_tracker.current_user_id.reset(token)
+
+    async def test_edit_makes_no_upstream_calls(self):
+        await self._generate_then_edit()
+        self.assertEqual(
+            self.counters, {"search": 0, "filter": 0, "evidence": 0},
+            "editing re-ran the research pipeline",
+        )
+
+    async def test_edit_is_still_grounded_in_the_reference_set(self):
+        prompt = await self._generate_then_edit()
+        sources = prompt.split("<sources>")[1].split("</sources>")[0]
+        self.assertIn("[1]", sources)
+        self.assertIn("paper0", sources)
+        self.assertIn("results: Accuracy 92%.", sources)
+
+    async def test_lit_review_edit_does_not_rerun_gap_analysis(self):
+        with patch("ai.gap_analysis.analyze_gaps", new_callable=AsyncMock) as gaps:
+            gaps.return_value = {"status": "insufficient_literature", "paper_count": 0}
+            await self._generate_then_edit(section="lit_review")
+            generation_calls = gaps.await_count
+        self.assertEqual(generation_calls, 1, "gap analysis ran for the edit as well")
+
+    async def test_source_context_is_bounded(self):
+        prompt = await self._generate_then_edit()
+        sources = prompt.split("<sources>")[1].split("</sources>")[0]
+        self.assertLessEqual(len(sources), manuscript_generation._SOURCE_CONTEXT_CHARS + 100)
+        self.assertLess(len(sources), 15 * len(self.LONG_ABSTRACT))
+
+    async def test_evidence_fields_render_by_name_not_as_a_dict_repr(self):
+        """`v.get('abstract') or v.get('evidence')` used to interpolate a dict."""
+        prompt = await self._generate_then_edit()
+        sources = prompt.split("<sources>")[1].split("</sources>")[0]
+        self.assertNotIn("{'", sources)
+        self.assertNotIn("'results':", sources)
+
+    def test_renderer_prefers_evidence_over_abstract(self):
+        rendered = manuscript_generation._render_source_context([{
+            "index": "1", "title": "T", "authors": "A", "year": "2024",
+            "evidence": {"results": "R"}, "abstract": "SHOULD-NOT-APPEAR",
+        }])
+        self.assertIn("results: R", rendered)
+        self.assertNotIn("SHOULD-NOT-APPEAR", rendered)
+
+    async def test_provider_failure_raises_instead_of_writing_a_note(self):
+        """
+        It used to return current_content + "_(Note: AI revision providers
+        failed...)_" as the content, which the diff view showed as an ordinary
+        addition -- so Accept wrote that note into the manuscript.
+        """
+        from fastapi import HTTPException
+        from services import usage_tracker
+        token = usage_tracker.current_user_id.set("userA")
+        try:
+            with patch.object(manuscript_generation, "db",
+                              {"sources": _FakeSources({}), "manuscript_references": self.refs}),                  patch.object(manuscript_generation, "generate_completion",
+                              new=AsyncMock(side_effect=RuntimeError("all providers down"))):
+                with self.assertRaises(HTTPException) as ctx:
+                    await manuscript_generation.edit_section(
+                        self.TOPIC, "abstract", "Original paragraph.", "Shorten it."
+                    )
+        finally:
+            usage_tracker.current_user_id.reset(token)
+
+        self.assertEqual(ctx.exception.status_code, 503)
+        self.assertNotIn("providers failed", str(ctx.exception.detail))
+
+
+class TestEditVerification(unittest.IsolatedAsyncioTestCase):
+    """
+    Regression (audit Tier 4): revision was the only write path into the
+    manuscript with no verification. edit_section ran neither _citation_flags
+    nor validate_numerical_claims, so a revision could introduce a hallucinated
+    citation or an invented number unchecked -- while the UI kept showing the
+    *previous* generation's verdict, reading as verified about text that no
+    longer existed.
+    """
+
+    TOPIC = "convolutional neural networks"
+    SNAPSHOT = [{
+        "index": "1", "title": "Paper One", "authors": "A. Author", "year": "2024",
+        "evidence": {"results": "Accuracy improved by 12.4%."}, "abstract": "",
+    }]
+
+    def setUp(self):
+        manuscript_generation._research_cache.clear()
+        self.refs = _FakeRefCollection()
+        self.refs.docs[("userA", self.TOPIC)] = {"references": self.SNAPSHOT}
+
+    async def _edit(self, revised, section="results", instructions="Make it bolder.",
+                    grounding=None, current="Old text."):
+        from services import usage_tracker
+        token = usage_tracker.current_user_id.set("userA")
+        try:
+            async def fake_generate(system_prompt, user_prompt, **kwargs):
+                return revised
+
+            async def fake_grounding(content, mapping):
+                return grounding if grounding is not None else {}
+
+            with patch.object(manuscript_generation, "db",
+                              {"sources": _FakeSources({}), "manuscript_references": self.refs}),                  patch.object(manuscript_generation, "generate_completion", new=fake_generate),                  patch.object(manuscript_generation, "check_citation_grounding", new=fake_grounding):
+                return await manuscript_generation.edit_section(
+                    self.TOPIC, section, current, instructions
+                )
+        finally:
+            usage_tracker.current_user_id.reset(token)
+
+    async def test_returns_content_and_flags(self):
+        content, flags = await self._edit("Revised text reaching 12.4% accuracy [1].")
+        self.assertEqual(content, "Revised text reaching 12.4% accuracy [1].")
+        self.assertIsInstance(flags, dict)
+
+    async def test_invented_number_in_a_revision_is_flagged(self):
+        _content, flags = await self._edit("Our method reached 99.9% accuracy [1].")
+        self.assertIn("99.9%", flags["unverified_numbers"])
+
+    async def test_number_supported_by_the_snapshot_is_not_flagged(self):
+        _content, flags = await self._edit("Accuracy improved by 12.4% [1].")
+        self.assertEqual(flags["unverified_numbers"], [])
+
+    async def test_grounding_verdict_is_surfaced(self):
+        verdict = {"citation_map": [
+            {"sentence": "It always outperforms every baseline [1].",
+             "cites": ["1"], "status": "partial", "note": "overgeneralises"}
+        ]}
+        _content, flags = await self._edit(
+            "It always outperforms every baseline [1].", grounding=verdict
+        )
+        self.assertEqual([c["status"] for c in flags["citation_map"]], ["partial"])
+
+    async def test_truncated_revision_is_flagged(self):
+        budget = manuscript_generation._edit_token_budget("x" * 400)
+        # Fills the budget and stops mid-sentence.
+        revised = ("word " * (budget * 4 // 5)).strip() + " and then the argument continues"
+        _content, flags = await self._edit(revised, current="x" * 400)
+        self.assertTrue(flags.get("truncated"))
+
+    async def test_complete_revision_is_not_flagged_as_truncated(self):
+        _content, flags = await self._edit("A short, complete revision [1].")
+        self.assertNotIn("truncated", flags)
+
+    async def test_nonsense_instructions_are_rejected(self):
+        from fastapi import HTTPException
+        with self.assertRaises(HTTPException) as ctx:
+            await self._edit("anything", instructions="   ")
+        self.assertEqual(ctx.exception.status_code, 400)
+
+
+class TestEditPromptFraming(unittest.TestCase):
+    """
+    Regression: _METHOD_RESULTS_FRAMING was local to _prompt(), so a revision
+    carried none of it. A revise pass could turn "it is expected that..." into
+    "we observed that...", undoing the generator's fabrication guard.
+    """
+
+    def _prompt_for(self, section):
+        return manuscript_generation._edit_prompt_fn(
+            "a topic", section, "current content", "shorten it", "sources"
+        )
+
+    def test_methodology_edit_keeps_the_proposed_framing(self):
+        self.assertIn("PROPOSED methodology", self._prompt_for("methodology"))
+
+    def test_results_edit_keeps_the_projected_framing(self):
+        self.assertIn("PROJECTED/EXPECTED", self._prompt_for("results"))
+
+    def test_other_sections_get_no_framing_block(self):
+        prompt = self._prompt_for("abstract")
+        self.assertNotIn("PROPOSED methodology", prompt)
+        self.assertNotIn("PROJECTED/EXPECTED", prompt)
+
+    def test_generation_and_edit_share_one_definition(self):
+        gen = manuscript_generation._prompt("a topic", "results", "", "ieee")
+        edit = self._prompt_for("results")
+        framing = manuscript_generation._METHOD_RESULTS_FRAMING["results"]
+        self.assertIn(framing, gen)
+        self.assertIn(framing, edit)
+
+    def test_braces_in_user_input_do_not_break_the_template(self):
+        prompt = manuscript_generation._edit_prompt_fn(
+            "t", "results", "content with {braces}", "use {placeholders}", "src {x}"
+        )
+        self.assertIn("{braces}", prompt)
+        self.assertIn("{placeholders}", prompt)
+
+
+class TestEditTokenBudget(unittest.TestCase):
+    """
+    Regression: max_tokens was a flat 1200 on edits while lit_review generates
+    at 2000, so revising a long section truncated it mid-sentence -- and the
+    diff view offered the truncation for acceptance without warning.
+    """
+
+    def test_budget_grows_with_the_section(self):
+        short = manuscript_generation._edit_token_budget("x" * 2000)
+        long = manuscript_generation._edit_token_budget("x" * 12000)
+        self.assertGreater(long, short)
+
+    def test_budget_never_drops_below_the_old_floor(self):
+        self.assertGreaterEqual(manuscript_generation._edit_token_budget(""), 1200)
+        self.assertGreaterEqual(manuscript_generation._edit_token_budget("x" * 10), 1200)
+
+    def test_budget_is_capped(self):
+        self.assertLessEqual(
+            manuscript_generation._edit_token_budget("x" * 500000),
+            manuscript_generation._EDIT_MAX_TOKENS,
+        )
+
+    def test_a_long_section_gets_more_than_it_needs_to_echo_itself(self):
+        """The revision must be able to be at least as long as the original."""
+        content = "x" * 12000
+        self.assertGreater(
+            manuscript_generation._edit_token_budget(content), len(content) / 4
+        )
 
 
 if __name__ == '__main__':

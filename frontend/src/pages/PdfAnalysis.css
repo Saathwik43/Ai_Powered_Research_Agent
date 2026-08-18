@@ -715,11 +715,37 @@
   transition: border-color var(--pdf-ease), color var(--pdf-ease), transform var(--pdf-ease), box-shadow var(--pdf-ease);
 }
 
-.pdf-suggestion-chip:hover {
+.pdf-suggestion-chip:hover:not(:disabled) {
   border-color: var(--primary);
   color: var(--primary);
   transform: translateY(-1px);
   box-shadow: 0 6px 16px rgba(15, 17, 21, 0.05);
+}
+
+.pdf-suggestion-chip:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Structured gap analysis: a separate action from free-text chat, because the
+   backend selects that branch by the absence of a prompt. */
+.pdf-composer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.pdf-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.pdf-new-chat-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .assistant-avatar {

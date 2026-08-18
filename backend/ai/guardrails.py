@@ -33,28 +33,60 @@ def _is_wordlike(token: str) -> bool:
     return True
 
 
+# Layer B matches *instruction-shaped* text, not bare vocabulary.
+#
+# The previous list contained bare nouns -- "bypass", "system prompt", "exec(",
+# "eval(", "drop table" -- and was applied to extracted PDF text as well as to
+# user input. That rejected entire fields of legitimate research: coronary
+# artery *bypass* grafting, cache-*bypass* architectures, *bypass* capacitors,
+# and any LLM-safety paper that says "system prompt". A term only signals an
+# injection attempt when it appears as a command aimed at the assistant, so
+# every pattern below requires that imperative framing.
+_INJECTION_PATTERNS = [
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        r"\b(ignore|disregard|forget|override)\b[^.\n]{0,40}?"
+        r"\b(previous|prior|above|preceding|earlier|initial|original|all)\b"
+        r"[^.\n]{0,20}?\b(instruction|prompt|rule|direction|command|guideline)s?\b",
+        r"\b(reveal|repeat|print|output|show|display|leak)\b[^.\n]{0,30}?"
+        r"\byour\b[^.\n]{0,20}?\b(system\s+prompt|instructions|rules)\b",
+        r"\byou\s+are\s+now\b[^.\n]{0,20}?\b(a|an|the)\b",
+        r"\bact\s+as\s+(if\s+you|though\s+you)\b",
+        r"<\s*/?\s*(system|assistant)\s*>",
+    )
+]
+
+
 def validate_layer_b(text: str) -> bool:
     """
-    Validates input using Layer B (injection/sanitization check).
+    Layer B injection check for **user-authored input** (topics, queries,
+    custom prompts).
+
+    Do not call this on retrieved or extracted document content -- use
+    ``validate_document_text`` for that. Untrusted source material is defended
+    by prompt structure (an explicit ``<document>`` delimiter plus a
+    system-prompt rule telling the model to treat it as data), not by a
+    keyword blocklist.
+
     Returns False if the input fails validation.
     """
     if not text or not text.strip():
         return False
 
-    injection_patterns = [
-        r"ignore all previous instructions",
-        r"system prompt",
-        r"bypass",
-        r"drop table",
-        r"exec\(",
-        r"eval\(",
-    ]
-    text_lower = text.lower()
-    for pattern in injection_patterns:
-        if re.search(pattern, text_lower):
-            return False
+    return not any(p.search(text) for p in _INJECTION_PATTERNS)
 
-    return True
+
+def validate_document_text(text: str) -> bool:
+    """
+    Validity check for **extracted document text** (PDF, uploaded source, URL).
+
+    Deliberately does not scan for injection phrases. A paper is allowed to
+    contain any words it likes, including words that would look like an attack
+    if a user had typed them. This only confirms extraction produced something
+    usable; callers must still pass the text to the model inside a
+    ``<document>`` delimiter so it is treated as data rather than instructions.
+    """
+    return bool(text and text.strip())
 
 def validate_input_layers_a_b(text: str) -> bool:
     """

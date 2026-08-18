@@ -473,6 +473,48 @@
   margin-top: 1rem;
 }
 
+/* Verification verdict for a pending revision — sits above the diff so it is
+   read before Accept, not after the text has landed. */
+.revision-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.85rem;
+}
+
+.revision-checks.ok {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: var(--fs-sm);
+  color: var(--success);
+}
+
+.revision-check {
+  border-left: 3px solid var(--warning);
+  background: var(--bg-card);
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 0.85rem;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.revision-check.danger {
+  border-left-color: var(--danger);
+}
+
+.revision-check ul {
+  margin: 0.4rem 0 0;
+  padding-left: 1.1rem;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+.revision-check li {
+  margin-top: 0.2rem;
+}
+
 .manuscript-diff-content {
   padding: 1rem;
   max-height: 400px;

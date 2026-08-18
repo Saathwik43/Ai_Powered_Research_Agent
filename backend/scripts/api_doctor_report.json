@@ -1,0 +1,186 @@
+[
+  {
+    "name": "OpenRouter /models",
+    "ok": true,
+    "code": 200,
+    "ms": 1586,
+    "count": 406,
+    "note": ""
+  },
+  {
+    "name": "NVIDIA NIM /models",
+    "ok": true,
+    "code": 200,
+    "ms": 1292,
+    "count": 102,
+    "note": ""
+  },
+  {
+    "name": "Gemini /models",
+    "ok": true,
+    "code": 200,
+    "ms": 2235,
+    "count": 50,
+    "note": ""
+  },
+  {
+    "name": "DOAJ",
+    "ok": true,
+    "code": 200,
+    "ms": 2711,
+    "count": 15,
+    "note": ""
+  },
+  {
+    "name": "Cerebras /models",
+    "ok": true,
+    "code": 200,
+    "ms": 1327,
+    "count": 3,
+    "note": ""
+  },
+  {
+    "name": "OpenRouter /key",
+    "ok": true,
+    "code": 200,
+    "ms": 1647,
+    "count": 1,
+    "note": ""
+  },
+  {
+    "name": "Groq /models",
+    "ok": true,
+    "code": 200,
+    "ms": 2444,
+    "count": 15,
+    "note": ""
+  },
+  {
+    "name": "Mistral /models",
+    "ok": true,
+    "code": 200,
+    "ms": 1993,
+    "count": 55,
+    "note": ""
+  },
+  {
+    "name": "HuggingFace whoami",
+    "ok": true,
+    "code": 200,
+    "ms": 1226,
+    "count": 1,
+    "note": ""
+  },
+  {
+    "name": "PubMed esearch",
+    "ok": true,
+    "code": 200,
+    "ms": 3775,
+    "count": 15,
+    "note": ""
+  },
+  {
+    "name": "LlamaCloud",
+    "ok": true,
+    "code": 200,
+    "ms": 1218,
+    "count": 1,
+    "note": ""
+  },
+  {
+    "name": "Unpaywall",
+    "ok": true,
+    "code": 200,
+    "ms": 2943,
+    "count": 1,
+    "note": ""
+  },
+  {
+    "name": "Brevo account",
+    "ok": true,
+    "code": 200,
+    "ms": 1075,
+    "count": 1,
+    "note": ""
+  },
+  {
+    "name": "BASE",
+    "ok": false,
+    "code": 200,
+    "ms": 3508,
+    "count": 0,
+    "note": ""
+  },
+  {
+    "name": "GROBID isalive",
+    "ok": false,
+    "code": 503,
+    "ms": 1616,
+    "count": 1,
+    "note": "The space is paused, ask a maintainer to restart it"
+  },
+  {
+    "name": "OpenAI /models",
+    "ok": true,
+    "code": 200,
+    "ms": 2880,
+    "count": 118,
+    "note": ""
+  },
+  {
+    "name": "arXiv",
+    "ok": true,
+    "code": 200,
+    "ms": 4423,
+    "count": 15,
+    "note": ""
+  },
+  {
+    "name": "Crossref",
+    "ok": true,
+    "code": 200,
+    "ms": 4716,
+    "count": 15,
+    "note": ""
+  },
+  {
+    "name": "EuropePMC",
+    "ok": true,
+    "code": 200,
+    "ms": 3882,
+    "count": 15,
+    "note": ""
+  },
+  {
+    "name": "SemanticScholar",
+    "ok": true,
+    "code": 200,
+    "ms": 5313,
+    "count": 15,
+    "note": ""
+  },
+  {
+    "name": "Springer meta/v2",
+    "ok": true,
+    "code": 200,
+    "ms": 5692,
+    "count": 15,
+    "note": ""
+  },
+  {
+    "name": "OpenAlex",
+    "ok": true,
+    "code": 200,
+    "ms": 7835,
+    "count": 15,
+    "note": ""
+  },
+  {
+    "name": "CORE v3",
+    "ok": false,
+    "code": null,
+    "ms": 23581,
+    "count": null,
+    "note": "ReadTimeout: "
+  }
+]

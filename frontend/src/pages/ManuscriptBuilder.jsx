@@ -134,6 +134,81 @@ const TableOrChart = ({ node, children, ...props }) => {
   );
 };
 
+/**
+ * Verification verdict for a pending revision, shown above the diff so the
+ * warning is visible while the change can still be discarded. Revisions
+ * previously bypassed verification entirely, leaving the section's *previous*
+ * verdict on screen — so the UI read "verified" about text that no longer existed.
+ */
+function RevisionChecks({ flags }) {
+  if (!flags) return null;
+
+  const ungrounded = (flags.citationMap || []).filter(
+    (c) => c.status && c.status !== 'grounded'
+  );
+  const issues = [];
+
+  if (flags.truncated) {
+    issues.push({
+      key: 'truncated',
+      tone: 'danger',
+      text: 'This revision may have been cut off before it finished. Check the ending before accepting.',
+    });
+  }
+  if (flags.unverifiedCitations) {
+    issues.push({
+      key: 'citations',
+      tone: 'danger',
+      text: 'Contains citations that could not be matched to the source list.',
+    });
+  }
+  if (ungrounded.length) {
+    issues.push({
+      key: 'grounding',
+      tone: 'warn',
+      text: `${ungrounded.length} sentence${ungrounded.length > 1 ? 's' : ''} not fully supported by the cited source${ungrounded.length > 1 ? 's' : ''}.`,
+      detail: ungrounded.slice(0, 3).map((c) => `“${c.sentence}” — ${c.status}${c.note ? `: ${c.note}` : ''}`),
+    });
+  }
+  if (flags.unverifiedNumbers?.length) {
+    issues.push({
+      key: 'numbers',
+      tone: 'warn',
+      text: `Numbers not found in the sources: ${flags.unverifiedNumbers.slice(0, 8).join(', ')}`,
+    });
+  }
+  if (flags.uncitedClaims?.length) {
+    issues.push({
+      key: 'uncited',
+      tone: 'warn',
+      text: `${flags.uncitedClaims.length} factual-sounding claim${flags.uncitedClaims.length > 1 ? 's' : ''} carry no citation marker.`,
+    });
+  }
+
+  if (!issues.length) {
+    return (
+      <div className="revision-checks ok">
+        <CheckCircle size={14} /> Citations and figures in this revision check out against the source list.
+      </div>
+    );
+  }
+
+  return (
+    <div className="revision-checks">
+      {issues.map((issue) => (
+        <div key={issue.key} className={`revision-check ${issue.tone}`}>
+          <span>{issue.text}</span>
+          {issue.detail && (
+            <ul>
+              {issue.detail.map((d, i) => <li key={i}>{d}</li>)}
+            </ul>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const STEPS = [
   { id: 'abstract',    label: 'Abstract' },
   { id: 'lit_review',  label: 'Literature Review' },
@@ -156,6 +231,9 @@ export default function ManuscriptBuilder() {
   } = manuscriptState;
 
   const [pendingEdit, setPendingEdit] = useState(null);
+  // Verification verdict for the *pending* revision, shown in the diff view so
+  // the user sees it before deciding, not after the text has already landed.
+  const [pendingEditFlags, setPendingEditFlags] = useState(null);
   const [saveStatus, setSaveStatus] = useState('');
   const [printPending, setPrintPending] = useState(false);
   const [showLoad,     setShowLoad]     = useState(false);
@@ -425,6 +503,7 @@ export default function ManuscriptBuilder() {
     if (!editPrompt.trim() || !content[active]) return;
     setEditing(true);
     setEditError('');
+    setPendingEditFlags(null);
     try {
       const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/edit`, {
         method: 'POST',
@@ -432,28 +511,35 @@ export default function ManuscriptBuilder() {
           topic,
           section: active,
           current_content: content[active],
-          instructions: editPrompt
+          instructions: editPrompt,
+          citation_style: citationStyle
         }),
       });
-      if (res.status === 429 || res.status === 503) {
-        if (res.status === 503) {
-          try {
-            const data = await res.json();
-            if (data?.detail?.verification_unavailable) {
-              setEditError('Verification temporarily unavailable, please try again shortly.');
-              return;
-            }
-          } catch(e) {}
-        }
+      if (res.status === 503) {
+        setEditError('AI revision is temporarily unavailable. Please try again in a moment.');
+        return;
+      }
+      if (res.status === 429) {
         setEditError('Rate limit exceeded. Please wait a minute before trying again.');
         return;
       }
       if (!res.ok) {
-        setEditError('Failed to apply revision. Please try again.');
+        const data = await res.json().catch(() => ({}));
+        setEditError(typeof data.detail === 'string' ? data.detail : 'Failed to apply revision. Please try again.');
         return;
       }
       const data = await res.json();
       setPendingEdit(data.content);
+      // The revision carries its own verification verdict. Held against the
+      // pending text, not applied to the section, so the warning is visible
+      // while the diff is still rejectable.
+      setPendingEditFlags({
+        unverifiedNumbers: data.unverified_numbers || [],
+        uncitedClaims: data.uncited_claims || [],
+        citationMap: data.citation_map || [],
+        unverifiedCitations: Boolean(data.unverified_citations),
+        truncated: Boolean(data.truncated),
+      });
       setEditPrompt('');
     } catch (e) {
       setEditError('Network error. Please try again.');
@@ -463,12 +549,23 @@ export default function ManuscriptBuilder() {
   };
 
   const acceptEdit = () => {
-    setEditHistory(prev => ({ 
-      ...prev, 
-      [active]: [...(prev[active] || []).slice(-4), content[active]] 
+    setEditHistory(prev => ({
+      ...prev,
+      [active]: [...(prev[active] || []).slice(-4), content[active]]
     }));
     setContent(prev => ({ ...prev, [active]: pendingEdit }));
+    // The accepted text is now the section, so its verdict replaces the one
+    // left over from generation instead of sitting alongside it.
+    if (pendingEditFlags) {
+      setUnverifiedNumbers(pendingEditFlags.unverifiedNumbers);
+      setUnverifiedWarning(
+        pendingEditFlags.unverifiedCitations
+          ? 'Warning: The revised text contains citations that could not be verified against the provided context. Please verify them independently.'
+          : ''
+      );
+    }
     setPendingEdit(null);
+    setPendingEditFlags(null);
     setRevisePanelOpen(false);
   };
 
@@ -482,6 +579,7 @@ export default function ManuscriptBuilder() {
 
   const rejectEdit = () => {
     setPendingEdit(null);
+    setPendingEditFlags(null);
     setRevisePanelOpen(false);
   };
 
@@ -1086,6 +1184,7 @@ export default function ManuscriptBuilder() {
                   <button className="btn btn-primary" onClick={acceptEdit}><CheckCircle size={16} /> Accept Changes</button>
                 </div>
               </div>
+              <RevisionChecks flags={pendingEditFlags} />
               <div className="manuscript-diff-content">
                 {diffWords(content[active] || '', pendingEdit).map((part, i) => (
                   part.added ? <ins key={i}>{part.value}</ins> :
