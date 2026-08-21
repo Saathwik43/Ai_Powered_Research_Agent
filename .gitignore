@@ -9,12 +9,18 @@ all_fixes.patch
 
 # Local working reports and checklists
 reports/
+Sample paper/
 
 # Test files and artifacts
 test_*.py
 *.xml
 *.pdf
 *.txt
+
+# Logs (including rotated files like backend.log.1)
+*.log
+*.log.*
+backend.log
 
 .cursor/
 .claude/

@@ -1,4 +1,6 @@
 \documentclass[sigconf]{acmart}
+% No inputenc/fontenc here on purpose: acmart loads both itself, and adding
+% them again raises an option clash. The other three templates need them.
 \settopmatter{printacmref=false}
 \renewcommand\footnotetextcopyrightpermission[1]{}
 \pagestyle{plain}

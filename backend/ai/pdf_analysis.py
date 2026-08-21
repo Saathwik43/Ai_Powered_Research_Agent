@@ -187,7 +187,13 @@ async def extract_pdf_structure(file_bytes: bytes) -> dict:
         merged["confidence"] = merged_conf
         structure = merged
 
-    logger.info(f"Extracted PDF Structure: {json.dumps(structure, indent=2)}")
+    logger.info(
+        "Extracted PDF structure: title_len=%s authors=%s abstract_len=%s sections=%s",
+        len(structure.get("title") or ""),
+        len(structure.get("authors") or []),
+        len(structure.get("abstract") or ""),
+        len(structure.get("sections") or {}),
+    )
     return structure
 
 
@@ -333,22 +339,18 @@ async def analyze_uploaded_paper(text: str, custom_prompt: str = None, structure
 CRITICAL FORMATTING RULES:
 1. You MUST format your response using Markdown (use bolding, bullet points, and headers to make the text scannable).
 2. For any mathematical equations, variables, or units with exponents (e.g. 10^3, Beff), you MUST wrap them in LaTeX syntax. Use single dollar signs ($x$) for inline math and double dollar signs ($$x$$) for block equations. Do NOT output raw unformatted math.
-3. When presenting metrics, benchmarks, trends, or workflows, ALWAYS use a fenced Mermaid block starting with ```mermaid.
+3. When presenting workflows, architectures, or pipelines, you MAY use a fenced Mermaid block starting with ```mermaid. Do NOT invent quantitative charts. Do not emit `xychart-beta`, `pie`, or numeric `bar`/`line` arrays unless every number is taken from the document. If the document has no numbers, describe comparisons in prose.
 
-CHOOSE THE RIGHT DIAGRAM:
-- Line chart — trends over time/epochs → xychart-beta with `line [...]`
-- Bar chart — model/method comparisons → xychart-beta with `bar [...]`
-- Pie — percentage / distribution splits → `pie title "..."`
+CHOOSE THE RIGHT DIAGRAM (schematics only, unless numbers are in the document):
 - Flowchart — methodology / pipelines → `flowchart TD` (vertical — NEVER LR for complex flows)
 - Sequence — component interactions → `sequenceDiagram`
 
 DIAGRAM QUALITY RULES (STRICT — diagrams must stay readable):
 - Prefer `flowchart TD` (top-down). Do NOT use `flowchart LR` / `graph LR` for methodologies with more than 4 nodes.
 - Keep each diagram focused: ideally 5–10 nodes. Split large ideas into 2 small diagrams rather than one huge wide one.
-- Node labels with spaces, %, commas, colons, or parentheses MUST be double-quoted, e.g. A["Data prep (80%)"].
+- Node labels with spaces, %, commas, colons, or parentheses MUST be double-quoted, e.g. A["Data prep"].
 - Do NOT put LaTeX ($...$) or Markdown bold inside Mermaid blocks.
 - One clear pathway per flowchart — avoid many disconnected mini-trees side by side.
-- xychart-beta: short x-axis labels (1–2 words), numeric arrays only.
 Example flowchart:
 ```mermaid
 flowchart TD
@@ -357,14 +359,6 @@ flowchart TD
     C -->|Yes| D["Analyze"]
     C -->|No| E["Retry"]
     D --> F["Report"]
-```
-Example bar chart:
-```mermaid
-xychart-beta
-    title "Model Accuracy"
-    x-axis ["Baseline", "SVM", "CNN", "Ours"]
-    y-axis "Accuracy (%)" 0 --> 100
-    bar [62.1, 74.5, 88.0, 91.3]
 ```
 4. If providing code, use standard Markdown code blocks with a language tag.
 """

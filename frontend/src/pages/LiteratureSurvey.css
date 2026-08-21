@@ -785,3 +785,54 @@
 .lit-matched-query-action:hover {
   opacity: 0.7;
 }
+
+.lit-source-outcomes {
+  margin: 0 0 1rem;
+  padding: 0.55rem 0.85rem;
+  border: var(--border-width) solid var(--border);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.lit-source-outcomes summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.lit-source-outcomes summary::-webkit-details-marker {
+  display: none;
+}
+
+.lit-source-outcomes-warn {
+  color: var(--danger, #b00020);
+}
+
+.lit-source-outcomes ul {
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  gap: 0.2rem 1rem;
+}
+
+.lit-source-outcomes li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.lit-source-name {
+  color: var(--text);
+}
+
+.lit-source-outcomes .is-timeout .lit-source-stat,
+.lit-source-outcomes .is-error .lit-source-stat {
+  color: var(--danger, #b00020);
+}
+
+.lit-source-outcomes .is-empty .lit-source-stat,
+.lit-source-outcomes .is-skipped .lit-source-stat {
+  color: var(--text-subtle);
+}

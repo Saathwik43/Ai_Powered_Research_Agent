@@ -4,6 +4,7 @@ import { Maximize2, X, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 import {
   sanitizeMermaidChart,
   normalizeMermaidSvg,
+  sanitizeMermaidSvg,
 } from '../utils/mermaidChart';
 
 const svgCache = new Map();
@@ -23,7 +24,7 @@ async function ensureMermaidInit() {
   if (initialized) return mermaid;
   mermaid.initialize({
     startOnLoad: false,
-    securityLevel: 'loose',
+    securityLevel: 'strict',
     suppressErrorRendering: true,
     flowchart: {
       htmlLabels: false,
@@ -196,7 +197,7 @@ export default function Mermaid({ chart }) {
           const mermaid = await ensureMermaidInit();
           await mermaid.parse(cleanChart);
           const { svg } = await mermaid.render(id, cleanChart);
-          const fixed = normalizeMermaidSvg(svg);
+          const fixed = sanitizeMermaidSvg(normalizeMermaidSvg(svg));
           if (!fixed || fixed.length < 40) throw new Error('Empty diagram SVG');
 
           if (isMounted && containerRef.current) {

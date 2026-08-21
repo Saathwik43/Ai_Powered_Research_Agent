@@ -16,6 +16,14 @@ from fastapi import HTTPException
 from ai.numerical_validator import validate_numerical_claims
 from ai.evidence_extraction import extract_evidence_for_paper
 from ai.citation_grounding import check_citation_grounding
+from ai.mermaid_check import diagram_flags
+from ai.edit_target import (
+    looks_overrun,
+    mark_target,
+    resolve_span,
+    splice,
+    unwrap_echo,
+)
 from core.database import db
 
 logger = logging.getLogger(__name__)
@@ -71,28 +79,8 @@ Instructions:
 8. CRITICAL: {cite_instruction} If no numbered reference list is provided, you may generate without citations but ensure academic rigor.
 9. IMPORTANT: If a provided reference doesn't directly support a claim, state the claim as general background without a citation marker rather than force-citing an irrelevant source.
 10. CRITICAL: DO NOT include a "References", "Bibliography", or "Works Cited" list at the end of the section. The references are compiled and managed externally.
-11. IMPORTANT: Present quantitative data, benchmarks, trends, process flows, or distributions using the appropriate Mermaid diagram block (`xychart-beta`, `pie`, `graph TD`, or `sequenceDiagram`).
-SELECT THE DIAGRAM TYPE BASED ON CONTEXT:
-- Line chart (`xychart-beta` with `line [...]`): For continuous trends over time, epochs, or scaling (e.g. Efficiency vs Year, Accuracy vs Epochs).
-- Bar chart (`xychart-beta` with `bar [...]`): For discrete performance benchmarks, baseline comparisons, or ablation studies (e.g. Model A vs Model B vs Model C).
-- Combined Line & Bar (`xychart-beta` with both `bar [...]` and `line [...]`): For dual metric comparisons (e.g. Accuracy bars + Loss line).
-- Pie chart (`pie title "..." "Category A": 40 "Category B": 60`): For percentage distributions, dataset splits, or resource allocations.
-- Flowchart (`graph TD` / `flowchart TD`): For pipeline architectures, system workflows, or methodology steps.
-
-CRITICAL RULES for xychart-beta:
-- ONLY use simple numerical arrays (e.g. [15.2, 21.0, 29.5, 33.1]).
-- Keep `x-axis` string labels short (1-2 words maximum per label like ["Baseline", "SVM", "RF", "CNN-BLSTM", "Ensemble"]) so they remain clear without overlapping.
-- If data includes error margins (like $\\pm 0.02$), simplify to mean values in arrays and explain deviations in text.
-Example Bar & Line chart:
-```mermaid
-xychart-beta
-    title "Model Performance Comparison"
-    x-axis ["Baseline", "ResNet-50", "Transformer", "Proposed"]
-    y-axis "Accuracy (%)" 0 --> 100
-    bar [65.4, 78.2, 86.5, 92.8]
-    line [65.4, 78.2, 86.5, 92.8]
-```
-NEVER use Markdown tables to simulate graphs."""
+11. FIGURES: You may include a Mermaid diagram only when it is a non-numeric schematic (architecture, pipeline, workflow, sequence). Do NOT invent quantitative charts. Do not emit `xychart-beta`, `pie`, or any `bar [...]` / `line [...]` / slice percentages unless every number appears in the provided <context> (cite the source inline). If the context has no numbers, write the comparison in prose instead of a chart. NEVER use Markdown tables to simulate graphs.
+12. NEVER fabricate experimental results, accuracies, F1 scores, dataset sizes, or other measurements. If the section is projected/expected, say so in prose and do not attach made-up figures."""
     return base
 
 
@@ -225,6 +213,12 @@ def _reference_snapshot(references_mapping: dict) -> list:
             "title": paper.get("title") or "Unknown Title",
             "authors": paper.get("authors") or "",
             "year": paper.get("year") or "",
+            # Not needed for edit grounding, but the LaTeX export reads this same
+            # snapshot to build references.bib and a BibTeX entry without a DOI or
+            # URL is a dead reference. Cheap to carry; expensive to re-fetch.
+            "journal": paper.get("journal") or paper.get("venue") or paper.get("source") or "",
+            "doi": paper.get("doi") or "",
+            "url": paper.get("url") or "",
             "evidence": fields,
             # Only kept as a fallback for papers evidence extraction missed.
             "abstract": "" if fields else (paper.get("abstract") or "")[:_SNAPSHOT_FIELD_CHARS],
@@ -614,12 +608,14 @@ The user has requested the following specific changes or revisions:
 
 Instructions:
 1. Revise the current content strictly according to the user's instructions.
-2. Stay grounded in <sources> - any new or changed claim must be traceable to it . Do not hallucinate citations
-3. Maintain a highly rigorous, well-structured, and formal academic tone unless instructed otherwise.
-4. DO NOT include a title or heading for the section. Start directly with the revised content.
-5. Preserve the epistemic framing of the original — if a claim is written as proposed, projected or expected, it must stay that way. Never convert a proposal into a reported result.
-6. Keep every [N] citation marker attached to the claim it supports. Do not add markers for claims the sources do not support, and do not renumber.
-7. Output ONLY the revised text in clean Markdown, without any conversational filler or introductory remarks like "Here is the revised section."."""
+2. SCOPE — this is the most important rule. Change ONLY what the instructions require. Reproduce every other sentence, list item, citation marker, equation and fenced code block exactly as given, character for character. Do not rephrase, reorder, retitle, reformat or "improve" anything the instructions did not ask you to change. If the instructions name one element (a diagram, a paragraph, a figure, a claim), edit that element and whatever text directly describes it, and leave the rest of the section untouched.
+3. Stay grounded in <sources> - any new or changed claim must be traceable to it . Do not hallucinate citations
+4. Maintain a highly rigorous, well-structured, and formal academic tone unless instructed otherwise.
+5. DO NOT include a title or heading for the section. Start directly with the revised content.
+6. Preserve the epistemic framing of the original — if a claim is written as proposed, projected or expected, it must stay that way. Never convert a proposal into a reported result.
+7. Keep every [N] citation marker attached to the claim it supports. Do not add markers for claims the sources do not support, and do not renumber.
+8. Every ```mermaid block must survive as a complete, valid Mermaid diagram: opened with ```mermaid, closed with ```, and beginning on its own line with the diagram type (`xychart-beta`, `pie`, `flowchart TD`, `sequenceDiagram`, ...). For `xychart-beta`, `bar [...]` and `line [...]` must hold plain numbers only and have exactly as many values as `x-axis` has labels. Never drop a diagram unless the instructions ask you to.
+9. Output ONLY the revised text in clean Markdown, without any conversational filler or introductory remarks like "Here is the revised section."."""
 )
 
 def _edit_prompt_fn(topic: str, section: str, current_content: str, instructions: str, source_context: str = "") -> str:
@@ -634,6 +630,68 @@ def _edit_prompt_fn(topic: str, section: str, current_content: str, instructions
         topic=topic, section=section, current_content=safe_content, instructions=safe_instructions,
         source_context=safe_context or "No source context available",
         section_framing=framing.replace("{", "{{").replace("}", "}}"),
+    )
+
+
+edit_target_prompt_template = PromptTemplate(
+    input_variables=["topic", "section", "marked_content", "target_text", "instructions",
+                     "source_context", "section_framing", "target_rules"],
+    template="""You are an expert academic editor making a SCOPED revision.
+You are editing one excerpt of the "{section}" section of a research paper on the topic: "{topic}".
+
+{section_framing}
+
+Here is the source material and reference list you must stay grounded in - do not introduce claims or citations that aren't supported by it :
+<sources>
+ {source_context}
+</sources>
+
+Here is the full section. It is shown ONLY so you understand the context. The excerpt you may change is marked between ⟦EDIT⟧ and ⟦/EDIT⟧:
+<section>
+{marked_content}
+</section>
+
+This is the ONLY text you may change:
+<target>
+{target_text}
+</target>
+
+The user has requested the following specific changes or revisions:
+<instructions>
+{instructions}
+</instructions>
+
+Instructions:
+1. Revise <target> strictly according to the user's instructions.
+2. CRITICAL: output ONLY the replacement for <target>. Do NOT repeat any text from outside it and do NOT include the ⟦EDIT⟧ markers. Everything outside <target> is preserved automatically — repeating it will duplicate it in the document.
+3. Stay grounded in <sources> - any new or changed claim must be traceable to it . Do not hallucinate citations
+4. Maintain a highly rigorous, well-structured, and formal academic tone unless instructed otherwise.
+5. Preserve the epistemic framing of the original — if a claim is written as proposed, projected or expected, it must stay that way. Never convert a proposal into a reported result.
+6. Keep every [N] citation marker attached to the claim it supports. Do not add markers for claims the sources do not support, and do not renumber.
+{target_rules}
+7. Do not add a heading, a preamble, or any conversational filler like "Here is the revised excerpt."."""
+)
+
+# Extra rule when the span is the body of a ```mermaid block. The fences sit
+# outside the span, so a fenced reply would nest inside the real one.
+_DIAGRAM_TARGET_RULE = """6b. <target> is the source of a Mermaid diagram. Output the diagram source ONLY — no ``` fences, no prose, no explanation. Keep it a valid diagram: begin on the first line with the diagram type (`xychart-beta`, `pie`, `flowchart TD`, `sequenceDiagram`, ...), and for `xychart-beta` keep `bar [...]` / `line [...]` as plain numbers with exactly as many values as `x-axis` has labels."""
+
+
+def _edit_target_prompt_fn(topic: str, section: str, current_content: str, start: int, end: int,
+                           instructions: str, source_context: str = "", target_kind: str = "") -> str:
+    def esc(value: str) -> str:
+        return (value or "").replace("{", "{{").replace("}", "}}")
+
+    framing = _METHOD_RESULTS_FRAMING.get(section.strip().lower(), "")
+    return edit_target_prompt_template.format(
+        topic=topic,
+        section=section,
+        marked_content=esc(mark_target(current_content, start, end)),
+        target_text=esc(current_content[start:end]),
+        instructions=esc(instructions),
+        source_context=esc(source_context) or "No source context available",
+        section_framing=esc(framing),
+        target_rules=_DIAGRAM_TARGET_RULE if target_kind == "diagram" else "",
     )
 
 
@@ -675,7 +733,10 @@ def _edit_token_budget(current_content: str) -> int:
     return max(_EDIT_MIN_TOKENS, min(needed, _EDIT_MAX_TOKENS))
 
 
-async def edit_section(topic: str, section: str, current_content: str, instructions: str, citation_style: str = "ieee"):
+async def edit_section(topic: str, section: str, current_content: str, instructions: str,
+                       citation_style: str = "ieee", target_text: str = None,
+                       target_start: int = None, target_end: int = None,
+                       target_kind: str = None):
     """
     Revise *section* per *instructions*, returning ``(content, flags)``.
 
@@ -684,6 +745,12 @@ async def edit_section(topic: str, section: str, current_content: str, instructi
     could introduce a hallucinated citation or an invented number and nothing
     looked, while the UI kept displaying the *previous* generation's flags -- so
     it read as verified about text that no longer existed.
+
+    When *target_text* names a span of *current_content*, only that span is sent
+    for rewriting and the reply is spliced back in. Text outside the span is
+    copied from the original, so it cannot drift -- see ai/edit_target.py. If the
+    span cannot be located the revision still runs, whole-section, and raises
+    ``target_unresolved`` so the caller can say the scoping did not apply.
     """
     if not validate_input_layers_a_b(instructions):
         raise HTTPException(status_code=400, detail="Revision instructions are unclear or invalid.")
@@ -694,8 +761,20 @@ async def edit_section(topic: str, section: str, current_content: str, instructi
     source_context = _render_source_context(snapshot)
     references_mapping = {entry["index"]: entry for entry in snapshot}
 
-    user_prompt = _edit_prompt_fn(topic, section, current_content, instructions, source_context)
-    max_tokens = _edit_token_budget(current_content)
+    span = resolve_span(current_content, target_text, target_start, target_end)
+    if span:
+        start, end = span
+        target = current_content[start:end]
+        user_prompt = _edit_target_prompt_fn(
+            topic, section, current_content, start, end, instructions, source_context, target_kind
+        )
+        # The model emits only the replacement, so the budget tracks the span --
+        # not the section it happens to sit in.
+        max_tokens = _edit_token_budget(target)
+    else:
+        target = ""
+        user_prompt = _edit_prompt_fn(topic, section, current_content, instructions, source_context)
+        max_tokens = _edit_token_budget(current_content)
 
     try:
         result = await generate_completion(
@@ -715,14 +794,30 @@ async def edit_section(topic: str, section: str, current_content: str, instructi
             },
         )
 
+    # Truncation is judged on what the model actually wrote; every other check
+    # runs on the full section the user is about to accept.
+    reply = result
+    scope_flags = {}
+    if span:
+        replacement = unwrap_echo(reply, unwrap_fence=(target_kind == "diagram"))
+        if looks_overrun(target, replacement):
+            scope_flags["target_overrun"] = True
+        result = splice(current_content, start, end, replacement)
+    elif target_text and target_text.strip():
+        scope_flags["target_unresolved"] = True
+
     flags = await _citation_flags(result, source_context, references_mapping)
     flags.update(validate_numerical_claims(result, snapshot))
+    flags.update(scope_flags)
     if references_mapping:
         flags["formatted_references"] = {
             k: format_citation(v, style=citation_style) for k, v in references_mapping.items()
         }
-    if _looks_truncated(result, max_tokens):
+    if _looks_truncated(reply, max_tokens):
         flags["truncated"] = True
+    # A revision re-emits the whole section, so a ```mermaid block can come back
+    # renamed, unbalanced or gone and nothing else in the pipeline would notice.
+    flags.update(diagram_flags(current_content, result))
 
     return result, flags
 

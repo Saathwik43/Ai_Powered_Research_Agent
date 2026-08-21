@@ -46,6 +46,16 @@ class ManuscriptEditPayload(BaseModel):
     # Without this the editor silently grounded every revision against IEEE,
     # even on a draft the user is writing in APA.
     citation_style: str = "ieee"
+    # Optional element-level scoping. When target_text names a span of
+    # current_content, only that span is rewritten and the reply is spliced back;
+    # everything else is copied verbatim and cannot drift. Offsets are a hint --
+    # the server re-verifies them against current_content. target_kind is
+    # "selection" or "diagram"; a diagram span is the *body* of a ```mermaid
+    # block, so the reply must come back without fences.
+    target_text: Optional[str] = None
+    target_start: Optional[int] = None
+    target_end: Optional[int] = None
+    target_kind: Optional[str] = None
 
 class ManuscriptSavePayload(BaseModel):
     topic: str

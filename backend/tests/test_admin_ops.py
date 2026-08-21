@@ -39,6 +39,38 @@ def test_disabled_sources_map_to_search_tasks():
     ast._DISABLED.clear()
 
 
+def test_arxiv_atom_xml_probe_is_operational():
+    import asyncio
+    from unittest.mock import MagicMock, patch
+
+    from services import admin_status as ast
+
+    xml = """<?xml version="1.0"?>
+    <feed xmlns="http://www.w3.org/2005/Atom">
+      <entry><title>An electron paper</title></entry>
+    </feed>"""
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.headers = {"content-type": "application/atom+xml"}
+    resp.text = xml
+    resp.json.side_effect = ValueError("not json")
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *a):
+            return False
+        async def get(self, *a, **k):
+            return resp
+
+    with patch("services.admin_status.httpx.AsyncClient", _Client):
+        result = asyncio.run(ast.check_arxiv())
+    assert result["status"] == "operational"
+    assert result["probe"]["items"] == 1
+
+
 def test_probe_one_patches_cache_without_running_other_checks():
     async def fake_core():
         return {

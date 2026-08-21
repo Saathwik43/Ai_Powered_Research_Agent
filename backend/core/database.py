@@ -25,8 +25,29 @@ async def ping_db():
         logger.error(e)
         return False
 
+async def _ensure_unique_user_topic() -> None:
+    """(user_id, topic) must be unique so save cannot race into duplicate drafts.
+
+    The previous index on the same keys was not unique. Drop it first; if live
+    duplicates already exist, log and keep serving rather than crash startup.
+    """
+    manuscripts = db["manuscripts"]
+    name = "user_id_1_topic_1"
+    try:
+        info = await manuscripts.index_information()
+        existing = info.get(name)
+        if existing is not None and not existing.get("unique"):
+            await manuscripts.drop_index(name)
+        await manuscripts.create_index([("user_id", 1), ("topic", 1)], unique=True)
+    except Exception as exc:
+        logger.warning(
+            "Could not make manuscripts(user_id, topic) unique: %s", exc
+        )
+
+
 async def ensure_indexes():
-    await db["manuscripts"].create_index([("user_id", 1), ("topic", 1)])
+    await _ensure_unique_user_topic()
+    await db["usage_logs"].create_index([("user_id", 1), ("date", 1)])
     await db["literature"].create_index([("user_id", 1), ("query", 1)])
     await db["users"].create_index("email", unique=True)
     await db["pdf_chats"].create_index([("user_id", 1), ("updated_at", -1)])

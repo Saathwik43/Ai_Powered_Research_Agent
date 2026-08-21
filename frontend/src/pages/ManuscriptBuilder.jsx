@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { CheckCircle, Circle, Save, FileText, Wand2, FolderOpen, X, Search, Sparkles, Send, BookOpen, Bold, Italic, Strikethrough, Link, List, ListOrdered, CheckSquare, Table, Quote, Code, Undo, Redo, Heading1, Heading2, Heading3, Printer, ChevronDown, ExternalLink, Plus } from 'lucide-react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
+import { CheckCircle, Circle, Save, FileText, Wand2, FolderOpen, X, Search, Sparkles, Send, BookOpen, Bold, Italic, Strikethrough, Link, List, ListOrdered, CheckSquare, Table, Quote, Code, Undo, Redo, Heading1, Heading2, Heading3, Printer, ChevronDown, ExternalLink, Plus, Trash2 } from 'lucide-react';
 import './ManuscriptBuilder.css';
 import './PaperPreview.css';
 import { useAuth } from '../context/AuthContext';
@@ -19,6 +19,7 @@ import {
   isMermaidBlock,
   parseCodeLanguage,
   codeChildrenToText,
+  findMermaidBlocks,
 } from '../utils/mermaidChart';
 import SourcesPanel from '../components/SourcesPanel';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
@@ -162,6 +163,43 @@ function RevisionChecks({ flags }) {
       text: 'Contains citations that could not be matched to the source list.',
     });
   }
+  // Checked server-side against the revised text: a revision re-emits the whole
+  // section, so a diagram can come back broken even when the prose is fine.
+  if (flags.diagramErrors?.length) {
+    const n = flags.diagramErrors.length;
+    issues.push({
+      key: 'diagrams',
+      tone: 'danger',
+      text: `${n} diagram${n > 1 ? 's' : ''} in this revision will not render.`,
+      detail: flags.diagramErrors
+        .slice(0, 3)
+        .map((d) => (d.index ? `Diagram ${d.index}: ${d.error}` : d.error)),
+    });
+  }
+  if (flags.diagramsDropped > 0) {
+    const n = flags.diagramsDropped;
+    issues.push({
+      key: 'diagrams-dropped',
+      tone: 'warn',
+      text: `This revision has ${n} fewer diagram${n > 1 ? 's' : ''} than the current section.`,
+    });
+  }
+  // Scoping failed open rather than blocking the revision — say so, because the
+  // user asked for one excerpt and got the whole section back.
+  if (flags.targetUnresolved) {
+    issues.push({
+      key: 'target-unresolved',
+      tone: 'warn',
+      text: 'The text you targeted was no longer found in the section, so the whole section was revised instead. Read the diff before accepting.',
+    });
+  }
+  if (flags.targetOverrun) {
+    issues.push({
+      key: 'target-overrun',
+      tone: 'danger',
+      text: 'The model returned far more text than the excerpt it was asked to replace, so this revision may contain duplicated text.',
+    });
+  }
   if (ungrounded.length) {
     issues.push({
       key: 'grounding',
@@ -188,7 +226,10 @@ function RevisionChecks({ flags }) {
   if (!issues.length) {
     return (
       <div className="revision-checks ok">
-        <CheckCircle size={14} /> Citations and figures in this revision check out against the source list.
+        <CheckCircle size={14} />
+        {flags.scoped
+          ? 'Only the targeted excerpt was rewritten; the rest of the section is unchanged. Citations and figures check out.'
+          : 'Citations and figures in this revision check out against the source list.'}
       </div>
     );
   }
@@ -243,6 +284,9 @@ export default function ManuscriptBuilder() {
   const [draftFilter,  setDraftFilter]  = useState('');
   const [draftLoading, setDraftLoading] = useState(false);
   const [loadError,    setLoadError]    = useState('');
+  const [draftToDelete, setDraftToDelete] = useState(null);
+  const [deletingTopic, setDeletingTopic] = useState('');
+  const [loadedDraftId, setLoadedDraftId] = useState(null);
   const [editPrompt,   setEditPrompt]   = useState('');
   const [editing,      setEditing]      = useState(false);
   const [editError,    setEditError]    = useState('');
@@ -251,6 +295,11 @@ export default function ManuscriptBuilder() {
   const [unverifiedNumbers, setUnverifiedNumbers] = useState([]);
   const [revisePanelOpen, setRevisePanelOpen] = useState(false);
   const [refsOpen, setRefsOpen] = useState(false);
+  // Revision scope. `editScope` is null (whole section), {kind:'selection'} or
+  // {kind:'diagram', index}. Diagram spans are resolved against live content at
+  // send time rather than stored, so editing the section cannot make them stale.
+  const [editScope, setEditScope] = useState(null);
+  const [editorSelection, setEditorSelection] = useState(null);
   
   // Phase B additions
   const [citationStyle, setCitationStyle] = useState('ieee');
@@ -499,11 +548,42 @@ export default function ManuscriptBuilder() {
     document.execCommand('redo');
   };
 
+  // Diagram spans in the *live* section, recomputed as the text changes, so a
+  // chosen "Diagram 2" can never point at a stale offset.
+  const diagramBlocks = useMemo(
+    () => findMermaidBlocks(content[active] || ''),
+    [content, active]
+  );
+
+  // Switching sections invalidates every span, so start over at whole-section.
+  useEffect(() => {
+    setEditScope(null);
+    setEditorSelection(null);
+  }, [active]);
+
+  useEffect(() => {
+    if (editScope?.kind === 'diagram' && !diagramBlocks[editScope.index]) setEditScope(null);
+    if (editScope?.kind === 'selection' && !editorSelection) setEditScope(null);
+  }, [editScope, diagramBlocks, editorSelection]);
+
+  /** The span to revise, resolved against current content, or null for whole-section. */
+  const resolveEditTarget = () => {
+    if (editScope?.kind === 'selection' && editorSelection) {
+      return { ...editorSelection, kind: 'selection' };
+    }
+    if (editScope?.kind === 'diagram') {
+      const block = diagramBlocks[editScope.index];
+      if (block) return { text: block.body, start: block.start, end: block.end, kind: 'diagram' };
+    }
+    return null;
+  };
+
   const applyEdit = async () => {
     if (!editPrompt.trim() || !content[active]) return;
     setEditing(true);
     setEditError('');
     setPendingEditFlags(null);
+    const target = resolveEditTarget();
     try {
       const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/edit`, {
         method: 'POST',
@@ -512,7 +592,15 @@ export default function ManuscriptBuilder() {
           section: active,
           current_content: content[active],
           instructions: editPrompt,
-          citation_style: citationStyle
+          citation_style: citationStyle,
+          // Scoped revision: the server rewrites only this span and splices the
+          // reply back, so text outside it is copied, not regenerated.
+          ...(target && {
+            target_text: target.text,
+            target_start: target.start,
+            target_end: target.end,
+            target_kind: target.kind,
+          }),
         }),
       });
       if (res.status === 503) {
@@ -539,6 +627,11 @@ export default function ManuscriptBuilder() {
         citationMap: data.citation_map || [],
         unverifiedCitations: Boolean(data.unverified_citations),
         truncated: Boolean(data.truncated),
+        diagramErrors: data.diagram_errors || [],
+        diagramsDropped: data.diagrams_dropped || 0,
+        targetUnresolved: Boolean(data.target_unresolved),
+        targetOverrun: Boolean(data.target_overrun),
+        scoped: Boolean(target) && !data.target_unresolved,
       });
       setEditPrompt('');
     } catch (e) {
@@ -583,12 +676,12 @@ export default function ManuscriptBuilder() {
     setRevisePanelOpen(false);
   };
 
-  const save = async () => {
-    if (!topic || !Object.keys(content).length) return;
-    setSaveStatus('saving');
+  const save = async ({ silent } = {}) => {
+    if (!topic.trim()) return;
+    if (!silent) setSaveStatus('saving');
     try {
       const payload = { 
-        topic, 
+        topic: topic.trim(), 
         content,
         gap_analysis: gapAnalysis,
         manuscript_refs: manuscriptRefs,
@@ -598,23 +691,34 @@ export default function ManuscriptBuilder() {
         method: 'POST', 
         body: JSON.stringify(payload) 
       });
-      setSaveStatus(res.ok ? 'saved' : 'error');
-      if (res.ok) setTimeout(() => setSaveStatus(''), 3000);
-    } catch { setSaveStatus('error'); }
+      if (res.ok) {
+        const body = await res.json().catch(() => ({}));
+        if (body.id) setLoadedDraftId(body.id);
+        lastSavedContentRef.current = { topic: topic.trim(), content };
+        if (!silent) {
+          setSaveStatus('saved');
+          setTimeout(() => setSaveStatus(''), 3000);
+        }
+      } else if (!silent) {
+        setSaveStatus('error');
+      }
+    } catch {
+      if (!silent) setSaveStatus('error');
+    }
   };
 
   // Autosave Effect — skip while streaming to avoid stringify thrash
   useEffect(() => {
     if (generating) return;
-    if (!topic || !Object.keys(content).length) return;
-    
-    const currentContentStr = JSON.stringify(content);
-    const lastSavedStr = JSON.stringify(lastSavedContentRef.current);
-    if (currentContentStr === lastSavedStr) return;
+    if (!topic.trim()) return;
+
+    const snapshot = { topic: topic.trim(), content };
+    const currentSnapshot = JSON.stringify(snapshot);
+    const lastSnapshot = JSON.stringify(lastSavedContentRef.current);
+    if (currentSnapshot === lastSnapshot) return;
     
     const timeoutId = setTimeout(() => {
       save();
-      lastSavedContentRef.current = content;
     }, 5000);
     
     return () => clearTimeout(timeoutId);
@@ -626,6 +730,9 @@ export default function ManuscriptBuilder() {
       setDraftLoading(true);
       setLoadError('');
       try {
+        if (topic.trim()) {
+          await save({ silent: true });
+        }
         const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/list`);
         const data = await res.json();
         setDrafts(Array.isArray(data.data) ? data.data : []);
@@ -646,7 +753,7 @@ export default function ManuscriptBuilder() {
     confirmNewPaper();
   };
 
-  const confirmNewPaper = () => {
+  const clearEditor = () => {
     setContent({});
     setTopic('');
     setGapAnalysis(null);
@@ -655,34 +762,80 @@ export default function ManuscriptBuilder() {
     setActive('abstract');
     setUnverifiedWarning('');
     setUnverifiedNumbers([]);
+    setLoadedDraftId(null);
     lastSavedContentRef.current = {};
+  };
+
+  const confirmNewPaper = () => {
+    clearEditor();
     setShowNewPaperConfirm(false);
   };
 
-  const load = async (draftTopic) => {
-    const t = draftTopic.trim();
-    if (!t) return;
+  const load = async (draft) => {
+    const draftId = draft?.id;
+    const rawTopic = typeof draft === 'string' ? draft : (draft?.topic || '');
+    if (!draftId && rawTopic == null) return;
     setLoadError('');
     try {
-      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/load?topic=${encodeURIComponent(t)}`);
+      const params = new URLSearchParams();
+      if (draftId) params.set('draft_id', draftId);
+      else params.set('topic', rawTopic);
+      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/load?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
-        setContent(data.data.content || {});
-        setTopic(data.data.topic || t);
-        if (data.data.gap_analysis) {
-          setGapAnalysis(data.data.gap_analysis);
-          setGapPanelOpen(false); // keep it closed on initial load
+        const loaded = data.data || {};
+        const loadedContent = loaded.content || {};
+        const loadedTopic = loaded.topic || rawTopic || '';
+        setContent(loadedContent);
+        setTopic(loadedTopic);
+        setGapAnalysis(loaded.gap_analysis || null);
+        setManuscriptRefs(loaded.manuscript_refs || null);
+        if (loaded.citation_style) {
+          setCitationStyle(loaded.citation_style);
         }
-        if (data.data.manuscript_refs) {
-          setManuscriptRefs(data.data.manuscript_refs);
+        if (loaded.gap_analysis) {
+          setGapPanelOpen(false);
         }
-        if (data.data.citation_style) {
-          setCitationStyle(data.data.citation_style);
-        }
+        setLoadedDraftId(loaded.id || draftId || null);
+        lastSavedContentRef.current = { topic: (loadedTopic || '').trim(), content: loadedContent };
         setShowLoad(false);
         setDraftFilter('');
       } else { setLoadError('No draft found for this topic.'); }
     } catch { setLoadError('Could not connect.'); }
+  };
+
+  const deleteDraft = async (draft) => {
+    const draftId = draft?.id;
+    const rawTopic = draft?.topic || '';
+    if (!draftId && rawTopic == null) return;
+    const deletingKey = draftId || rawTopic;
+    setDeletingTopic(deletingKey);
+    setLoadError('');
+    try {
+      const params = new URLSearchParams();
+      if (draftId) params.set('draft_id', draftId);
+      else params.set('topic', rawTopic);
+      const res = await authFetch(
+        `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/delete?${params.toString()}`,
+        { method: 'DELETE' }
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setLoadError(body.detail || 'Could not delete draft.');
+        return;
+      }
+      setDrafts(prev => prev.filter(d => (draftId ? d.id !== draftId : d.topic !== rawTopic)));
+      setDraftToDelete(null);
+      const isCurrent = (loadedDraftId && draftId && loadedDraftId === draftId)
+        || (topic && rawTopic && topic === rawTopic);
+      if (isCurrent) {
+        clearEditor();
+      }
+    } catch {
+      setLoadError('Could not delete draft.');
+    } finally {
+      setDeletingTopic('');
+    }
   };
 
   const exportMarkdown = () => {
@@ -738,10 +891,17 @@ export default function ManuscriptBuilder() {
 
   useEffect(() => {
   if (printPending && viewMode === 'paper') {
+    let attempts = 0;
     const waitForCharts = () => {
-      const nodes = document.querySelectorAll('.paper-preview-print .mermaid-chart');
+      // Recharts figures were never waited on, so window.print() could fire
+      // while a .table-chart-container was still unpainted (audit C16).
+      const nodes = document.querySelectorAll(
+        '.paper-preview-print .mermaid-chart, .paper-preview-print .table-chart-container'
+      );
       const allReady = Array.from(nodes).every(n => n.querySelector('svg'));
-      if (allReady) {
+      // Never block the print dialog forever on a chart that will not render —
+      // ~10s, then print what we have rather than leaving the button dead.
+      if (allReady || ++attempts > 100) {
         // Scroll containers clip off-screen SVG when printing — reset scroll origin first
         document.querySelectorAll('.paper-preview-print .mermaid-chart-scroll').forEach((el) => {
           el.scrollTop = 0;
@@ -758,8 +918,12 @@ export default function ManuscriptBuilder() {
 }, [printPending, viewMode]);
 
   const currentStep = STEPS.find(s => s.id === active);
+  const draftTitle = (draft) => {
+    const name = (draft?.topic || '').trim();
+    return name || 'Untitled draft';
+  };
   const visibleDrafts = drafts.filter(draft =>
-    draft.topic?.toLowerCase().includes(draftFilter.trim().toLowerCase())
+    draftTitle(draft).toLowerCase().includes(draftFilter.trim().toLowerCase())
   );
 
   return (
@@ -783,7 +947,7 @@ export default function ManuscriptBuilder() {
               <button className="btn btn-secondary" onClick={handleNewPaper}>
                 <Plus size={14} /> New Paper
               </button>
-              <button className="btn btn-secondary" onClick={() => { setShowLoad(true); setLoadError(''); setDraftFilter(''); }}>
+              <button className="btn btn-secondary" onClick={() => { setShowLoad(true); setLoadError(''); setDraftFilter(''); setDraftToDelete(null); }}>
                 <FolderOpen size={14} /> Load Draft
               </button>
             </div>
@@ -952,7 +1116,7 @@ export default function ManuscriptBuilder() {
                   <Sparkles size={14} /> {rateLimitWait ? `Wait ${rateLimitWait}s` : 'Generate'}
                 </button>
               )}
-              <button className="btn btn-ghost" onClick={save} disabled={!topic || !Object.keys(content).length || saveStatus === 'saving'}>
+              <button className="btn btn-ghost" onClick={save} disabled={!topic.trim() || saveStatus === 'saving'}>
                 <Save size={14} /> {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : 'Save'}
               </button>
             </div>
@@ -1264,6 +1428,12 @@ export default function ManuscriptBuilder() {
                   placeholder={`Write your ${currentStep?.label.toLowerCase()} here, or click Generate for AI assistance...\nUse LaTeX for math (e.g. $E = mc^2$ for inline, $$x^2$$ for block).`}
                   value={(content[active] || '') + (generating ? '▋' : '')}
                   onChange={e => setContent(prev => ({ ...prev, [active]: e.target.value }))}
+                  // Captured so "AI Revise" can scope to it — clicking into the
+                  // revise input drops the browser selection, so it is held here.
+                  onSelect={e => {
+                    const { selectionStart: from, selectionEnd: to, value } = e.target;
+                    setEditorSelection(to > from ? { start: from, end: to, text: value.slice(from, to) } : null);
+                  }}
                   disabled={generating}
                 />
               ) : viewMode === 'preview' ? (
@@ -1389,9 +1559,57 @@ export default function ManuscriptBuilder() {
                     <p style={{ margin: 0, fontSize: 'var(--fs-sm)', fontWeight: 600, color: 'var(--primary)' }}><Sparkles size={14} style={{ display: 'inline', verticalAlign: 'text-bottom' }}/> Revise Section</p>
                     <button type="button" onClick={() => setRevisePanelOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)' }}><X size={16} /></button>
                   </div>
+                  {/* Revision scope. Choosing anything but "Whole section" means
+                      the server rewrites only that span and splices the reply back,
+                      so the rest of the section is copied rather than regenerated. */}
+                  <div className="revise-scope">
+                    <span className="revise-scope-label">Revise:</span>
+                    <button
+                      type="button"
+                      className={`revise-scope-chip${editScope ? '' : ' active'}`}
+                      onClick={() => setEditScope(null)}
+                      disabled={editing || generating}
+                    >
+                      Whole section
+                    </button>
+                    <button
+                      type="button"
+                      className={`revise-scope-chip${editScope?.kind === 'selection' ? ' active' : ''}`}
+                      onClick={() => setEditScope({ kind: 'selection' })}
+                      disabled={editing || generating || !editorSelection}
+                      title={
+                        editorSelection
+                          ? `“${editorSelection.text.slice(0, 80)}${editorSelection.text.length > 80 ? '…' : ''}”`
+                          : 'Select text in the editor first'
+                      }
+                    >
+                      Selected text
+                    </button>
+                    {diagramBlocks.map((block, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        className={`revise-scope-chip${editScope?.kind === 'diagram' && editScope.index === i ? ' active' : ''}`}
+                        onClick={() => setEditScope({ kind: 'diagram', index: i })}
+                        disabled={editing || generating}
+                        title={block.body.slice(0, 120)}
+                      >
+                        {diagramBlocks.length > 1 ? `Diagram ${i + 1}` : 'Diagram'}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="revise-scope-hint">
+                    {editScope
+                      ? 'Only the targeted text is sent for rewriting — everything else is preserved exactly as written.'
+                      : 'The whole section is rewritten. Target a selection or a diagram to leave the rest untouched.'}
+                  </p>
                   <div className="manuscript-revise-row">
                     <input
-                      placeholder="e.g. Make this shorter, add bullet points, fix grammar..."
+                      placeholder={
+                        editScope?.kind === 'diagram'
+                          ? 'e.g. Fix the axis labels, use the numbers from [2]...'
+                          : 'e.g. Make this shorter, add bullet points, fix grammar...'
+                      }
                       value={editPrompt}
                       onChange={e => setEditPrompt(e.target.value)}
                       disabled={editing || generating}
@@ -1464,11 +1682,22 @@ export default function ManuscriptBuilder() {
 
       {/* Load modal */}
       {showLoad && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' }} onClick={() => setShowLoad(false)}>
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' }}
+          onClick={() => {
+            if (draftToDelete) return;
+            setShowLoad(false);
+          }}
+        >
           <div className="animate-scale-in" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 'var(--space-6)', width: '100%', maxWidth: '480px' }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
               <h3 style={{ margin: 0 }}>Load Draft</h3>
-              <button onClick={() => setShowLoad(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', display: 'flex' }}><X size={17} /></button>
+              <button
+                onClick={() => { setShowLoad(false); setDraftToDelete(null); }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', display: 'flex' }}
+              >
+                <X size={17} />
+              </button>
             </div>
             <p style={{ fontSize: 'var(--fs-sm)', marginBottom: 'var(--space-3)' }}>Choose one of your saved manuscript drafts.</p>
             <div style={{ position: 'relative', marginBottom: 'var(--space-4)' }}>
@@ -1485,46 +1714,13 @@ export default function ManuscriptBuilder() {
               )}
               {!draftLoading && visibleDrafts.map((draft) => (
                 <div
-                  key={draft.topic}
-                  onClick={() => load(draft.topic)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justify: 'space-between',
-                    gap: 'var(--space-3)',
-                    padding: 'var(--space-3) var(--space-4)',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--border)',
-                    background: 'var(--bg-muted, rgba(255,255,255,0.03))',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = 'var(--primary)';
-                    e.currentTarget.style.background = 'rgba(99, 102, 241, 0.08)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = 'var(--border)';
-                    e.currentTarget.style.background = 'var(--bg-muted, rgba(255,255,255,0.03))';
-                  }}
+                  key={draft.id || draft.topic}
+                  className="manuscript-draft-row"
+                  onClick={() => load(draft)}
                 >
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div
-                      style={{
-                        fontWeight: 600,
-                        fontSize: 'var(--fs-sm)',
-                        color: 'var(--text-main)',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        display: '-webkit-box',
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: 'vertical',
-                        lineHeight: 1.35,
-                        wordBreak: 'break-word'
-                      }}
-                      title={draft.topic}
-                    >
-                      {draft.topic}
+                    <div className="manuscript-draft-title" title={draftTitle(draft)}>
+                      {draftTitle(draft)}
                     </div>
                     {draft.updated_at && (
                       <div style={{ fontSize: '11px', color: 'var(--text-subtle)', marginTop: '2px' }}>
@@ -1534,16 +1730,71 @@ export default function ManuscriptBuilder() {
                   </div>
                   <button
                     className="btn btn-secondary btn-sm"
-                    onClick={(e) => { e.stopPropagation(); load(draft.topic); }}
+                    onClick={(e) => { e.stopPropagation(); load(draft); }}
                     style={{ flexShrink: 0, height: 'auto', minHeight: '30px', padding: '0.35rem 0.75rem', fontSize: 'var(--fs-xs)' }}
                   >
                     Load
+                  </button>
+                  <button
+                    type="button"
+                    className="manuscript-draft-delete"
+                    aria-label={`Delete draft ${draftTitle(draft)}`}
+                    title="Delete draft"
+                    disabled={Boolean(deletingTopic)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setLoadError('');
+                      setDraftToDelete(draft);
+                    }}
+                  >
+                    {deletingTopic && (deletingTopic === draft.id || deletingTopic === draft.topic) ? <Spinner size={14} /> : <Trash2 size={14} />}
                   </button>
                 </div>
               ))}
             </div>
             <div style={{ display: 'flex', gap: 'var(--space-3)', justifyContent: 'flex-end' }}>
-              <button className="btn btn-ghost" onClick={() => setShowLoad(false)}>Cancel</button>
+              <button className="btn btn-ghost" onClick={() => { setShowLoad(false); setDraftToDelete(null); }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {draftToDelete && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, backdropFilter: 'blur(4px)' }}
+          onClick={() => { if (!deletingTopic) setDraftToDelete(null); }}
+        >
+          <div className="animate-scale-in" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 'var(--space-6)', width: '100%', maxWidth: '400px' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
+              <h3 style={{ margin: 0, color: 'var(--danger)' }}>Delete Draft?</h3>
+              <button
+                onClick={() => { if (!deletingTopic) setDraftToDelete(null); }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', display: 'flex' }}
+              >
+                <X size={17} />
+              </button>
+            </div>
+            <p style={{ fontSize: 'var(--fs-sm)', marginBottom: (loadedDraftId && draftToDelete.id && loadedDraftId === draftToDelete.id) || topic === draftToDelete.topic ? 'var(--space-3)' : 'var(--space-6)' }}>
+              Delete <strong>{draftTitle(draftToDelete)}</strong>? This cannot be undone.
+            </p>
+            {((loadedDraftId && draftToDelete.id && loadedDraftId === draftToDelete.id) || topic === draftToDelete.topic) && (
+              <p style={{ fontSize: 'var(--fs-sm)', marginBottom: 'var(--space-6)', color: 'var(--text-muted)' }}>
+                This is the paper you are currently editing. Deleting it will also clear the editor.
+              </p>
+            )}
+            {loadError && (
+              <p style={{ color: 'var(--danger)', fontSize: 'var(--fs-sm)', marginBottom: 'var(--space-4)' }}>{loadError}</p>
+            )}
+            <div style={{ display: 'flex', gap: 'var(--space-3)', justifyContent: 'flex-end' }}>
+              <button className="btn btn-ghost" onClick={() => setDraftToDelete(null)} disabled={Boolean(deletingTopic)}>Cancel</button>
+              <button
+                className="btn btn-primary"
+                onClick={() => deleteDraft(draftToDelete)}
+                disabled={Boolean(deletingTopic)}
+                style={{ background: 'var(--danger)' }}
+              >
+                {deletingTopic ? <Spinner size={14} /> : 'Yes, Delete Draft'}
+              </button>
             </div>
           </div>
         </div>

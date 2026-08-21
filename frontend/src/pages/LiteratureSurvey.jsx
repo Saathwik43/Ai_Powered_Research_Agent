@@ -19,6 +19,57 @@ import { useSearchRequest } from '../hooks/useSearchRequest';
 const INITIAL_LIMIT = 15;
 const MAX_LIMIT = 100;
 
+const SOURCE_LABELS = {
+  SemanticScholar: 'Semantic Scholar',
+  OpenAlex: 'OpenAlex',
+  Crossref: 'Crossref',
+  PubMed: 'PubMed',
+  arXiv: 'arXiv',
+  GitHub: 'GitHub',
+  Springer: 'Springer',
+  CORE: 'CORE',
+  BASE: 'BASE',
+  EuropePMC: 'Europe PMC',
+  DOAJ: 'DOAJ',
+};
+
+function sourceLabel(name) {
+  return SOURCE_LABELS[name] || name;
+}
+
+function SourceOutcomes({ sources }) {
+  if (!sources?.length) return null;
+  const ok = sources.filter(s => s.status === 'ok').length;
+  const troubled = sources.filter(s => s.status === 'error' || s.status === 'timeout');
+  return (
+    <details className="lit-source-outcomes">
+      <summary>
+        {ok} of {sources.length} databases returned papers
+        {troubled.length > 0 && (
+          <span className="lit-source-outcomes-warn">
+            {' '}· {troubled.map(s => sourceLabel(s.name)).join(', ')} failed
+          </span>
+        )}
+      </summary>
+      <ul>
+        {sources.map((s) => (
+          <li key={s.name} className={`is-${s.status}`}>
+            <span className="lit-source-name">{sourceLabel(s.name)}</span>
+            <span className="lit-source-stat">
+              {s.status === 'ok' && `${s.count} paper${s.count === 1 ? '' : 's'}`}
+              {s.status === 'empty' && 'no matches'}
+              {s.status === 'timeout' && 'timed out'}
+              {s.status === 'error' && (s.error || 'failed')}
+              {s.status === 'skipped' && 'skipped'}
+              {s.ms != null && s.status !== 'skipped' && ` · ${s.ms} ms`}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
 export default function LiteratureSurvey() {
   const { authFetch } = useAuth();
   const { literatureState } = useAppContext();
@@ -43,6 +94,7 @@ export default function LiteratureSurvey() {
   const [fetchedLimit, setFetchedLimit] = useState(INITIAL_LIMIT);
   // Set when the server answered from a semantically similar query's cache.
   const [matchedQuery, setMatchedQuery] = useState('');
+  const [sourceOutcomes, setSourceOutcomes] = useState([]);
   const { run: runSearch, stop: stopRequest } = useSearchRequest();
 
   const PAGE_SIZE = 15;
@@ -94,6 +146,7 @@ export default function LiteratureSurvey() {
     setVisibleCount(15);
     setSaveStatus('');
     setMatchedQuery('');
+    setSourceOutcomes([]);
   }, [
     stopSearch, setQuery, setPapers, setSearchError, setHasSearched,
     setLastQuery, setFilterYear, setFilterSource, setVisibleCount,
@@ -126,6 +179,7 @@ export default function LiteratureSurvey() {
       setServerHasMore(false);
       setFetchedLimit(INITIAL_LIMIT);
       setMatchedQuery('');
+      setSourceOutcomes([]);
 
       try {
         const res = await authFetch(
@@ -159,6 +213,7 @@ export default function LiteratureSurvey() {
         // Non-null only when the server answered from a *different* query's
         // cached result. Surfacing it is mandatory — see services/semantic_cache.py.
         setMatchedQuery(data.matched_query || '');
+        setSourceOutcomes(Array.isArray(data.sources) ? data.sources : []);
       } catch (e) {
         // Superseded/cancelled runs report nothing — whoever aborted them owns
         // the UI now. Without this, an aborted run's error and loading reset
@@ -229,6 +284,9 @@ export default function LiteratureSurvey() {
       setServerHasMore(Boolean(data.has_more));
       setFetchedLimit(data.limit || nextLimit);
       setVisibleCount(prev => prev + PAGE_SIZE);
+      if (Array.isArray(data.sources) && data.sources.length) {
+        setSourceOutcomes(data.sources);
+      }
     } catch (e) {
       console.error(e);
       setSearchError('Network error while loading more. Please try again.');
@@ -441,6 +499,8 @@ export default function LiteratureSurvey() {
           </button>
         </div>
       )}
+
+      {!loading && <SourceOutcomes sources={sourceOutcomes} />}
 
       {/* Toolbar and Filters */}
       {papers.length > 0 && (

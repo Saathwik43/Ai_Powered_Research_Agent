@@ -1,5 +1,7 @@
 /** Shared Mermaid helpers for PDF chat + manuscript rendering. */
 
+import DOMPurify from 'dompurify';
+
 export const MERMAID_LANGS = [
   'mermaid',
   'flowchart',
@@ -88,6 +90,26 @@ export function extractMermaidCharts(content = '') {
   return charts;
 }
 
+/**
+ * Like extractMermaidCharts, but also reports where each diagram *body* sits in
+ * `content`. Used to target a single diagram for revision: the span covers the
+ * body only, so the ``` fences stay outside it and are preserved verbatim by
+ * the server-side splice — a revision cannot lose or malform them.
+ * The fence pattern here must stay in step with _FENCE_RE in ai/mermaid_check.py.
+ */
+export function findMermaidBlocks(content = '') {
+  const blocks = [];
+  const fenced = /```([^\n`]*)\n([\s\S]*?)```/g;
+  let m;
+  while ((m = fenced.exec(content)) !== null) {
+    const body = m[2].replace(/\s+$/, '');
+    if (!body || !isMermaidBlock((m[1] || '').trim(), body)) continue;
+    const start = m.index + m[0].indexOf('\n') + 1;
+    blocks.push({ body, start, end: start + body.length });
+  }
+  return blocks;
+}
+
 function startsWithDiagram(chart) {
   return DIAGRAM_STARTERS.some(
     (k) => chart.startsWith(k) || chart.startsWith(`${k} `) || chart.startsWith(`${k}\n`) || chart.startsWith(`${k}-`)
@@ -148,4 +170,21 @@ export function normalizeMermaidSvg(svg) {
     .replace(/\sstyle=""/g, '')
     .replace(/\swidth="100%"/i, '')
     .replace(/\sheight="100%"/i, '');
+}
+
+export function sanitizeMermaidSvg(svg) {
+  if (!svg) return '';
+  if (typeof window === 'undefined') return svg;
+  return DOMPurify.sanitize(svg, {
+    USE_PROFILES: { svg: true, svgFilters: true },
+    FORBID_TAGS: ['script', 'iframe', 'object', 'embed'],
+    FORBID_ATTR: [
+      'onclick',
+      'onload',
+      'onerror',
+      'onmouseover',
+      'onfocus',
+      'onmouseenter',
+    ],
+  });
 }

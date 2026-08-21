@@ -655,11 +655,13 @@ class TestEditVerification(unittest.IsolatedAsyncioTestCase):
         self.refs.docs[("userA", self.TOPIC)] = {"references": self.SNAPSHOT}
 
     async def _edit(self, revised, section="results", instructions="Make it bolder.",
-                    grounding=None, current="Old text."):
+                    grounding=None, current="Old text.", capture=None, **target):
         from services import usage_tracker
         token = usage_tracker.current_user_id.set("userA")
         try:
             async def fake_generate(system_prompt, user_prompt, **kwargs):
+                if capture is not None:
+                    capture.update(prompt=user_prompt, **kwargs)
                 return revised
 
             async def fake_grounding(content, mapping):
@@ -668,7 +670,7 @@ class TestEditVerification(unittest.IsolatedAsyncioTestCase):
             with patch.object(manuscript_generation, "db",
                               {"sources": _FakeSources({}), "manuscript_references": self.refs}),                  patch.object(manuscript_generation, "generate_completion", new=fake_generate),                  patch.object(manuscript_generation, "check_citation_grounding", new=fake_grounding):
                 return await manuscript_generation.edit_section(
-                    self.TOPIC, section, current, instructions
+                    self.TOPIC, section, current, instructions, "ieee", **target
                 )
         finally:
             usage_tracker.current_user_id.reset(token)
@@ -713,6 +715,185 @@ class TestEditVerification(unittest.IsolatedAsyncioTestCase):
             await self._edit("anything", instructions="   ")
         self.assertEqual(ctx.exception.status_code, 400)
 
+    # -- diagram health --------------------------------------------------
+    # A revision re-emits the whole section, so the ```mermaid block travels
+    # through the model as ordinary text. Nothing used to check what came back.
+
+    CHART = (
+        "```mermaid\nxychart-beta\n"
+        '    x-axis ["Baseline", "Proposed"]\n'
+        "    bar [65.4, 92.8]\n```"
+    )
+
+    async def test_intact_diagram_raises_no_flag(self):
+        _content, flags = await self._edit(
+            f"Prose [1].\n\n{self.CHART}", current=f"Old prose.\n\n{self.CHART}"
+        )
+        self.assertNotIn("diagram_errors", flags)
+        self.assertNotIn("diagrams_dropped", flags)
+
+    async def test_revision_that_breaks_the_diagram_is_flagged(self):
+        broken = (
+            "```mermaid\nxychart-beta\n"
+            '    x-axis ["Baseline", "Proposed"]\n'
+            "    bar [65.4, 92.8%]\n```"
+        )
+        _content, flags = await self._edit(
+            f"Prose [1].\n\n{broken}", current=f"Old prose.\n\n{self.CHART}"
+        )
+        self.assertIn("non-numeric", flags["diagram_errors"][0]["error"])
+
+    async def test_revision_that_silently_drops_the_diagram_is_flagged(self):
+        _content, flags = await self._edit(
+            "Prose [1], and the chart is gone.", current=f"Old prose.\n\n{self.CHART}"
+        )
+        self.assertEqual(flags["diagrams_dropped"], 1)
+
+    async def test_prose_only_section_gets_no_diagram_flags(self):
+        _content, flags = await self._edit("A short, complete revision [1].")
+        self.assertNotIn("diagram_errors", flags)
+        self.assertNotIn("diagrams_dropped", flags)
+
+
+class TestScopedEdit(unittest.IsolatedAsyncioTestCase):
+    """
+    Regression (audit Tier 5, E7): a revision re-emits the whole section, so
+    "fix the chart" came back with untouched paragraphs subtly reworded at
+    temperature 0.45. Prompt rules make that less likely; only splicing makes it
+    impossible. Text outside the target span must be *copied*, never regenerated.
+    """
+
+    TOPIC = "convolutional neural networks"
+    SECTION = (
+        "Opening paragraph grounded in prior work [1].\n\n"
+        "```mermaid\nxychart-beta\n    x-axis [\"A\", \"B\"]\n    bar [1, 2]\n```\n\n"
+        "Closing paragraph about the projected outcome [1]."
+    )
+    CHART = 'xychart-beta\n    x-axis ["A", "B"]\n    bar [1, 2]'
+
+    def setUp(self):
+        manuscript_generation._research_cache.clear()
+        self.refs = _FakeRefCollection()
+        self.refs.docs[("userA", self.TOPIC)] = {"references": TestEditVerification.SNAPSHOT}
+
+    async def _edit(self, revised, current=None, capture=None, **target):
+        from services import usage_tracker
+        token = usage_tracker.current_user_id.set("userA")
+        try:
+            async def fake_generate(system_prompt, user_prompt, **kwargs):
+                if capture is not None:
+                    capture.update(prompt=user_prompt, **kwargs)
+                return revised
+
+            async def fake_grounding(content, mapping):
+                return {}
+
+            with patch.object(manuscript_generation, "db",
+                              {"sources": _FakeSources({}), "manuscript_references": self.refs}),                  patch.object(manuscript_generation, "generate_completion", new=fake_generate),                  patch.object(manuscript_generation, "check_citation_grounding", new=fake_grounding):
+                return await manuscript_generation.edit_section(
+                    self.TOPIC, "results",
+                    self.SECTION if current is None else current,
+                    "Fix the chart.", "ieee", **target
+                )
+        finally:
+            usage_tracker.current_user_id.reset(token)
+
+    def _chart_target(self):
+        start = self.SECTION.index(self.CHART)
+        return {"target_text": self.CHART, "target_start": start,
+                "target_end": start + len(self.CHART), "target_kind": "diagram"}
+
+    async def test_prose_outside_the_span_is_byte_identical(self):
+        # The model returns *only* a new chart; the paragraphs never pass
+        # through it, so they cannot drift even if the model misbehaves.
+        content, _flags = await self._edit(
+            'xychart-beta\n    x-axis ["A", "B"]\n    bar [7, 9]', **self._chart_target()
+        )
+        self.assertIn("Opening paragraph grounded in prior work [1].", content)
+        self.assertIn("Closing paragraph about the projected outcome [1].", content)
+        self.assertIn("bar [7, 9]", content)
+        self.assertNotIn("bar [1, 2]", content)
+
+    async def test_the_fences_survive_because_they_sit_outside_the_span(self):
+        content, flags = await self._edit(
+            'xychart-beta\n    x-axis ["A", "B"]\n    bar [7, 9]', **self._chart_target()
+        )
+        self.assertEqual(content.count("```"), 2)
+        self.assertNotIn("diagram_errors", flags)
+
+    async def test_a_fenced_reply_is_not_nested_inside_the_real_fence(self):
+        content, flags = await self._edit(
+            '```mermaid\nxychart-beta\n    x-axis ["A", "B"]\n    bar [7, 9]\n```',
+            **self._chart_target()
+        )
+        self.assertEqual(content.count("```"), 2)
+        self.assertNotIn("diagram_errors", flags)
+
+    async def test_a_selection_target_rewrites_only_that_sentence(self):
+        target = "Opening paragraph grounded in prior work [1]."
+        content, _flags = await self._edit(
+            "Revised opening grounded in prior work [1].",
+            target_text=target, target_start=0, target_end=len(target),
+            target_kind="selection",
+        )
+        self.assertTrue(content.startswith("Revised opening"))
+        self.assertIn(self.CHART, content)
+        self.assertIn("Closing paragraph about the projected outcome [1].", content)
+
+    async def test_the_model_is_told_to_return_only_the_replacement(self):
+        capture = {}
+        await self._edit("xychart-beta\n    bar [7, 9]", capture=capture, **self._chart_target())
+        self.assertIn("⟦EDIT⟧", capture["prompt"])
+        self.assertIn("output ONLY the replacement for <target>", capture["prompt"])
+        self.assertIn("no ``` fences", capture["prompt"])
+
+    async def test_the_budget_tracks_the_span_not_the_section(self):
+        capture = {}
+        long_section = "x" * 12000 + "\n\n" + self.CHART
+        start = long_section.index(self.CHART)
+        await self._edit(
+            "xychart-beta\n    bar [7, 9]", current=long_section, capture=capture,
+            target_text=self.CHART, target_start=start, target_end=start + len(self.CHART),
+            target_kind="diagram",
+        )
+        self.assertEqual(capture["max_tokens"], manuscript_generation._EDIT_MIN_TOKENS)
+
+    async def test_a_stale_target_falls_back_to_the_whole_section_and_says_so(self):
+        content, flags = await self._edit(
+            "A whole new section [1].", target_text="text that was deleted",
+            target_start=0, target_end=21, target_kind="selection",
+        )
+        self.assertTrue(flags["target_unresolved"])
+        self.assertEqual(content, "A whole new section [1].")
+
+    async def test_a_reply_that_echoes_the_section_is_flagged_as_an_overrun(self):
+        _content, flags = await self._edit(self.SECTION * 3, **self._chart_target())
+        self.assertTrue(flags["target_overrun"])
+
+    async def test_no_target_behaves_exactly_as_before(self):
+        content, flags = await self._edit("A whole new section [1].")
+        self.assertEqual(content, "A whole new section [1].")
+        self.assertNotIn("target_unresolved", flags)
+        self.assertNotIn("target_overrun", flags)
+
+    async def test_flags_are_computed_on_the_spliced_section(self):
+        # Verification runs on the full section the user is about to accept, not
+        # on the fragment the model returned -- so an invented number inside a
+        # scoped replacement is still caught.
+        target = "Opening paragraph grounded in prior work [1]."
+        _content, flags = await self._edit(
+            "Our method reached 99.9% accuracy [1].",
+            target_text=target, target_start=0, target_end=len(target),
+            target_kind="selection",
+        )
+        self.assertIn("99.9%", flags["unverified_numbers"])
+
+    async def test_a_broken_replacement_chart_is_still_caught(self):
+        _content, flags = await self._edit(
+            'xychart-beta\n    x-axis ["A", "B"]\n    bar [1, two]', **self._chart_target()
+        )
+        self.assertIn("non-numeric", flags["diagram_errors"][0]["error"])
+
 
 class TestEditPromptFraming(unittest.TestCase):
     """
@@ -750,6 +931,32 @@ class TestEditPromptFraming(unittest.TestCase):
         )
         self.assertIn("{braces}", prompt)
         self.assertIn("{placeholders}", prompt)
+
+    def test_edit_is_scoped_to_what_was_asked(self):
+        """
+        Without this rule the model rewrites the whole section at temperature
+        0.45 -- "fix the chart" came back with every paragraph reworded.
+        """
+        prompt = self._prompt_for("results")
+        self.assertIn("Change ONLY what the instructions require", prompt)
+        self.assertIn("character for character", prompt)
+
+    def test_edit_prompt_states_the_mermaid_contract(self):
+        prompt = self._prompt_for("results")
+        self.assertIn("```mermaid", prompt)
+        self.assertIn("Never drop a diagram unless the instructions ask you to", prompt)
+
+    def test_scope_rule_does_not_displace_the_existing_rules(self):
+        prompt = self._prompt_for("results")
+        for rule in (
+            "Stay grounded in <sources>",
+            "DO NOT include a title or heading",
+            "Preserve the epistemic framing",
+            "Keep every [N] citation marker",
+            "Output ONLY the revised text",
+        ):
+            with self.subTest(rule=rule):
+                self.assertIn(rule, prompt)
 
 
 class TestEditTokenBudget(unittest.TestCase):

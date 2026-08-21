@@ -5,7 +5,10 @@ imported first so ``.env`` and logging are in place before any service module
 reads settings at import time.
 """
 
-from core.config import get_cors_origins  # noqa: F401 — loads .env + logging on import
+from core.config import (  # noqa: F401 — loads .env + logging on import
+    SECURITY_HEADERS,
+    get_cors_origins,
+)
 
 import logging
 import traceback
@@ -45,9 +48,9 @@ app = FastAPI(title="AI-Powered Research Paper Publishing Agent", lifespan=lifes
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_cors_origins(),
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
 )
 
 app.state.limiter = limiter
@@ -56,11 +59,8 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
-    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
-    response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
+    for name, value in SECURITY_HEADERS.items():
+        response.headers[name] = value
     return response
 
 @app.exception_handler(Exception)

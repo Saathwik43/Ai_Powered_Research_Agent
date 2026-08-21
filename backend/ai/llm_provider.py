@@ -27,6 +27,7 @@ from contextvars import ContextVar
 current_provider: ContextVar[str | None] = ContextVar("current_provider", default=None)
 current_model: ContextVar[str | None] = ContextVar("current_model", default=None)
 from services import usage_tracker
+from ai.model_allowlist import UnsupportedModelError, require_allowed_model, resolve_groq_model
 import time
 
 logger = logging.getLogger(__name__)
@@ -125,7 +126,7 @@ OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "~anthropic/claude-sonnet-lates
 HUGGINGFACE_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN")
 HF_MODEL = os.getenv("HUGGINGFACE_MANUSCRIPT_MODEL", "mistralai/Mixtral-8x7B-Instruct-v0.1")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_MODEL = resolve_groq_model()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
@@ -249,7 +250,7 @@ async def _generate_groq(system_prompt: str, user_prompt: str, max_tokens: int, 
     if not key:
         raise RuntimeError("GROQ_API_KEY is not configured.")
     payload = {
-        "model": os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+        "model": resolve_groq_model(),
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -456,6 +457,23 @@ _TELEMETRY_NAMES = {
 }
 
 
+def _http_status(exc: BaseException) -> int | None:
+    resp = getattr(exc, "response", None)
+    return getattr(resp, "status_code", None) if resp is not None else None
+
+
+def _should_retry_llm(exc: BaseException) -> bool:
+    """404/4xx (except 429) are configuration errors — retrying only spams logs."""
+    status = _http_status(exc)
+    if status is None:
+        return True
+    if status == 429:
+        return False
+    if 400 <= status < 500:
+        return False
+    return True
+
+
 async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: int = 1200, temperature: float = 0.45, provider_override: str = None, model: str = None, cached_content: str = None) -> str:
     """
     Attempts to generate a completion by cascading through configured AI providers.
@@ -464,7 +482,12 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
     effective_model = model or current_model.get()
 
     if effective_provider:
-        effective_provider = effective_provider.lower()
+        try:
+            effective_provider, effective_model = require_allowed_model(
+                effective_provider, effective_model
+            )
+        except UnsupportedModelError as exc:
+            raise RuntimeError(str(exc)) from exc
         provider_fn = None
         if effective_provider == "openai":
             provider_fn = _generate_openai
@@ -503,9 +526,11 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
                     await usage_tracker.log_usage(user_id, tokens, effective_provider.title())
                 return result
             except Exception as e:
+                status = _http_status(e)
                 logger.error(f"{effective_provider.title()} generation failed (attempt {attempt + 1}): {e}")
-                if attempt == 0:
-                    await asyncio.sleep(2)
+                if not _should_retry_llm(e) or attempt > 0:
+                    break
+                await asyncio.sleep(2)
         raise RuntimeError(f"{effective_provider.title()} provider failed to generate a completion.")
 
     providers = []
@@ -554,8 +579,9 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
                     logger.info(f"{provider_name} skipped: rate limited(429), moving to nextt provider.")
                     break
                 logger.error(f"{provider_name} generation failed (attempt {attempt + 1}): {e}")
-                if attempt == 0:
-                    await asyncio.sleep(2)
+                if not _should_retry_llm(e) or attempt > 0:
+                    break
+                await asyncio.sleep(2)
         if LLM_PROVIDER != "auto":
             break
             
@@ -634,8 +660,14 @@ async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: in
     if not effective_provider:
         yield {"type": "stopped", "reason": "error", "message": "Provider not specified."}
         return
-        
-    effective_provider = effective_provider.lower()
+
+    try:
+        effective_provider, effective_model = require_allowed_model(
+            effective_provider, effective_model
+        )
+    except UnsupportedModelError as exc:
+        yield {"type": "stopped", "reason": "error", "message": str(exc)}
+        return
     
     if effective_provider == "groq":
         key = os.getenv("GROQ_API_KEY")
@@ -643,7 +675,7 @@ async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: in
             yield {"type": "stopped", "reason": "error", "message": "GROQ_API_KEY not configured."}
             return
         payload = {
-            "model": effective_model or os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+            "model": resolve_groq_model(effective_model),
             "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
             "temperature": temperature,
             "max_tokens": max_tokens,

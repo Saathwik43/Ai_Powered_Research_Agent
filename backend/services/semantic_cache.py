@@ -81,13 +81,14 @@ class SemanticHit:
     matched_query: str
     similarity: float
     mode: str  # MODE_VERBATIM | MODE_RERANK
+    sources: tuple = ()
 
     @property
     def needs_rerank(self) -> bool:
         return self.mode == MODE_RERANK
 
 
-# bucket -> {cache_key: (embedding, papers, display_query, stored_at)}
+# bucket -> {cache_key: (embedding, papers, display_query, stored_at[, sources])}
 # Bucketed by the caller's fan-out parameters so a limit=5 search can never be
 # served from a limit=50 entry.
 _store: dict[str, dict[str, tuple]] = {}
@@ -103,7 +104,7 @@ def _cosine(a: list, b: list) -> float:
 
 
 def _prune(bucket: dict, now: float) -> None:
-    for key in [k for k, (_, _, _, stored_at) in bucket.items() if now - stored_at >= TTL_SECONDS]:
+    for key in [k for k, entry in bucket.items() if now - entry[3] >= TTL_SECONDS]:
         del bucket[key]
     while len(bucket) > MAX_ENTRIES:
         oldest = min(bucket, key=lambda k: bucket[k][3])
@@ -130,17 +131,19 @@ def lookup(bucket_key: str, cache_key: str, query_embedding: list) -> SemanticHi
 
     best_similarity = 0.0
     best_entry = None
-    for key, (embedding, papers, display_query, _stored_at) in bucket.items():
+    for key, entry in bucket.items():
         if key == cache_key:
             continue
+        embedding, papers, display_query = entry[0], entry[1], entry[2]
+        sources = entry[4] if len(entry) > 4 else ()
         similarity = _cosine(query_embedding, embedding)
         if similarity > best_similarity:
-            best_similarity, best_entry = similarity, (papers, display_query)
+            best_similarity, best_entry = similarity, (papers, display_query, sources)
 
     if best_entry is None or best_similarity < RERANK_THRESHOLD:
         return None
 
-    papers, display_query = best_entry
+    papers, display_query, sources = best_entry
     mode = MODE_VERBATIM if best_similarity >= VERBATIM_THRESHOLD else MODE_RERANK
     logger.info(
         "Semantic cache %s hit (%.4f): serving '%s'", mode, best_similarity, display_query
@@ -152,15 +155,17 @@ def lookup(bucket_key: str, cache_key: str, query_embedding: list) -> SemanticHi
         matched_query=display_query,
         similarity=best_similarity,
         mode=mode,
+        sources=tuple(sources or ()),
     )
 
 
-def store(bucket_key: str, cache_key: str, query_embedding: list, display_query: str, papers: list) -> None:
+def store(bucket_key: str, cache_key: str, query_embedding: list, display_query: str, papers: list, sources=()) -> None:
     """Remember *papers* as the answer to *display_query*. No-op without an embedding."""
     if not query_embedding or not papers:
         return
     bucket = _store.setdefault(bucket_key, {})
-    bucket[cache_key] = (query_embedding, [dict(p) for p in papers], display_query, time.time())
+    payload = (query_embedding, [dict(p) for p in papers], display_query, time.time(), tuple(sources or ()))
+    bucket[cache_key] = payload
     _prune(bucket, time.time())
 
 

@@ -7,6 +7,14 @@
 
 /* ─── Shared Base ──────────────────────────────────────────────────── */
 .paper-preview {
+  /* Figure geometry. Every format sets ONLY these two; the screen preview and
+     the print stylesheet both read them, so the two can no longer disagree.
+     Previously IEEE had a full figure block and apa/chicago/oxford had none,
+     which is why a graph looked right in the preview and broke in the PDF
+     for exactly the non-IEEE formats (audit C15). */
+  --fig-max-width: 5.5in;
+  --fig-max-height: 3.75in;
+  --fig-chart-height: 2.6in;
   background: #fff;
   color: #111;
   padding: 2.5rem 2rem;
@@ -127,6 +135,79 @@
 }
 
 
+/* ─── Figures: Mermaid diagrams and Recharts charts ──────────────────
+   One block for every format, sized from --fig-max-width / --fig-max-height.
+   Applies to the on-screen preview AND to the hidden .paper-preview-print
+   clone (which also carries .paper-preview), so Recharts measures the real
+   figure width up front instead of an arbitrary container width. */
+.paper-preview .mermaid-figure,
+.paper-preview .table-chart-container {
+  width: var(--fig-max-width);
+  max-width: 100%;
+  margin: 0.55em auto;
+  box-sizing: border-box;
+  column-span: none;
+  /* A figure must never be split across a column or a page. IEEE carried these
+     three; apa/chicago/oxford carried none -- which is why a tall graph
+     survived IEEE and broke in Chicago (audit C13). */
+  break-inside: avoid;
+  -webkit-column-break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.paper-preview .mermaid-figure {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+  position: relative;
+}
+
+.paper-preview .mermaid-chart-scroll {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 100%;
+  max-height: var(--fig-max-height);
+  overflow: hidden;
+  padding: 0.05in 0;
+  cursor: zoom-in;
+  box-sizing: border-box;
+}
+
+.paper-preview .mermaid-chart {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* The viewport above is `overflow: hidden`, so the SVG must be bounded by the
+   SAME height or a tall diagram is cut off instead of scaled down (audit C14). */
+.paper-preview .mermaid-chart svg {
+  display: block;
+  width: auto !important;
+  height: auto !important;
+  max-width: 100% !important;
+  max-height: var(--fig-max-height) !important;
+  margin: 0 auto;
+}
+
+/* TableOrChart renders its chart box with inline height/background/border.
+   A stylesheet !important outranks a non-!important inline style, which is how
+   the card chrome gets stripped for print without touching the JSX. */
+.paper-preview .table-chart-container > div:last-child {
+  width: 100% !important;
+  height: var(--fig-chart-height) !important;
+  max-height: calc(var(--fig-max-height) - 0.4in);
+  padding: 0.12in !important;
+  background: transparent !important;
+  border: none !important;
+  box-sizing: border-box;
+}
+
+
 /* ─── IEEE Format ────────────────────────────────────────────────────
    Layout numbers from IEEE Graphics / IEEEtran author guidelines:
    - Column width:  3.5 in  (88.9 mm / 21 picas)
@@ -134,9 +215,12 @@
    - Max figure depth: 8.5 in (leave room for caption → cap graphics lower)
 */
 .paper-preview.format-ieee {
-  --ieee-col-width: 3.5in;
   --ieee-page-width: 7.16in;
-  --ieee-fig-max-height: 3.5in;
+  /* One-column graphic: 3.5in wide, capped at 3.5in tall. Everything else
+     about figures comes from the shared block above. */
+  --fig-max-width: 3.5in;
+  --fig-max-height: 3.5in;
+  --fig-chart-height: 2.4in;
   font-family: 'Times New Roman', 'Noto Serif', Georgia, serif;
   font-size: 10pt;
   line-height: 1.35;
@@ -177,69 +261,12 @@
   font-size: 8.5pt;
 }
 
-/* IEEE figures: one-column graphic = 3.5in wide, ≤3.5in tall (IEEE max depth 8.5in) */
-.paper-preview.format-ieee .mermaid-figure,
-.paper-preview.format-ieee .table-chart-container {
-  width: var(--ieee-col-width);
-  max-width: 100%;
-  margin: 0.55em auto;
-  box-sizing: border-box;
-  break-inside: avoid;
-  -webkit-column-break-inside: avoid;
-  page-break-inside: avoid;
-  column-span: none;
-}
-
-.paper-preview.format-ieee .mermaid-figure {
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  overflow: visible;
-  position: relative;
-}
-
-.paper-preview.format-ieee .mermaid-chart-scroll {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--ieee-col-width);
-  max-width: 100%;
-  max-height: var(--ieee-fig-max-height);
-  overflow: hidden;
-  padding: 0.05in 0;
-  cursor: zoom-in;
-  box-sizing: border-box;
-}
-
-.paper-preview.format-ieee .mermaid-chart {
-  display: block;
-  width: 100%;
-  min-width: 0;
-  max-width: 100%;
-}
-
-.paper-preview.format-ieee .mermaid-chart svg {
-  display: block;
-  width: auto !important;
-  height: auto !important;
-  max-width: 100% !important;
-  max-height: var(--ieee-fig-max-height) !important;
-  margin: 0 auto;
-}
-
+/* IEEE-only figure trim. Sizing itself lives in the shared block above. */
 .paper-preview.format-ieee .mermaid-expand-btn {
   right: 0.15rem;
   bottom: 0.15rem;
   transform: scale(0.85);
   transform-origin: bottom right;
-}
-
-.paper-preview.format-ieee .table-chart-container > div:last-child {
-  width: 100% !important;
-  height: 2.4in !important;
-  max-height: calc(var(--ieee-fig-max-height) - 0.4in);
-  padding: 0.12in !important;
-  box-sizing: border-box;
 }
 
 .paper-preview.format-ieee .table-chart-container > div:first-child {
@@ -360,11 +387,18 @@
 
 
 /* ─── Print Styles (for PDF export via browser print) ──────────────── */
+/* Laid out off-screen rather than display:none, because Recharts'
+   ResponsiveContainer measures its parent and paints an SVG at that size ONCE.
+   The width here must therefore be the *printed* text block (letter minus the
+   @page side margins), not an arbitrary 800px — otherwise the chart is painted
+   for a container it will never be printed in and overflows its box in the PDF
+   (audit C16). Figure widths inside come from --fig-max-width, which the shared
+   .paper-preview block applies to this clone too. */
 .paper-preview-print {
   position: absolute;
   left: -9999px;
   top: 0;
-  width: 800px;
+  width: 7.16in;
   visibility: hidden;
 }
 @media print {
@@ -419,21 +453,19 @@
     -webkit-column-break-inside: avoid;
   }
 
-  /* Mermaid / charts: print full graphic at IEEE column size (not page-wide) */
+  /* Figures print from the same --fig-* tokens the screen preview uses, so the
+     preview and the PDF cannot drift apart (audit C15).
+
+     What this replaced: one rule set `overflow: visible !important;
+     max-height: none !important` for every format, then a higher-specificity
+     `:not(.format-ieee)` rule re-clipped the viewport at 4in while leaving the
+     figure unbounded. Non-IEEE graphics were cut off rather than scaled, and
+     only IEEE carried break-inside, so a tall Chicago figure also split across
+     pages (audit C13, C14). */
   .paper-preview-print .mermaid-figure,
-  .paper-preview-print .mermaid-chart-scroll {
-    overflow: visible !important;
-    max-height: none !important;
-  }
-
-  .paper-preview-print .mermaid-expand-btn {
-    display: none !important;
-  }
-
-  .paper-preview-print.format-ieee .mermaid-figure,
-  .paper-preview-print.format-ieee .table-chart-container {
-    width: 3.5in !important;
-    max-width: 3.5in !important;
+  .paper-preview-print .table-chart-container {
+    width: var(--fig-max-width) !important;
+    max-width: 100% !important;
     margin: 0.5em auto !important;
     column-span: none !important;
     break-inside: avoid;
@@ -444,57 +476,50 @@
     overflow: visible !important;
   }
 
-  .paper-preview-print.format-ieee .mermaid-chart-scroll {
+  .paper-preview-print .mermaid-chart-scroll {
     display: flex !important;
     align-items: center;
     justify-content: center;
-    width: 3.5in !important;
-    max-height: 3.5in !important;
+    width: 100% !important;
+    max-width: 100% !important;
     height: auto !important;
+    max-height: var(--fig-max-height) !important;
     padding: 0.05in 0 !important;
     overflow: hidden !important;
   }
 
-  .paper-preview-print.format-ieee .mermaid-chart {
+  .paper-preview-print .mermaid-chart {
     display: block !important;
     width: 100% !important;
-    max-width: 3.5in !important;
+    max-width: 100% !important;
     min-width: 0 !important;
   }
 
-  .paper-preview-print.format-ieee .mermaid-chart svg {
+  /* Bounded by the same height as its `overflow: hidden` viewport, so an
+     oversized diagram scales down to fit instead of being clipped. */
+  .paper-preview-print .mermaid-chart svg {
     width: auto !important;
     height: auto !important;
-    max-width: 3.5in !important;
-    max-height: 3.5in !important;
+    max-width: 100% !important;
+    max-height: var(--fig-max-height) !important;
   }
 
-  .paper-preview-print.format-ieee .table-chart-container > div:last-child {
-    width: 3.5in !important;
-    height: 2.4in !important;
-    max-height: 2.4in !important;
+  .paper-preview-print .table-chart-container > div:last-child {
+    width: 100% !important;
+    height: var(--fig-chart-height) !important;
+    max-height: calc(var(--fig-max-height) - 0.4in) !important;
+    background: transparent !important;
+    border: none !important;
   }
 
-  /* Non-IEEE formats: keep readable single-column figure width */
-  .paper-preview-print:not(.format-ieee) .mermaid-figure,
-  .paper-preview-print:not(.format-ieee) .table-chart-container {
-    width: 5.5in;
-    max-width: 100%;
-    max-height: 4in;
-    margin: 0.75em auto;
-    column-span: none;
+  .paper-preview-print .mermaid-expand-btn {
+    display: none !important;
   }
 
-  .paper-preview-print:not(.format-ieee) .mermaid-chart-scroll {
-    max-height: 4in !important;
-    overflow: hidden !important;
-  }
-
-  .paper-preview-print:not(.format-ieee) .mermaid-chart svg {
-    max-width: 5.5in !important;
-    width: auto !important;
-    max-height: 3.75in !important;
-    height: auto !important;
+  /* @page cannot be scoped per format, so it carries IEEE's 7.16in text block
+     (below) and the other formats inset themselves to an effective 1in margin. */
+  .paper-preview-print:not(.format-ieee) {
+    padding: 0 0.33in !important;
   }
 }
 

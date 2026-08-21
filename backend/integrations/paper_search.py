@@ -4,7 +4,7 @@ import math
 import re
 import time
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from integrations.openalex import search_papers as openalex_search
 from integrations.arxiv import search_papers as arxiv_search
@@ -45,6 +45,22 @@ SHARED_LIMIT_PER_SOURCE = 20
 
 # How many top-ranked papers get a semantic embedding for reranking.
 RERANK_WINDOW = 30
+
+# Fan-out order. Outcomes are reported in this order so a PRISMA-style
+# "which databases were searched" line is stable across cache hits.
+SOURCE_NAMES = (
+    "SemanticScholar",
+    "OpenAlex",
+    "Crossref",
+    "PubMed",
+    "arXiv",
+    "GitHub",
+    "Springer",
+    "CORE",
+    "BASE",
+    "EuropePMC",
+    "DOAJ",
+)
 
 def _current_year() -> int:
     """Read the year per call — a module constant goes stale on New Year in a
@@ -294,6 +310,33 @@ def _rank_papers(query: str, papers: list) -> list:
 
 
 @dataclass(frozen=True)
+class SourceOutcome:
+    """What one database did for this query.
+
+    status:
+      ok       — parsed at least one record
+      empty    — the source answered, nothing matched
+      error    — exception / unusable response
+      timeout  — cancelled by the aggregate ceiling
+      skipped  — disabled or excluded before the request
+    """
+
+    name: str
+    status: str
+    count: int = 0
+    ms: int | None = None
+    error: str | None = None
+
+    def as_dict(self) -> dict:
+        out = {"name": self.name, "status": self.status, "count": self.count}
+        if self.ms is not None:
+            out["ms"] = self.ms
+        if self.error:
+            out["error"] = self.error
+        return out
+
+
+@dataclass(frozen=True)
 class SearchMeta:
     """
     How a result was obtained.
@@ -301,11 +344,43 @@ class SearchMeta:
     ``matched_query`` is set only when the semantic cache answered with a
     *different* query's results. Callers must surface it — see
     services/semantic_cache.py on why silent substitution is not acceptable.
+
+    ``sources`` is the per-database yield for this search. A result set where
+    CORE timed out is no longer indistinguishable from one where CORE returned
+    20 papers — that was the gap the API integration audit called out as the
+    highest value-per-line fix (PRISMA 2.6).
     """
 
     cache: str  # "miss" | "exact" | "semantic"
     matched_query: str | None = None
     similarity: float | None = None
+    sources: tuple[SourceOutcome, ...] = field(default_factory=tuple)
+
+    def sources_as_dicts(self) -> list[dict]:
+        return [s.as_dict() for s in self.sources]
+
+
+def _unpack_cache_entry(entry) -> tuple[list, float, tuple[SourceOutcome, ...]]:
+    """Accept both the old (papers, stored_at) tuple and the current 3-tuple."""
+    if not isinstance(entry, tuple) or len(entry) < 2:
+        return [], 0.0, ()
+    papers, stored_at = entry[0], entry[1]
+    sources = entry[2] if len(entry) >= 3 else ()
+    return papers or [], stored_at or 0.0, tuple(sources or ())
+
+
+def _split_fan_out(result) -> tuple[list, tuple[SourceOutcome, ...]]:
+    """_execute_search returns (papers, sources). Tests may still stub a bare list."""
+    if isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], list):
+        papers, sources = result
+        return papers, tuple(sources or ())
+    return result or [], ()
+
+
+def _ordered_outcomes(by_name: dict[str, SourceOutcome]) -> tuple[SourceOutcome, ...]:
+    ordered = [by_name[name] for name in SOURCE_NAMES if name in by_name]
+    extras = [outcome for name, outcome in by_name.items() if name not in SOURCE_NAMES]
+    return tuple(ordered + extras)
 
 
 async def search_all(
@@ -368,10 +443,11 @@ async def search_all_with_meta(
     cache_key = f"{canonical_key(query)}_{bucket_key}_all"
     now = time.time()
     if cache_key in _cache:
-        cached_data, timestamp = _cache[cache_key]
-        if now - timestamp < 600:  # 10 minutes TTL
+        entry = _cache[cache_key]
+        papers, stored_at, sources = _unpack_cache_entry(entry)
+        if now - stored_at < 600:  # 10 minutes TTL
             logger.info(f"Returning cached literature results for {query}")
-            return cached_data, SearchMeta(cache="exact")
+            return papers, SearchMeta(cache="exact", sources=sources)
 
     # Single-flight. The Dashboard fires /api/topics and /api/literature in
     # parallel, so both miss the still-empty cache and would each fan out to
@@ -427,14 +503,16 @@ async def _resolve_search(
                 cache="semantic",
                 matched_query=hit.matched_query,
                 similarity=round(hit.similarity, 4),
+                sources=hit.sources,
             )
 
-    papers = await _execute_search(
+    fan_out = await _execute_search(
         query, limit_per_source, semantic_rerank,
         source_timeout, oa_timeout, exclude_sources, cache_key,
         bucket_key, query_embedding,
     )
-    return papers, SearchMeta(cache="miss")
+    papers, sources = _split_fan_out(fan_out)
+    return papers, SearchMeta(cache="miss", sources=sources)
 
 
 async def _query_embedding(query: str) -> list | None:
@@ -494,15 +572,22 @@ async def _execute_search(
     cache_key: str,
     bucket_key: str = "",
     query_embedding: list | None = None,
-) -> list:
+) -> tuple[list, tuple[SourceOutcome, ...]]:
     """The actual fan-out. Always reached through search_all_with_meta()."""
     now = time.time()
+    started = time.perf_counter()
+
+    def _elapsed_ms() -> int:
+        return int((time.perf_counter() - started) * 1000)
+
+    skipped: list[str] = []
 
     def _task(name, coro):
         if name in exclude_sources:
             # The coroutine was already constructed by the call below, so close it
             # explicitly instead of letting it leak as a "never awaited" warning.
             coro.close()
+            skipped.append(name)
             return None
         return (name, asyncio.create_task(coro, name=name))
 
@@ -522,9 +607,12 @@ async def _execute_search(
 
     task_to_name = {task: name for name, task in named}
     all_tasks = {task for _, task in named}
+    by_name: dict[str, SourceOutcome] = {
+        name: SourceOutcome(name=name, status="skipped") for name in skipped
+    }
 
     # Bound aggregate source latency while still returning fast partial results.
-    done, pending = await asyncio.wait(all_tasks, timeout=source_timeout)
+    done, pending = await asyncio.wait(all_tasks, timeout=source_timeout) if all_tasks else (set(), set())
 
     # Cancel only the stragglers — tasks that already finished are untouched.
     if pending:
@@ -533,26 +621,57 @@ async def _execute_search(
             f"search_all() {source_timeout:g}s ceiling: cancelling {len(pending)} slow source(s): "
             f"{slow_names}.  Returning partial results from {len(done)} fast source(s)."
         )
+        timeout_ms = _elapsed_ms()
         for task in pending:
+            name = task_to_name[task]
+            by_name[name] = SourceOutcome(
+                name=name, status="timeout", ms=timeout_ms,
+                error=f"exceeded {source_timeout:g}s",
+            )
             task.cancel()
         # Drain cancellations so no dangling coroutines remain.
         await asyncio.gather(*pending, return_exceptions=True)
 
     # If every source timed out (done is empty), fall back to stale cache or [].
-    if not done:
+    if all_tasks and not done:
         logger.warning("search_all(): all sources timed out, returning stale cache or [].")
         cached = _cache.get(cache_key)
-        return cached[0] if cached else []
+        if cached:
+            papers, _, cached_sources = _unpack_cache_entry(cached)
+            return papers, cached_sources or _ordered_outcomes(by_name)
+        return [], _ordered_outcomes(by_name)
 
     # Harvest results from the completed tasks; catch per-task exceptions.
     results_map: dict[str, list] = {name: [] for name, _ in named}
+    harvest_ms = _elapsed_ms()
     for task in done:
         name = task_to_name[task]
-        exc = task.exception()
+        try:
+            exc = task.exception()
+        except asyncio.CancelledError:
+            results_map[name] = []
+            by_name[name] = SourceOutcome(
+                name=name, status="timeout", ms=harvest_ms,
+                error=f"exceeded {source_timeout:g}s",
+            )
+            continue
         if exc is not None:
             logger.error(f"Search task failed ({name}): {exc}")
+            results_map[name] = []
+            by_name[name] = SourceOutcome(
+                name=name, status="error", ms=harvest_ms, error=str(exc)[:240],
+            )
         else:
-            results_map[name] = task.result() or []
+            papers = task.result() or []
+            results_map[name] = papers
+            by_name[name] = SourceOutcome(
+                name=name,
+                status="ok" if papers else "empty",
+                count=len(papers),
+                ms=harvest_ms,
+            )
+
+    sources = _ordered_outcomes(by_name)
 
     s2_results       = results_map.get("SemanticScholar", [])
     openalex_results = results_map.get("OpenAlex", [])
@@ -626,8 +745,8 @@ async def _execute_search(
         import logging
         logging.getLogger(__name__).warning(f"Unpaywall enrichment failed (non-fatal): {e}")
 
-    _cache[cache_key] = (unique, now)
+    _cache[cache_key] = (unique, now, sources)
     # Remember the meaning of this query too, so a paraphrase can reuse it.
     if query_embedding:
-        semantic_cache.store(bucket_key, cache_key, query_embedding, query, unique)
-    return unique
+        semantic_cache.store(bucket_key, cache_key, query_embedding, query, unique, sources=sources)
+    return unique, sources

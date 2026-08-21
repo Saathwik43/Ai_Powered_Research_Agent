@@ -146,6 +146,8 @@ async def get_literature(
         # search instead for Y".
         response["matched_query"] = meta.matched_query
         response["cache"] = meta.cache
+    if meta.sources:
+        response["sources"] = meta.sources_as_dicts()
     return response
 
 

@@ -18,6 +18,7 @@ from typing import Any, Awaitable, Callable, Optional
 import httpx
 
 from ai.grobid_client import _GROBID_BASE_URL
+from ai.model_allowlist import resolve_groq_model
 from services.api_telemetry import inflight_total, live_for
 from integrations.github_knowledge import REPOS
 
@@ -118,7 +119,7 @@ async def check_groq() -> Source:
         url="https://api.groq.com/openai/v1/chat/completions",
         key=os.getenv("GROQ_API_KEY", ""),
         key_name="GROQ_API_KEY",
-        model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+        model=resolve_groq_model(),
     )
 
 
@@ -258,10 +259,16 @@ async def _probe_search(
         latency = round((time.time() - start) * 1000)
         count = 0
         body_error = None
+        data = None
+        content_type = (res.headers.get("content-type") or "").lower()
+        if "json" in content_type:
+            try:
+                data = res.json()
+                if isinstance(data, dict) and data.get("error"):
+                    body_error = str(data["error"])[:160]
+            except Exception:
+                data = None
         try:
-            data = res.json()
-            if isinstance(data, dict) and data.get("error"):
-                body_error = str(data["error"])[:160]
             if count_fn:
                 count = int(count_fn(res, data) or 0)
         except Exception:
@@ -298,25 +305,22 @@ async def check_semantic_scholar() -> Source:
         empty_hint="Search 429 or empty — bulk fallback may still work at runtime",
     )
     if result["status"] == "rate_limited":
-        bulk = await _probe_search(
-            "Semantic Scholar",
-            "https://api.semanticscholar.org/graph/v1/paper/search/bulk",
-            params={"query": "solar cells", "fields": "title"},
-            headers=headers,
-            count_fn=lambda _r, d: len((d or {}).get("data") or []),
+        result["details"] = (
+            "Keyword search rate-limited (unauthenticated S2 is ~1 req/s). "
+            "Runtime search retries then uses the bulk endpoint. Set SEMANTIC_SCHOLAR_API_KEY to raise the cap."
         )
-        if bulk["status"] == "operational":
-            bulk["details"] = "Keyword search rate-limited; bulk endpoint OK"
-            bulk["status"] = "degraded"
-            return bulk
+        return result
     return result
 
 
 async def check_arxiv() -> Source:
+    email = os.getenv("CROSSREF_MAILTO", "")
+    ua = f"AI-Powered-Research-Agent/1.0 (contact: {email})" if email else "AI-Powered-Research-Agent/1.0"
     return await _probe_search(
         "arXiv",
         "https://export.arxiv.org/api/query",
         params={"search_query": "all:electron", "max_results": 1},
+        headers={"User-Agent": ua},
         count_fn=lambda r, _d: r.text.count("<entry>"),
     )
 
