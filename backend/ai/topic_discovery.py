@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 # Upper bound on the TF-IDF corpus, taken from the ranked head.
 TOPIC_CORPUS_SIZE = 60
 
-_NOISY_FOR_TOPICS = {"BASE", "DOAJ"}
+_NOISY_FOR_TOPICS = {"DOAJ"}
 
 
 def _fallback_topics(intent: str):
@@ -24,7 +24,7 @@ async def discover_topics(intent: str):
     """
     Discover trending research topics by aggregating papers from all
     configured sources (OpenAlex, Semantic Scholar, arXiv, Crossref,
-    PubMed, Springer, IEEE, CORE, GitHub) and extracting the most
+    PubMed, Springer, Europe PMC, DOAJ, GitHub) and extracting the most
     frequent keyword phrases — no LLM required.
     """
     # ── Guardrail check (unchanged) ──────────────────────────────────
@@ -35,7 +35,7 @@ async def discover_topics(intent: str):
         # ── 1. Fetch papers from ALL sources (fast, AI-free) ─────────
         # Arguments deliberately match the /api/literature endpoint so the
         # Dashboard's two parallel requests share one search_all cache entry
-        # and trigger a single fan-out. BASE/DOAJ are dropped afterwards
+        # and trigger a single fan-out. DOAJ is dropped afterwards
         # instead of via exclude_sources, which is part of the cache key:
         # grey-lit/broad-OA noise skews topic extraction, but it is fine for
         # the full literature search.

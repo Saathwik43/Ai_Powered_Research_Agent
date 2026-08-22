@@ -1,4 +1,5 @@
 import logging
+import re
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -12,13 +13,33 @@ EVIDENCE_FIELDS = (
     "future_work",
 )
 
+# Headings seen in the wild across the three structured tiers (arXiv LaTeXML,
+# Europe PMC JATS, PDF layout). ML papers in particular label their methods
+# section "Model Architecture" or "Approach" rather than "Methods", which the
+# original table missed -- the Transformer paper mapped no `method` evidence at
+# all until those aliases were added.
 SECTION_ALIASES = {
     "objective": ("abstract", "introduction", "objective", "objectives", "aim", "aims", "background"),
-    "method": ("method", "methods", "materials and methods", "methodology", "approach", "experimental setup", "materials"),
-    "dataset": ("dataset", "data", "data set", "corpus", "benchmarks", "benchmark", "participants"),
-    "results": ("results", "findings", "evaluation", "experiments", "experimental results", "analysis", "results_and_discussion", "discussion"),
+    "method": (
+        "method", "methods", "materials and methods", "methodology", "approach",
+        "our approach", "proposed method", "proposed approach", "experimental setup",
+        "materials", "model", "models", "model architecture", "architecture",
+        "training", "study design", "experimental design", "implementation",
+    ),
+    "dataset": (
+        "dataset", "datasets", "data", "data set", "corpus", "benchmarks", "benchmark",
+        "participants", "data collection", "training data",
+    ),
+    "results": (
+        "results", "findings", "evaluation", "experiments", "experimental results",
+        "experiments and results", "empirical results", "analysis",
+        "results_and_discussion", "results and discussion", "discussion", "performance",
+    ),
     "limitations": ("limitations", "limitation", "threats to validity", "constraints"),
-    "future_work": ("future work", "conclusion", "conclusions", "outlook", "next steps"),
+    "future_work": (
+        "future work", "future_work", "future directions", "conclusion", "conclusions",
+        "conclusion and future work", "outlook", "next steps",
+    ),
 }
 
 IGNORED_SECTIONS = {"acknowledgments", "acknowledgements", "references", "appendix"}
@@ -56,12 +77,23 @@ def _normalize_text(value: str | None) -> str:
     return " ".join((value or "").split()).strip()
 
 
+_HEADING_NUMBER_PREFIX_RE = re.compile(r'^\s*(?:\d+(?:\.\d+)*|[ivxlc]+|[a-z])[.)]?\s+')
+
+
 def _match_alias(name: str) -> str | None:
     normalized = _normalize_text(name).lower()
     if not normalized:
         return None
+    # Sources differ on whether the heading carries its number ("2 Background"
+    # from a PDF vs "Background" from JATS). Match on the bare heading so one
+    # alias table serves every tier.
+    candidates = [normalized]
+    stripped = _HEADING_NUMBER_PREFIX_RE.sub("", normalized).strip()
+    if stripped and stripped != normalized:
+        candidates.append(stripped)
+
     for target, aliases in SECTION_ALIASES.items():
-        if normalized in aliases:
+        if any(c in aliases for c in candidates):
             return target
     if normalized in IGNORED_SECTIONS:
         logger.debug("Explicitly ignoring section: %s", name)

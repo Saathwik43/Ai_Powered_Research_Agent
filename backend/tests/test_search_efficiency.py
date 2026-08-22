@@ -302,8 +302,9 @@ class TestTopicDiscoveryFanOut:
         assert not hasattr(topic_discovery, "_filter_relevant_papers")
 
     def test_grey_literature_is_dropped_after_the_shared_search(self):
+        # BASE is no longer a fan-out source, so DOAJ is the only remaining
+        # broad-OA source topic discovery filters out.
         corpus = _papers(5, source="OpenAlex", prefix="Kept") + \
-            _papers(5, source="BASE", prefix="Grey") + \
             _papers(5, source="DOAJ", prefix="Broad")
 
         with patch("ai.topic_discovery.search_all", new_callable=AsyncMock) as mock_search, \

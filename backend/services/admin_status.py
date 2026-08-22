@@ -17,7 +17,6 @@ from typing import Any, Awaitable, Callable, Optional
 
 import httpx
 
-from ai.grobid_client import _GROBID_BASE_URL
 from ai.model_allowlist import resolve_groq_model
 from services.api_telemetry import inflight_total, live_for
 from integrations.github_knowledge import REPOS
@@ -385,19 +384,6 @@ async def check_springer() -> Source:
     )
 
 
-async def check_base() -> Source:
-    email = os.getenv("CROSSREF_MAILTO", "")
-    return await _probe_search(
-        "BASE",
-        "https://api.base-search.net/cgi-bin/BaseHttpSearchInterface.fcgi",
-        params={"func": "PerformSearchRequest", "query": "machine learning", "hits": 1, "format": "json"},
-        headers={"User-Agent": f"ResearchAgent/1.0 (mailto:{email})" if email else "ResearchAgent/1.0 (academic literature search)"},
-        count_fn=lambda _r, d: len((((d or {}).get("response") or {}).get("docs")) or []),
-        empty_hint="IP not registered or User-Agent blocked (BASE returns 200 with error)",
-        timeout=10.0,
-    )
-
-
 async def check_europepmc() -> Source:
     return await _probe_search(
         "Europe PMC",
@@ -413,22 +399,6 @@ async def check_doaj() -> Source:
         "https://doaj.org/api/search/articles/machine%20learning",
         params={"pageSize": 1},
         count_fn=lambda _r, d: len((d or {}).get("results") or []),
-    )
-
-
-async def check_core() -> Source:
-    key = os.getenv("CORE_API_KEY")
-    if not key:
-        return _no_key("CORE", "Literature Sources", "CORE_API_KEY")
-    return await _probe_search(
-        "CORE",
-        "https://api.core.ac.uk/v3/search/works/",
-        params={"q": "machine learning", "limit": 1},
-        headers={"Authorization": f"Bearer {key}"},
-        count_fn=lambda _r, d: len((d or {}).get("results") or []),
-        requires_key="CORE_API_KEY",
-        timeout=8.0,
-        empty_hint="Key rejected or trial expired",
     )
 
 
@@ -463,32 +433,26 @@ async def check_github_knowledge() -> Source:
     )
 
 
-async def check_grobid() -> Source:
-    urls = [
-        f"{_GROBID_BASE_URL}/api/isalive",
-        "http://localhost:8070/api/isalive",
-    ]
-    last_err = "Unreachable"
-    for url in urls:
-        try:
-            start = time.time()
-            async with httpx.AsyncClient(timeout=5.0, follow_redirects=True) as client:
-                res = await client.get(url)
-            latency = round((time.time() - start) * 1000)
-            if res.status_code == 200 and "paused" not in (res.text or "").lower():
-                where = "HF Space" if "hf.space" in url else url
-                return _result("GROBID", "Document Processing", "operational", f"Alive ({where})", latency)
-            last_err = f"HTTP {res.status_code}"
-            if "paused" in (res.text or "").lower():
-                last_err = "Hosted Space is paused — set GROBID_URL to a self-hosted instance"
-        except Exception:
-            last_err = "Unreachable"
-    return _result(
-        "GROBID",
-        "Document Processing",
-        "offline",
-        f"{last_err}; PDF analysis falls back to PyMuPDF",
-    )
+async def check_pdf_structure() -> Source:
+    """PDF structure parsing runs in-process (PyMuPDF), so this reports whether
+    the library imports rather than whether a remote service answers. It
+    replaces the old GROBID probe: every free hosted GROBID instance is gone
+    and the service is too heavy for the deploy target, so there is no
+    third-party dependency in this path any more."""
+    try:
+        start = time.time()
+        import fitz  # noqa: F401  - import *is* the health check
+
+        latency = round((time.time() - start) * 1000)
+        return _result(
+            "PDF Structure",
+            "Document Processing",
+            "operational",
+            "In-process (PyMuPDF), no external dependency",
+            latency,
+        )
+    except Exception as e:
+        return _result("PDF Structure", "Document Processing", "offline", f"PyMuPDF unavailable: {e}")
 
 
 async def check_llamacloud() -> Source:
@@ -574,13 +538,11 @@ CHECKS: list[CheckFn] = [
     check_openalex,
     check_crossref,
     check_springer,
-    check_core,
-    check_base,
     check_europepmc,
     check_doaj,
     check_unpaywall,
     check_github_knowledge,
-    check_grobid,
+    check_pdf_structure,
     check_llamacloud,
     check_mongodb,
     check_brevo,
@@ -602,13 +564,11 @@ CHECK_BY_NAME: dict[str, CheckFn] = {
     "OpenAlex": check_openalex,
     "Crossref": check_crossref,
     "Springer Nature": check_springer,
-    "CORE": check_core,
-    "BASE": check_base,
     "Europe PMC": check_europepmc,
     "DOAJ": check_doaj,
     "Unpaywall": check_unpaywall,
     "GitHub Knowledge Repos": check_github_knowledge,
-    "GROBID": check_grobid,
+    "PDF Structure": check_pdf_structure,
     "LlamaCloud": check_llamacloud,
     "MongoDB": check_mongodb,
     "Brevo Email": check_brevo,
@@ -623,8 +583,6 @@ SEARCH_SKIP_MAP = {
     "PubMed / NCBI": "PubMed",
     "arXiv": "arXiv",
     "Springer Nature": "Springer",
-    "CORE": "CORE",
-    "BASE": "BASE",
     "Europe PMC": "EuropePMC",
     "DOAJ": "DOAJ",
     "GitHub Knowledge Repos": "GitHub",

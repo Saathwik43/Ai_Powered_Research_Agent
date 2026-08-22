@@ -28,12 +28,25 @@ graph TD
         end
       
         subgraph Integrations [Knowledge Integrations]
-            Search[Unified Search Engine]
+            Search[Unified Search Engine - 9 sources]
             ArXiv[arXiv API]
             Crossref[Crossref API]
             SemanticScholar[Semantic Scholar API]
-            OpenAlex[OpenAlex API]
-            Evidence[Evidence Extractor - Grobid / LLM]
+            OpenAlex[OpenAlex API - key required]
+            PubMed[PubMed / NCBI API]
+            EuropePMC[Europe PMC API]
+            Springer[Springer Nature API]
+            DOAJ[DOAJ API]
+            GitHubKB[GitHub Knowledge Repos - local]
+            Unpaywall[Unpaywall - OA enrichment]
+        end
+
+        subgraph Extraction [Document and Evidence Extraction]
+            Ladder[Evidence Ladder - 5 tiers]
+            AxHTML[arXiv LaTeXML HTML / ar5iv]
+            AxTeX[arXiv LaTeX e-print]
+            PMCXML[Europe PMC fullTextXML - JATS]
+            PDFStruct[PyMuPDF Structure Parser - in-process]
         end
     end
 
@@ -69,14 +82,32 @@ graph TD
     AI_Engine <-->|Context Caching >32k tokens| Cache
     AI_Engine <-->|Validates Claims & Citations| GR_AI
   
-    Integrations -.->|HTTP Requests| ArXiv
-    Integrations -.->|HTTP Requests| Crossref
-    Integrations -.->|HTTP Requests| SemanticScholar
-    Integrations -.->|HTTP Requests| OpenAlex
-    Integrations --> Evidence
+    Integrations -.->|Pooled HTTP, parallel fan-out| ArXiv
+    Integrations -.->|Pooled HTTP, parallel fan-out| Crossref
+    Integrations -.->|Pooled HTTP, parallel fan-out| SemanticScholar
+    Integrations -.->|Pooled HTTP, parallel fan-out| OpenAlex
+    Integrations -.->|Pooled HTTP, parallel fan-out| PubMed
+    Integrations -.->|Pooled HTTP, parallel fan-out| EuropePMC
+    Integrations -.->|Pooled HTTP, parallel fan-out| Springer
+    Integrations -.->|Pooled HTTP, parallel fan-out| DOAJ
+    Integrations -.->|Local corpus, no network| GitHubKB
+    Integrations -.->|After dedupe| Unpaywall
+
+    Integrations --> Ladder
+    Ladder -->|1. cheapest, explicit sections| AxHTML
+    Ladder -->|2. LaTeX source| AxTeX
+    Ladder -->|3. open-access biomedical| PMCXML
+    Ladder -->|4. any PDF| PDFStruct
+    Ladder -.->|5. last resort| LLM_P
   
     Router <-->|Save / Load Drafts, Surveys & Manuscripts| MongoDB
 ```
+
+> **No hosted document-parsing service.** The evidence ladder replaced a hosted
+> GROBID tier in Aug 2026: every free instance was down (the HF Space returns
+> 503) and GROBID is a JVM service needing several GB, which does not fit the
+> deploy target. Tiers 1–4 are keyless, and tier 4 runs in-process, so an
+> uploaded PDF no longer depends on any third party.
 
 ## End-to-End User Workflow
 
@@ -113,6 +144,7 @@ sequenceDiagram
     User->>Front: 3. Draft Manuscript Section (Streaming)
     Front->>API: POST /api/manuscript/stream (topic, section, mode="auto")
     API->>Sources: Gather papers & extract evidence (Throttled Semaphore=3)
+    Note over Sources: Evidence ladder per paper:<br/>arXiv HTML ➔ arXiv LaTeX ➔ Europe PMC JATS<br/>➔ PyMuPDF PDF structure ➔ LLM on title+abstract
     Sources-->>API: Reference mapping & evidence context
     API-->>Front: SSE Event: sources_list (emit references upfront)
   
@@ -164,8 +196,8 @@ flowchart TD
     SF --> E[Embed query once]
     E --> SC{Semantic cache<br/>cosine vs stored queries}
     SC -->|>= 0.97| RV[Serve stored ranking<br/>+ matched_query]
-    SC -->|>= 0.94| RR[Reuse papers, re-rank<br/>against typed query + matched_query]
-    SC -->|below| F[Fan out to 11 sources in parallel<br/>20s ceiling, slow sources cancelled]
+    SC -->|>= 0.92| RR[Reuse papers, re-rank<br/>against typed query + matched_query]
+    SC -->|below| F[Fan out to 9 sources in parallel<br/>20s ceiling, slow sources cancelled]
     RV --> R
     RR --> R
     F --> D[Deduplicate & merge<br/>DOI / arXiv id / normalized title]
@@ -174,10 +206,38 @@ flowchart TD
     S --> OA[Unpaywall OA enrichment, 8s ceiling]
     OA --> R
     R --> U{Consumer}
-    U -->|/api/topics| T[Drop BASE/DOAJ, head 60,<br/>TF-IDF keyword extraction]
+    U -->|/api/topics| T[Drop DOAJ, head 60,<br/>TF-IDF keyword extraction]
     U -->|/api/literature| V[Relevance classifier in rounds<br/>batched 10 papers per call<br/>until `limit` filled]
     U -->|manuscript, gap| W[Head 15, relevance filter]
 ```
+
+### Source roster
+
+Nine sources fan out in parallel. `SOURCE_NAMES` in `integrations/paper_search.py`
+is the ordering, and per-database yield is reported back on `SearchMeta.sources`
+so a source that timed out is distinguishable from one that returned nothing.
+
+| Source | Key | Notes |
+|---|---|---|
+| Semantic Scholar | optional | Highest ranking weight |
+| OpenAlex | **required since Feb 2026** | `OPENALEX_API_KEY`; ~$1/day free allowance |
+| Crossref | no (polite `mailto`) | Also carries Retraction Watch data |
+| PubMed / NCBI | optional | 5s budget |
+| arXiv | no | Also the LaTeX/HTML source for extraction |
+| Europe PMC | no | Also serves JATS full text |
+| Springer Nature | yes | |
+| DOAJ | no | Dropped for topic discovery — broad-OA noise skews keywords |
+| GitHub Knowledge Repos | no | Local corpus, no network call |
+
+Unpaywall runs *after* dedupe as OA enrichment, not as a search source.
+
+**Two sources were removed rather than left to time out**, because each cost a
+full per-source timeout and contributed zero papers:
+
+| Removed | Why |
+|---|---|
+| BASE | Returns `<error>Access denied for IP address …</error>` — it allow-lists registered egress IPs, which a PaaS dyno does not have and cannot keep stable |
+| CORE | Its own index returns HTTP 500: `not enough resources were available to cover 100% of the index` |
 
 ### Query identity
 
@@ -205,8 +265,8 @@ Two tiers, both conservative:
 
 | Cosine | Behaviour |
 |---|---|
-| >= 0.97 | Serve the stored ranking untouched |
-| >= 0.94 | Reuse the stored *papers*, re-rank them against the query actually typed |
+| >= 0.97 (`VERBATIM_THRESHOLD`) | Serve the stored ranking untouched |
+| >= 0.92 (`RERANK_THRESHOLD`) | Reuse the stored *papers*, re-rank them against the query actually typed |
 | below | Miss — run the real search |
 
 The middle tier carries most of the value: re-ranking costs no network call
@@ -283,7 +343,7 @@ every retry.
 | Semantic query results | query embedding, cosine-matched | 10 min | process |
 | Relevance verdicts | canonical topic + normalized title | 10 min | process |
 | Classifier failures | same key | 1 min | process |
-| Classifier failures | same key | 1 min | process |
+| Extracted evidence | normalized title prefix | 10 min | process |
 | arXiv category feed | category + limit | 15 min | process |
 | Gemini context cache | prompt cache key | 30 min | provider |
 
@@ -304,9 +364,9 @@ sites already speak only its interface.
 ### HTTP connection pooling
 
 Every integration used to construct its own `httpx.AsyncClient` per call, so a
-single search paid eleven TCP handshakes and eleven TLS negotiations. They now
-share one pooled client (`integrations/http_client.py`) with keep-alive, closed
-on app shutdown via the lifespan.
+single search paid one TCP handshake and one TLS negotiation per source. They
+now share one pooled client (`integrations/http_client.py`) with keep-alive,
+closed on app shutdown via the lifespan.
 
 Per-source settings that used to live on the client — User-Agent, timeout —
 are per-*source*, not per-connection, so `pooled_client(headers=..., timeout=...)`
@@ -325,3 +385,104 @@ Layer A scores each word token separately rather than the whitespace-stripped
 query — concatenating words invented consonant runs across word boundaries
 (`"CNN classification"` → `"CNNcl"`) and rejected ordinary acronym queries as
 keyboard mash.
+
+---
+
+## Document & Evidence Extraction
+
+Turning a paper into the six evidence fields (`objective`, `method`, `dataset`,
+`results`, `limitations`, `future_work`) is a ladder, not a single parser. Each
+rung is tried only when the one above it has nothing to give, so the common case
+never downloads a PDF and the LLM is a last resort rather than the default.
+
+```mermaid
+flowchart TD
+    P[Paper record] --> C{Evidence cache<br/>normalized title, 10 min}
+    C -->|hit| DONE[Six evidence fields<br/>+ source label]
+
+    C -->|miss| AX{arXiv id on record?}
+    AX -->|yes| H[Tier 1 - arxiv.org/html/id<br/>LaTeXML, explicit section tree]
+    H -->|404| A5[ar5iv.labs.arxiv.org<br/>backfills pre-2024 papers]
+    A5 -->|none| TEX[Tier 2 - arXiv e-print<br/>LaTeX tarball, regex sections]
+    H -->|parsed| MAP
+    A5 -->|parsed| MAP
+    TEX -->|parsed| MAP
+
+    AX -->|no| PM{PMC id on record?}
+    TEX -->|no source| PM
+    PM -->|yes| JATS[Tier 3 - Europe PMC fullTextXML<br/>JATS body/sec tree]
+    JATS -->|parsed| MAP
+    JATS -->|404 = not open access| OA
+
+    PM -->|no| OA{oa_url present?}
+    OA -->|yes| PDF[Tier 4 - fetch PDF<br/>PyMuPDF structure parse<br/>off-thread via anyio]
+    PDF -->|parsed| MAP
+    PDF -->|unreadable / no sections| LLM
+    OA -->|no| LLM[Tier 5 - LLM over title + abstract]
+
+    MAP[_match_alias maps headings<br/>to the six evidence fields] --> Q{Any field filled?}
+    Q -->|yes| STORE[Cache with its source label]
+    Q -->|no| LLM
+    LLM --> STORE
+    STORE --> DONE
+```
+
+The `source` label returned alongside the evidence (`arxiv-html`,
+`arxiv-latex`, `europepmc-fulltext`, `pdf-structure`, `llm-fallback`, `none`) is
+what makes the tier visible in logs and in the admin view — a corpus silently
+answered entirely from tier 5 looks identical to a well-grounded one otherwise.
+
+### Why the ladder is ordered this way
+
+Cost and fidelity move together here, which is unusual and worth stating: the
+cheapest rungs are also the most accurate.
+
+| Tier | Network | Structure quality |
+|---|---|---|
+| arXiv HTML | one GET | Explicit `<section>` tree — nothing inferred |
+| arXiv LaTeX | one GET + untar | Sections from `\section{}`, macros unresolved |
+| Europe PMC JATS | one GET | Explicit `<body><sec><title>` tree |
+| PDF structure | GET + parse | Headings *inferred* from font size and layout |
+| LLM | provider call | Title + abstract only; no full text at all |
+
+### PDF structure parsing
+
+`ai/pdf_structure.py` is the only tier that has to guess. It reads PyMuPDF's
+span dictionary, takes the modal font size as the body size, and treats short
+larger-or-bold lines as headings. Three corrections make that usable rather than
+merely plausible:
+
+- **Rotated spans are dropped.** The arXiv sidebar stamp is the largest text on
+  page 1 and would otherwise be selected as the title.
+- **Running headers are removed** by tallying blocks whose *digit-stripped* text
+  recurs on three or more pages. Matching on exact text fails because the header
+  carries the page number, which is why one paper previously reported 111
+  "sections".
+- **Numbering is stripped and subsections folded into their parent**, so
+  `3.1 Encoder and Decoder Stacks` joins `method` instead of becoming a
+  top-level key no alias could ever match.
+
+Authors are recovered from the blocks between the title and the abstract
+heading, cut at the first affiliation or email token, then split greedily (two
+capitalised tokens, or three when the middle one is an initial). This is
+best-effort: it is correct on ordinary `First Last` and `First M. Last` lists,
+and truncates three-token given names.
+
+Measured on four papers with distinct layouts:
+
+| Paper | Sections | Authors |
+|---|---|---|
+| Attention Is All You Need | 9 | 8 / 8 |
+| GPT-3 | 20 | 15 / 15 |
+| BERT | 11 | 4 / 4 |
+| CLIP (two-column) | 30 | 11 / 12 |
+
+### Heading vocabulary
+
+`SECTION_ALIASES` in `ai/pdf_extraction.py` maps headings onto the six evidence
+fields, and `_match_alias` strips a leading number before matching so
+`2 Background`, `II. Background` and `Background` are one heading across all
+four tiers. The table has to cover discipline-specific naming: ML papers label
+their methods section *Model Architecture* or *Approach* rather than *Methods*,
+and until those aliases existed the Transformer paper mapped no `method`
+evidence at all despite parsing perfectly.

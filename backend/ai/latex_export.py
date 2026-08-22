@@ -138,9 +138,20 @@ def _verify_citations(content: dict, references: list) -> list:
 
     missing = sorted(used - known, key=int)
     if missing:
+        markers = ", ".join(f"[{n}]" for n in missing)
+        if not known:
+            # Recoverable, and the recovery is not guessable: the draft predates
+            # reference-snapshot persistence, so the numbering the writer LLM used
+            # was never stored. Say so instead of listing 30 markers as if the
+            # prose were at fault.
+            raise ValueError(
+                f"This draft cites {markers} but has no stored reference set, so the "
+                "export would ship an empty references.bib and no \\cite commands. "
+                "Regenerate any one section to rebuild the reference set, then export again."
+            )
         raise ValueError(
             "Citation markers with no matching reference: "
-            + ", ".join(f"[{n}]" for n in missing)
+            + markers
             + f". The manuscript has {len(known)} reference(s). "
             "Regenerate the affected section, or remove the marker, before exporting."
         )
@@ -367,13 +378,17 @@ def export_manuscript(
 
     warnings = []
     cite_keys = _cite_key_map(references)
-    if references:
-        uncited = _verify_citations(content, references)
-        if uncited:
-            warnings.append(
-                "Not cited anywhere in the text, so BibTeX will omit them: "
-                + ", ".join(f"[{n}]" for n in uncited)
-            )
+    # Deliberately NOT guarded by `if references:`. An empty reference set is the
+    # worst case, not the harmless one -- it is what a draft written before
+    # snapshot persistence produces, and skipping the check there is how a zip
+    # with a zero-byte references.bib shipped while a single stray [99] among
+    # real references was still caught (audit L10).
+    uncited = _verify_citations(content, references)
+    if uncited:
+        warnings.append(
+            "Not cited anywhere in the text, so BibTeX will omit them: "
+            + ", ".join(f"[{n}]" for n in uncited)
+        )
 
     abstract_body = ""
     for name, body in content.items():

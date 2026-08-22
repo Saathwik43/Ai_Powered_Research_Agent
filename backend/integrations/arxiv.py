@@ -8,6 +8,7 @@ from datetime import datetime
 import re
 import tarfile
 import gzip
+import html
 import io
 
 logger = logging.getLogger(__name__)
@@ -215,7 +216,7 @@ def _split_latex_sections(tex: str) -> dict:
 async def fetch_latex_source(arxiv_id: str) -> dict | None:
     """Fetch and lightly parse arXiv LaTeX source. Returns None if unavailable
     (old scanned papers, PDF-only submissions) or on any failure — caller falls
-    back to GROBID/PDF extraction in that case."""
+    back to PDF structure extraction in that case."""
     url = f"https://arxiv.org/e-print/{arxiv_id}"
     try:
         async with pooled_client(timeout=20.0) as client:
@@ -252,6 +253,75 @@ async def fetch_latex_source(arxiv_id: str) -> dict | None:
         return None
 
     return _split_latex_sections(full_tex)
+
+# arXiv renders LaTeXML HTML for submissions from ~Dec 2023 at /html/{id};
+# ar5iv backfills older papers. Both emit the same `ltx_*` class vocabulary, so
+# one parser covers both. This is strictly better than parsing the PDF: the
+# section tree is explicit rather than inferred from font sizes.
+_ARXIV_HTML_URL = "https://arxiv.org/html/{id}"
+_AR5IV_HTML_URL = "https://ar5iv.labs.arxiv.org/html/{id}"
+
+_LTX_HEAD_RE = re.compile(
+    r'<h[1-6][^>]*\bltx_title_section\b[^>]*>(.*?)</h[1-6]>', re.DOTALL | re.IGNORECASE
+)
+_LTX_TAG_RE = re.compile(r'<span[^>]*\bltx_tag\b[^>]*>.*?</span>', re.DOTALL | re.IGNORECASE)
+_SCRIPT_STYLE_RE = re.compile(r'<(script|style)\b.*?</\1>', re.DOTALL | re.IGNORECASE)
+_TAG_RE = re.compile(r'<[^>]+>')
+_ABSTRACT_BLOCK_RE = re.compile(r'\bltx_abstract\b', re.IGNORECASE)
+
+
+def _html_text(fragment: str) -> str:
+    """Strip markup and normalise whitespace/entities from an HTML fragment."""
+    text = _TAG_RE.sub(" ", fragment)
+    return " ".join(html.unescape(text).split())
+
+
+def _parse_arxiv_html(page: str) -> dict | None:
+    """Parse LaTeXML output into the {abstract, sections} shape."""
+    page = _SCRIPT_STYLE_RE.sub(" ", page)
+
+    heads = list(_LTX_HEAD_RE.finditer(page))
+    if not heads:
+        return None
+
+    abstract = ""
+    marker = _ABSTRACT_BLOCK_RE.search(page)
+    if marker and marker.start() < heads[0].start():
+        raw = _html_text(page[marker.end():heads[0].start()])
+        # The block opens with its own "Abstract" heading; drop that word.
+        abstract = re.sub(r'^["\'>\s]*Abstract\b[:\s]*', "", raw, flags=re.IGNORECASE).strip()
+
+    sections: dict[str, str] = {}
+    for i, m in enumerate(heads):
+        heading = _html_text(_LTX_TAG_RE.sub(" ", m.group(1))).strip().lower()
+        end = heads[i + 1].start() if i + 1 < len(heads) else len(page)
+        body = _html_text(page[m.end():end])
+        if heading and body:
+            sections[heading] = (sections[heading] + "\n" + body) if heading in sections else body
+
+    if not sections and not abstract:
+        return None
+    return {"abstract": abstract, "sections": sections}
+
+
+async def fetch_arxiv_html(arxiv_id: str) -> dict | None:
+    """Fetch arXiv's rendered HTML (ar5iv for older papers) and parse its
+    sections. Returns None when neither host has an HTML rendering, so the
+    caller falls through to the LaTeX source and then to PDF parsing."""
+    for template in (_ARXIV_HTML_URL, _AR5IV_HTML_URL):
+        url = template.format(id=arxiv_id)
+        try:
+            async with pooled_client(timeout=25.0) as client:
+                resp = await client.get(url, follow_redirects=True)
+            if resp.status_code != 200:
+                continue
+            parsed = _parse_arxiv_html(resp.text)
+            if parsed:
+                return parsed
+        except Exception as e:
+            logger.warning("arXiv HTML fetch failed for %s at %s: %s", arxiv_id, url, e)
+    return None
+
 
 _ARXIV_ID_IN_TEXT_RE = re.compile(r"arXiv:\s*([\w.\-]+)(?:v\d+)?", re.IGNORECASE)
 

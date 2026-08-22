@@ -14,7 +14,6 @@ from ai.evidence_extraction import extract_evidence
 from ai.llm_provider import generate_completion, get_or_create_gemini_cache
 from ai.gap_analysis import _GAP_SYSTEM_PROMPT
 from ai.pdf_structure import extract_structure
-from ai.grobid_client import extract_via_grobid
 
 _LIGATURE_MAP = {
     "\ufb00": "ff", "\ufb01": "fi", "\ufb02": "fl",
@@ -155,37 +154,19 @@ async def extract_pdf_text(file_bytes: bytes) -> str:
 
 
 async def extract_pdf_structure(file_bytes: bytes) -> dict:
-    """Extract structural metadata from PDF file bytes with GROBID -> PyMuPDF fallback."""
+    """Extract structural metadata (title, authors, abstract, sections) from PDF bytes.
+
+    This used to call a hosted GROBID instance first and fall back to the local
+    PyMuPDF pass. Every free hosted instance we could reach is gone -- the
+    HF Space returns 503, and GROBID is a JVM service needing several GB, which
+    does not fit the deploy target -- so the local pass is now the only tier.
+    It runs in-process, so there is no network failure mode left to handle here.
+    """
     structure = {"title": "", "authors": [], "abstract": "", "sections": {}}
     if not file_bytes:
         return structure
-        
-    grobid_structure = await extract_via_grobid(file_bytes)
-    low_fields = (
-        sum(1 for v in grobid_structure.get("confidence", {}).values() if v == "low")
-        if grobid_structure else 4
-    )
 
-    if grobid_structure is None:
-        logger.warning("GROBID unreachable, falling back to PyMuPDF heuristic.")
-        structure = extract_structure(file_bytes)
-    elif low_fields == 0:
-        structure = grobid_structure
-    else:
-        # GROBID partially low-confidence -- rescue only the weak fields
-        # from the heuristic tier, don't discard GROBID's good fields.
-        logger.info(f"GROBID low-confidence on {low_fields} field(s), rescuing from heuristic.")
-        heuristic_structure = extract_structure(file_bytes)
-        merged = dict(grobid_structure)
-        merged_conf = dict(grobid_structure.get("confidence", {}))
-        for field in ("title", "authors", "abstract", "sections"):
-            if grobid_structure.get("confidence", {}).get(field) == "low":
-                heur_conf = heuristic_structure.get("confidence", {}).get(field, "low")
-                if heur_conf == "high" and heuristic_structure.get(field):
-                    merged[field] = heuristic_structure[field]
-                    merged_conf[field] = "high"
-        merged["confidence"] = merged_conf
-        structure = merged
+    structure = extract_structure(file_bytes)
 
     logger.info(
         "Extracted PDF structure: title_len=%s authors=%s abstract_len=%s sections=%s",
@@ -210,13 +191,13 @@ def _build_paper_context(structure: dict, text: str) -> str:
 
     The old test was ``len(json.dumps(context_data, indent=2)) > 20``, which
     measured the JSON *envelope*, not the payload: an entirely empty structure
-    serialises to 38 characters, so the fallback never fired. When GROBID and
-    the PyMuPDF heuristic both failed, the model received
+    serialises to 38 characters, so the fallback never fired. When structure
+    extraction failed, the model received
     ``{"abstract": "", "sections": {}}`` and answered "the document does not
     contain that information" for every question -- while the perfectly good
     extracted text sat unused in `text`.
 
-    GROBID also emits ``{"full_text": ""}`` when it parses no sections, so
+    The extractor also emits ``{"full_text": ""}`` when it finds no headings, so
     truthiness of the dict is not enough either; the values must be checked.
     """
     abstract = (structure.get("abstract") or "").strip()

@@ -17,6 +17,7 @@ test_*.py
 *.pdf
 *.txt
 
+
 # Logs (including rotated files like backend.log.1)
 *.log
 *.log.*

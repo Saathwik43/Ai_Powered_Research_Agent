@@ -13,8 +13,6 @@ from integrations.crossref import search_works as crossref_search
 from integrations.github_knowledge import search_github_knowledge
 from integrations.pubmed import search_papers as pubmed_search
 from integrations.springer import search_papers as springer_search
-from integrations.core_api import search_papers as core_search
-from integrations.base_search import search_papers as base_search
 from integrations.europepmc import search_papers as europepmc_search
 from integrations.doaj import search_papers as doaj_search
 from core.query_key import canonical_key
@@ -56,8 +54,6 @@ SOURCE_NAMES = (
     "arXiv",
     "GitHub",
     "Springer",
-    "CORE",
-    "BASE",
     "EuropePMC",
     "DOAJ",
 )
@@ -227,12 +223,10 @@ _SOURCE_WEIGHTS = {
     "Springer": 0.85,
     "OpenAlex": 0.7,
     "EuropePMC": 0.65,
-    "CORE": 0.65,
     "PubMed": 0.65,
     "Crossref": 0.6,
     "DOAJ": 0.55,
     "arXiv": 0.5,
-    "BASE": 0.45,
 }
 # GitHub sub-sources all start with "GitHub/"
 _GITHUB_SOURCE_WEIGHT = 0.3
@@ -346,8 +340,8 @@ class SearchMeta:
     services/semantic_cache.py on why silent substitution is not acceptable.
 
     ``sources`` is the per-database yield for this search. A result set where
-    CORE timed out is no longer indistinguishable from one where CORE returned
-    20 papers — that was the gap the API integration audit called out as the
+    Springer timed out is no longer indistinguishable from one where Springer
+    returned 20 papers — that was the gap the API integration audit called out as the
     highest value-per-line fix (PRISMA 2.6).
     """
 
@@ -421,7 +415,7 @@ async def search_all_with_meta(
     Resolution order: exact canonical cache → semantic cache → real fan-out.
 
     exclude_sources: optional set of source names to skip entirely (e.g.
-    {"BASE", "DOAJ"} for topic-discovery, where grey-lit/broad-OA noise
+    {"DOAJ"} for topic-discovery, where grey-lit/broad-OA noise
     hurts more than raw coverage helps).
 
     allow_semantic_cache: set False to force a real search for this query —
@@ -599,8 +593,12 @@ async def _execute_search(
         _task("arXiv",           arxiv_search(query, limit=limit_per_source)),
         _task("GitHub",          asyncio.to_thread(search_github_knowledge, query)),
         _task("Springer",        springer_search(query, limit=limit_per_source)),
-        _task("CORE",            core_search(query, limit=limit_per_source)),
-        _task("BASE",            base_search(query, limit=limit_per_source)),
+        # BASE and CORE were removed from the fan-out rather than left to time
+        # out: BASE answers "Access denied for IP address" (it allow-lists
+        # registered egress IPs, which a PaaS dyno does not have), and CORE's
+        # own index returns HTTP 500 "not enough resources were available to
+        # cover 100% of the index". Both cost the full per-source timeout and
+        # contributed zero papers.
         _task("EuropePMC",       europepmc_search(query, limit=limit_per_source)),
         _task("DOAJ",            doaj_search(query, limit=limit_per_source)),
     ] if t is not None]
@@ -680,8 +678,6 @@ async def _execute_search(
     arxiv_results    = results_map.get("arXiv", [])
     github_results   = results_map.get("GitHub", [])
     springer_results = results_map.get("Springer", [])
-    core_results     = results_map.get("CORE", [])
-    base_results     = results_map.get("BASE", [])
     europepmc_results = results_map.get("EuropePMC", [])
     doaj_results     = results_map.get("DOAJ", [])
 
@@ -696,13 +692,9 @@ async def _execute_search(
         p.setdefault("source", "Crossref")
     for p in pubmed_results:
         p.setdefault("source", "PubMed")
-    # Semantic Scholar, Springer, CORE, BASE, EuropePMC, DOAJ already tag their own in their modules (or we enforce it here if not)
+    # Semantic Scholar, Springer, EuropePMC, DOAJ already tag their own in their modules (or we enforce it here if not)
     for p in springer_results:
         p.setdefault("source", "Springer")
-    for p in core_results:
-        p.setdefault("source", "CORE")
-    for p in base_results:
-        p.setdefault("source", "BASE")
     for p in europepmc_results:
         p.setdefault("source", "EuropePMC")
     for p in doaj_results:
@@ -717,8 +709,6 @@ async def _execute_search(
         + arxiv_results
         + github_results
         + springer_results
-        + core_results
-        + base_results
         + europepmc_results
         + doaj_results
     )

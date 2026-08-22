@@ -1,4 +1,6 @@
-from integrations.arxiv import get_arxiv_id, fetch_latex_source
+from integrations.arxiv import get_arxiv_id, fetch_arxiv_html, fetch_latex_source
+from integrations.europepmc import fetch_full_text, get_pmcid
+import anyio.to_thread
 import json
 import logging
 import re
@@ -12,7 +14,7 @@ from ai.pdf_extraction import (
     _has_usable_evidence,
     _empty_evidence,
 )
-from ai.grobid_client import extract_via_grobid
+from ai.pdf_structure import extract_structure
 
 logger = logging.getLogger(__name__)
 
@@ -141,14 +143,25 @@ async def extract_evidence(paper: dict) -> dict:
     return evidence
 
 
-def _map_grobid_to_evidence(grobid_res: dict) -> dict:
+def _safe_extract_structure(pdf_bytes: bytes) -> dict | None:
+    """extract_structure raises on encrypted/corrupt PDFs; a bad download for
+    one paper must not abort evidence extraction for the batch."""
+    try:
+        return extract_structure(pdf_bytes)
+    except Exception as e:  # noqa: BLE001 - any parser failure is a soft miss
+        logger.warning("PDF structure extraction failed: %s", e)
+        return None
+
+
+def _map_structure_to_evidence(structure_res: dict) -> dict:
+    """Map a parsed structure dict (arXiv LaTeX or PDF) onto evidence fields."""
     sections: dict[str, list[str]] = {}
-    
-    abstract = grobid_res.get("abstract", "").strip()
+
+    abstract = structure_res.get("abstract", "").strip()
     if abstract:
         _append_text(sections, "objective", abstract)
-        
-    for key, text in grobid_res.get("sections", {}).items():
+
+    for key, text in structure_res.get("sections", {}).items():
         mapped = _match_alias(key)
         if mapped:
             _append_text(sections, mapped, text)
@@ -167,10 +180,12 @@ async def extract_evidence_for_paper(paper: dict) -> tuple[dict, str]:
     """
     Layered extraction with cache and explicit source tracking.
 
-    Order:
+    Order (cheapest and most structured first):
     1. Cache
-    2. PDF extraction via grobid_client when oa_url exists
-    3. Existing LLM title/abstract extraction
+    2. arXiv rendered HTML, then arXiv LaTeX source, for arXiv papers
+    3. Europe PMC JATS full text, for open-access PMC records
+    4. PDF structure extraction (PyMuPDF) when oa_url exists
+    5. LLM title/abstract extraction
     """
     cached = _get_cached_evidence(paper)
     if cached:
@@ -178,28 +193,54 @@ async def extract_evidence_for_paper(paper: dict) -> tuple[dict, str]:
 
     title = paper.get("title", "Untitled Paper")
 
+    def _accept(res, source):
+        """Map a parsed {abstract, sections} result and cache it if usable."""
+        if not res:
+            return None
+        evidence = _map_structure_to_evidence(res)
+        if not _has_usable_evidence(evidence):
+            return None
+        _store_cached_evidence(paper, evidence, source)
+        logger.info("Evidence extraction path for '%s': %s", title, source)
+        return evidence
+
     arxiv_id = get_arxiv_id(paper)
     if arxiv_id:
-        latex_res = await fetch_latex_source(arxiv_id)
-        if latex_res:
-            latex_evidence = _map_grobid_to_evidence(latex_res)
-            if _has_usable_evidence(latex_evidence):
-                _store_cached_evidence(paper, latex_evidence, "arxiv-latex")
-                logger.info("Evidence extraction path for '%s': arxiv-latex", title)
-                return latex_evidence, "arxiv-latex"
+        # arXiv's own LaTeXML rendering carries an explicit section tree, so it
+        # beats both the LaTeX tarball (which needs macro-aware parsing) and the
+        # PDF (whose structure is inferred from font sizes).
+        evidence = _accept(await fetch_arxiv_html(arxiv_id), "arxiv-html")
+        if evidence:
+            return evidence, "arxiv-html"
+
+        evidence = _accept(await fetch_latex_source(arxiv_id), "arxiv-latex")
+        if evidence:
+            return evidence, "arxiv-latex"
+
+    pmcid = get_pmcid(paper)
+    if pmcid:
+        # Open-access PMC records expose JATS XML: a real section tree for
+        # biomedical papers, keyless, and cheaper than fetching the PDF.
+        evidence = _accept(await fetch_full_text(pmcid), "europepmc-fulltext")
+        if evidence:
+            return evidence, "europepmc-fulltext"
 
     oa_url = (paper.get("oa_url") or "").strip()
 
     if oa_url:
         pdf_bytes = await _fetch_pdf_bytes(oa_url)
         if pdf_bytes:
-            grobid_res = await extract_via_grobid(pdf_bytes)
-            if grobid_res:
-                pdf_evidence = _map_grobid_to_evidence(grobid_res)
+            # extract_structure is CPU-bound and synchronous; off-thread it so a
+            # large PDF does not stall the event loop for every other request.
+            # anyio, not asyncio.to_thread: the latter needs a running asyncio
+            # loop and raises under the suite's trio backend.
+            pdf_res = await anyio.to_thread.run_sync(_safe_extract_structure, pdf_bytes)
+            if pdf_res:
+                pdf_evidence = _map_structure_to_evidence(pdf_res)
                 if _has_usable_evidence(pdf_evidence):
-                    _store_cached_evidence(paper, pdf_evidence, "grobid")
-                    logger.info("Evidence extraction path for '%s': grobid", title)
-                    return pdf_evidence, "grobid"
+                    _store_cached_evidence(paper, pdf_evidence, "pdf-structure")
+                    logger.info("Evidence extraction path for '%s': pdf-structure", title)
+                    return pdf_evidence, "pdf-structure"
 
     llm_evidence = await _extract_evidence_via_llm(paper)
     if _has_usable_evidence(llm_evidence):

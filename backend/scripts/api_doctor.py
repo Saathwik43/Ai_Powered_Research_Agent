@@ -101,14 +101,7 @@ async def main():
               params={"q": f"keyword:{QUERY}", "api_key": os.getenv("SPRINGER_META_API_KEY", ""), "p": 15},
               count_fn=jlen("records")),
 
-        probe("CORE v3", "GET", "https://api.core.ac.uk/v3/search/works",
-              params={"q": QUERY, "limit": 15},
-              headers={"Authorization": f"Bearer {os.getenv('CORE_API_KEY', '')}"},
-              count_fn=jlen("results")),
 
-        probe("BASE", "GET", "https://api.base-search.net/cgi-bin/BaseHttpSearchInterface.fcgi",
-              params={"func": "PerformSearchRequest", "query": QUERY, "hits": 15, "format": "json"},
-              count_fn=lambda r: len(r.json().get("response", {}).get("docs", []))),
 
         probe("EuropePMC", "GET", "https://www.ebi.ac.uk/europepmc/webservices/rest/search",
               params={"query": QUERY, "format": "json", "pageSize": 15, "resultType": "core"},
@@ -161,8 +154,9 @@ async def main():
               count_fn=lambda r: 1),
 
         # ---------- Document processing / infra ----------
-        probe("GROBID isalive", "GET", "https://lfoppiano-grobid.hf.space/api/isalive",
-              count_fn=lambda r: 1, timeout=15.0),
+        # GROBID probe removed: every free hosted instance is down (the HF Space
+        # returns 503) and PDF structure parsing now runs in-process via
+        # PyMuPDF, so there is nothing remote left to probe on that path.
 
         probe("LlamaCloud", "GET", "https://api.cloud.llamaindex.ai/api/v1/parsing/supported_file_extensions",
               headers={"Authorization": f"Bearer {os.getenv('LLAMA_CLOUD_API_KEY', '')}"},

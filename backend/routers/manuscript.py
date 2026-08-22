@@ -299,11 +299,21 @@ async def export_manuscript_latex(
         "     (if applicable) -- placeholders are marked TODO; replace manually.\n"
         "  4. Compile in Overleaf (upload this zip + the class file) or a local TeX toolchain.\n"
     )
-    readme += (
-        f"\nReferences: {len(references)} entries in references.bib, cited with \\cite{{}}.\n"
-        "A citation map is included as comments at the top of paper.tex -- worth a\n"
-        "30-second read to confirm [1] is the paper you expect.\n"
-    )
+    # Claim \cite and the citation map only when they are actually in the file.
+    # The README used to promise both unconditionally, which read as reassurance
+    # on exactly the export that had neither (audit L10).
+    if "\\cite{" in tex:
+        readme += (
+            f"\nReferences: {len(references)} entries in references.bib, cited with \\cite{{}}.\n"
+            "A citation map is included as comments at the top of paper.tex -- worth a\n"
+            "30-second read to confirm [1] is the paper you expect.\n"
+        )
+    else:
+        readme += (
+            f"\nReferences: {len(references)} entries in references.bib. The draft's prose\n"
+            "contains no [N] citation markers, so no \\cite commands were emitted and\n"
+            "BibTeX will print an empty bibliography.\n"
+        )
     if warnings:
         readme += "\nWarnings:\n" + "".join(f"  - {w}\n" for w in warnings)
 

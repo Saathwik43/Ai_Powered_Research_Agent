@@ -325,10 +325,8 @@ class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
             patch("integrations.paper_search.arxiv_search",     side_effect=instant_search),
             patch("integrations.paper_search.search_github_knowledge", side_effect=instant_github),
             patch("integrations.paper_search.springer_search",  side_effect=instant_search),
-            patch("integrations.paper_search.base_search",      side_effect=instant_search),
             patch("integrations.paper_search.europepmc_search", side_effect=instant_search),
             patch("integrations.paper_search.doaj_search",      side_effect=instant_search),
-            patch("integrations.paper_search.core_search",      side_effect=instant_search),
         ):
             t0 = time.monotonic()
             results = await ps_module.search_all(
@@ -393,10 +391,8 @@ class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
             patch("integrations.paper_search.arxiv_search",     side_effect=always_slow),
             patch("integrations.paper_search.search_github_knowledge", side_effect=always_slow_sync),
             patch("integrations.paper_search.springer_search",  side_effect=always_slow),
-            patch("integrations.paper_search.base_search",      side_effect=always_slow),
             patch("integrations.paper_search.europepmc_search", side_effect=always_slow),
             patch("integrations.paper_search.doaj_search",      side_effect=always_slow),
-            patch("integrations.paper_search.core_search",      side_effect=always_slow),
         ):
             t0 = time.monotonic()
             results = await ps_module.search_all(
@@ -421,8 +417,8 @@ class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
 
     async def test_all_fast_sources_complete_within_ceiling(self):
         """
-        When all 6 sources return instantly, search_all() must complete well
-        under the 6s ceiling and return all combined results.
+        When every source returns instantly, search_all() must complete well
+        under the ceiling and return all combined results.
         """
         import integrations.paper_search as ps_module
 
@@ -443,7 +439,6 @@ class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
         def gh_fast(query):             return [make_paper("gh-1",  "GitHub")]
         async def sp_fast(*a, **k):     return [make_paper("sp-1",  "Springer")]
         async def ie_fast(*a, **k):     return [make_paper("ie-1",  "IEEE")]
-        async def co_fast(*a, **k):     return [make_paper("co-1",  "CORE")]
 
         with (
             patch("integrations.paper_search.s2_search",        side_effect=s2_fast),
@@ -453,10 +448,8 @@ class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
             patch("integrations.paper_search.arxiv_search",     side_effect=ax_fast),
             patch("integrations.paper_search.search_github_knowledge", side_effect=gh_fast),
             patch("integrations.paper_search.springer_search",  side_effect=sp_fast),
-            patch("integrations.paper_search.base_search",      side_effect=ie_fast),
             patch("integrations.paper_search.europepmc_search", side_effect=ie_fast),
             patch("integrations.paper_search.doaj_search",      side_effect=ie_fast),
-            patch("integrations.paper_search.core_search",      side_effect=co_fast),
         ):
             t0 = time.monotonic()
             results = await ps_module.search_all(
@@ -473,7 +466,7 @@ class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
         self.assertLess(elapsed, 2.0, f"All-fast case should complete in <2s, took {elapsed:.2f}s")
         sources_present = {p["source"] for p in results}
         self.assertIn("PubMed", sources_present, "PubMed must be present in all-fast results")
-        self.assertEqual(len(results), 9, "Expected 1 paper from each of 9 sources")
+        self.assertEqual(len(results), 8, "Expected 1 paper from each of 8 distinct sources")
 
 
 # ── 4. Partial-results + broad-query regression tests ────────────────────────
@@ -515,10 +508,8 @@ class TestSearchAllPartialResults(unittest.IsolatedAsyncioTestCase):
             patch("integrations.paper_search.arxiv_search",     side_effect=instant),
             patch("integrations.paper_search.search_github_knowledge", side_effect=instant_github),
             patch("integrations.paper_search.springer_search",  side_effect=instant),
-            patch("integrations.paper_search.base_search",      side_effect=instant),
             patch("integrations.paper_search.europepmc_search", side_effect=instant),
             patch("integrations.paper_search.doaj_search",      side_effect=instant),
-            patch("integrations.paper_search.core_search",      side_effect=instant),
         ):
             t0 = time.monotonic()
             results = await ps_module.search_all(
@@ -623,10 +614,8 @@ class TestSearchAllPartialResults(unittest.IsolatedAsyncioTestCase):
             patch("integrations.paper_search.arxiv_search",     side_effect=ax_fast),
             patch("integrations.paper_search.search_github_knowledge", side_effect=gh_fast),
             patch("integrations.paper_search.springer_search",  side_effect=sp_fast),
-            patch("integrations.paper_search.base_search",      side_effect=ie_fast),
             patch("integrations.paper_search.europepmc_search", side_effect=ie_fast),
             patch("integrations.paper_search.doaj_search",      side_effect=ie_fast),
-            patch("integrations.paper_search.core_search",      side_effect=co_fast),
         ):
             t0 = time.monotonic()
             results = await ps_module.search_all(
@@ -643,7 +632,7 @@ class TestSearchAllPartialResults(unittest.IsolatedAsyncioTestCase):
 
         self.assertLess(elapsed, 1.0)
         # 4 fast sources (S2, OpenAlex, Crossref, arXiv) must be present
-        for expected_source in ("Semantic Scholar", "OpenAlex", "Crossref", "arXiv", "Springer", "IEEE", "CORE"):
+        for expected_source in ("Semantic Scholar", "OpenAlex", "Crossref", "arXiv", "Springer", "IEEE"):
             self.assertIn(
                 expected_source, sources_present,
                 f"{expected_source} missing from partial results: {sources_present}"
