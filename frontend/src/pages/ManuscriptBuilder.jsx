@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState, useRef } from 'react';
-import { CheckCircle, Circle, Save, FileText, Wand2, FolderOpen, X, Search, Sparkles, Send, BookOpen, Bold, Italic, Strikethrough, Link, List, ListOrdered, CheckSquare, Table, Quote, Code, Undo, Redo, Heading1, Heading2, Heading3, Printer, ChevronDown, ExternalLink, Plus, Trash2 } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
+import { CheckCircle, Circle, Save, FileText, Wand2, FolderOpen, X, Search, Sparkles, Send, BookOpen, Bold, Italic, Strikethrough, Link, List, ListOrdered, CheckSquare, Table, Quote, Code, Undo, Redo, Heading1, Heading2, Heading3, Printer, ChevronDown, ExternalLink, Plus, Trash2, History, RotateCcw } from 'lucide-react';
 import './ManuscriptBuilder.css';
 import './PaperPreview.css';
 import { useAuth } from '../context/AuthContext';
@@ -21,6 +21,7 @@ import {
   codeChildrenToText,
   findMermaidBlocks,
 } from '../utils/mermaidChart';
+import { normalizeLatexDelimiters, KATEX_REHYPE_OPTIONS } from '../utils/latexMath';
 import SourcesPanel from '../components/SourcesPanel';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -259,7 +260,7 @@ const STEPS = [
 ];
 
 export default function ManuscriptBuilder() {
-  const { authFetch } = useAuth();
+  const { api } = useAuth();
   const { manuscriptState } = useAppContext();
   const {
     active, setActive,
@@ -287,6 +288,12 @@ export default function ManuscriptBuilder() {
   const [draftToDelete, setDraftToDelete] = useState(null);
   const [deletingTopic, setDeletingTopic] = useState('');
   const [loadedDraftId, setLoadedDraftId] = useState(null);
+  // Version history (1.10). Every save snapshots what it replaced, server-side.
+  const [showHistory, setShowHistory] = useState(false);
+  const [versions, setVersions] = useState([]);
+  const [versionsLoading, setVersionsLoading] = useState(false);
+  const [versionError, setVersionError] = useState('');
+  const [restoringVersion, setRestoringVersion] = useState('');
   const [editPrompt,   setEditPrompt]   = useState('');
   const [editing,      setEditing]      = useState(false);
   const [editError,    setEditError]    = useState('');
@@ -315,21 +322,44 @@ export default function ManuscriptBuilder() {
   const [customContext, setCustomContext] = useState('');
   const [streamSources, setStreamSources] = useState([]);
   const [sourcesResolved, setSourcesResolved] = useState(false);
+  // Research pipeline stages (1.5), newest state per stage.
+  const [researchStages, setResearchStages] = useState([]);
+  const [researchReady, setResearchReady] = useState(false);
   
   const abortControllerRef = useRef(null);
+  const streamBufferRef = useRef('');
+  const streamRafRef = useRef(null);
+  const [sectionTruncated, setSectionTruncated] = useState(false);
+
+  const flushStreamBuffer = (sectionId) => {
+    streamRafRef.current = null;
+    const pending = streamBufferRef.current;
+    if (!pending) return;
+    streamBufferRef.current = '';
+    setContent(prev => ({ ...prev, [sectionId]: (prev[sectionId] || '') + pending }));
+  };
+
+  const queueStreamText = (sectionId, text) => {
+    if (!text) return;
+    streamBufferRef.current += text;
+    if (streamRafRef.current == null) {
+      streamRafRef.current = requestAnimationFrame(() => flushStreamBuffer(sectionId));
+    }
+  };
+
+  const settleStreamBuffer = (sectionId) => {
+    if (streamRafRef.current != null) {
+      cancelAnimationFrame(streamRafRef.current);
+      streamRafRef.current = null;
+    }
+    flushStreamBuffer(sectionId);
+  };
 
   const processForUnverified = (text) => {
     if (!text) return '';
-    let processed = text;
-    // Strip redundant leading top-level # Markdown header if present (e.g. # Abstract, # Topic)
-    processed = processed.replace(/^#\s+[^\n]+\n?/, '').trim();
-    if (unverifiedNumbers && unverifiedNumbers.length) {
-      unverifiedNumbers.forEach(num => {
-        processed = processed.split(num).join(`[${num}](#unverified-stat)`);
-      });
-      processed = processed.split('](#unverified-stat)](#unverified-stat)').join('](#unverified-stat)').split('[[').join('[');
-    }
-    return processed;
+    // Banner-only for unverified stats — substring replace used to rewrite
+    // chart/math source (C9).
+    return text.replace(/^#\s+[^\n]+\n?/, '').trim();
   };
 
   const formatPaperTitle = (text) => {
@@ -348,8 +378,34 @@ export default function ManuscriptBuilder() {
 
   const done = STEPS.filter(s => content[s.id]?.trim()).map(s => s.id);
 
-  const generate = async () => {
+  // Warm the research corpus as soon as the topic settles (1.5). The corpus is
+  // the same for every section, so building it while the user is still picking
+  // one takes the whole 8-source fan-out, the relevance pass and the full-text
+  // fetches off the critical path of the first Generate. Debounced because this
+  // fires on every keystroke of the topic field.
+  useEffect(() => {
+    const trimmed = topic.trim();
+    setResearchReady(false);
+    if (trimmed.length < 4 || generating) return undefined;
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const body = await api.post('/api/manuscript/research/prepare', { topic: trimmed });
+        if (!cancelled) setResearchReady(body?.data?.status === 'ready');
+      } catch {
+        // Best effort. A failed warm-up just means Generate does the work
+        // itself, reporting the same stages inline.
+      }
+    }, 1200);
+
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [topic, generating, api]);
+
+  const generate = async (opts = {}) => {
     if (!topic.trim()) return;
+    const sectionId = active;
+    const continueSection = Boolean(opts.continueSection) && Boolean((content[sectionId] || '').trim());
     setGenerating(true);
     setGenerateError('');
     setUnverifiedWarning('');
@@ -357,34 +413,45 @@ export default function ManuscriptBuilder() {
     setRateLimitWait(null);
     setStreamSources([]);
     setSourcesResolved(false);
-    setContent(prev => ({ ...prev, [active]: '' })); // Clear old content
+    streamBufferRef.current = '';
+    if (streamRafRef.current != null) {
+      cancelAnimationFrame(streamRafRef.current);
+      streamRafRef.current = null;
+    }
+    if (!continueSection) {
+      setContent(prev => ({ ...prev, [sectionId]: '' }));
+      setSectionTruncated(false);
+    }
     
     abortControllerRef.current = new AbortController();
     
     // If the active section is 'references', we don't need the LLM to generate it!
     // We already have the compiled references in `manuscriptRefs`.
-    if (active === 'references') {
+    if (sectionId === 'references') {
       if (manuscriptRefs && Object.keys(manuscriptRefs).length > 0) {
         let refsText = '';
         Object.keys(manuscriptRefs).sort((a, b) => parseInt(a) - parseInt(b)).forEach(key => {
           refsText += `${key}. ${manuscriptRefs[key]}\n\n`;
         });
-        setContent(prev => ({ ...prev, [active]: refsText.trim() }));
+        setContent(prev => ({ ...prev, [sectionId]: refsText.trim() }));
       } else {
-        setContent(prev => ({ ...prev, [active]: '*No references have been cited in the generated manuscript yet.*' }));
+        setContent(prev => ({ ...prev, [sectionId]: '*No references have been cited in the generated manuscript yet.*' }));
       }
       setGenerating(false);
       return;
     }
     
     try {
-      const payloadContext = customContext.trim() || 'Use latest research trends and cite recent advancements.';
+      let payloadContext = customContext.trim() || 'Use latest research trends and cite recent advancements.';
+      if (continueSection) {
+        payloadContext = `The existing section was cut off mid-generation. Continue writing from the last sentence. Do not repeat the existing text.\n\n<existing_section>\n${content[sectionId]}\n</existing_section>\n\n${payloadContext}`;
+      }
       const selectedModel = MODELS.find(m => m.id === selectedModelId) || MODELS[0];
       setAutoStatus('');
       
       const payload = { 
         topic, 
-        section: active, 
+        section: sectionId, 
         context: payloadContext, 
         citation_style: citationStyle, 
         mode: autoMode ? 'auto' : 'manual'
@@ -395,7 +462,7 @@ export default function ManuscriptBuilder() {
         payload.model = selectedModel.model;
       }
 
-      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/stream`, {
+      const res = await api.raw(`/api/manuscript/stream`, {
         method: 'POST',
         body: JSON.stringify(payload),
         signal: abortControllerRef.current.signal
@@ -435,8 +502,17 @@ export default function ManuscriptBuilder() {
             try {
               const data = JSON.parse(dataStr);
               if (data.type === "chunk") {
-                setContent(prev => ({ ...prev, [active]: (prev[active] || "") + data.text }));
+                queueStreamText(sectionId, data.text || '');
+              } else if (data.type === "status") {
+                // Research stages (1.5). They arrive while the pipeline runs,
+                // so the wait before the first token is legible instead of a
+                // blank screen that reads as a hung request.
+                setResearchStages((prev) => {
+                  const next = prev.filter((s) => s.stage !== data.stage);
+                  return [...next, { stage: data.stage, status: data.status, detail: data.detail }];
+                });
               } else if (data.type === "sources_list") {
+                setResearchStages([]);
                 setStreamSources(data.sources || []);
                 setSourcesResolved(true);
               } else if (data.type === "provider_active") {
@@ -445,26 +521,36 @@ export default function ManuscriptBuilder() {
                 setAutoStatus(data.message);
                 setTimeout(() => setAutoStatus(''), 2500);
               } else if (data.type === "metadata") {
+                settleStreamBuffer(sectionId);
                 if (data.formatted_references) setManuscriptRefs(data.formatted_references);
                 if (data.unverified_citations) setUnverifiedWarning('Warning: The generated text contains citations that could not be verified against the provided context. Please verify them independently.');
                 if (data.unverified_numbers && data.unverified_numbers.length > 0) setUnverifiedNumbers(data.unverified_numbers);
                 if (data.gap_analysis) setGapAnalysis(data.gap_analysis);
-                else if (active === 'lit_review' || active === 'literature_review') setGapAnalysis(null);
+                else if (sectionId === 'lit_review' || sectionId === 'literature_review') setGapAnalysis(null);
+                const reason = String(data.finish_reason || '').toLowerCase();
+                const cutOff = Boolean(data.truncated) || ['length', 'max_tokens', 'max_output_tokens'].includes(reason);
+                setSectionTruncated(cutOff);
               } else if (data.type === "stopped") {
+                settleStreamBuffer(sectionId);
                 setAutoStatus('');
                 if (data.reason === "rate_limit") {
                   const waitSecs = data.retry_after_seconds;
                   if (waitSecs) {
                      setRateLimitWait(waitSecs);
-                     setContent(prev => ({ ...prev, [active]: (prev[active] || "") + `\n\n*[Generation paused — rate limit reached. You can resume in ~${waitSecs}s.]*` }));
+                     setContent(prev => ({ ...prev, [sectionId]: (prev[sectionId] || "") + `\n\n*[Generation paused — rate limit reached. You can resume in ~${waitSecs}s.]*` }));
                   } else {
-                     setContent(prev => ({ ...prev, [active]: (prev[active] || "") + `\n\n*[Generation paused — rate limit reached. Try again shortly.]*` }));
+                     setContent(prev => ({ ...prev, [sectionId]: (prev[sectionId] || "") + `\n\n*[Generation paused — rate limit reached. Try again shortly.]*` }));
                   }
                 } else if (data.reason === "error") {
-                  setContent(prev => ({ ...prev, [active]: (prev[active] || "") + `\n\n*[Generation stopped: ${data.message}]*` }));
+                  setContent(prev => ({ ...prev, [sectionId]: (prev[sectionId] || "") + `\n\n*[Generation stopped: ${data.message}]*` }));
                 }
               } else if (data.type === "done") {
+                settleStreamBuffer(sectionId);
                 setAutoStatus('');
+                const reason = String(data.finish_reason || '').toLowerCase();
+                if (['length', 'max_tokens', 'max_output_tokens'].includes(reason)) {
+                  setSectionTruncated(true);
+                }
                 setGenerating(false);
               }
             } catch (err) {
@@ -473,9 +559,11 @@ export default function ManuscriptBuilder() {
           }
         }
       }
+      settleStreamBuffer(sectionId);
     } catch (e) {
+      settleStreamBuffer(sectionId);
       if (e.name === 'AbortError') {
-        setContent(prev => ({ ...prev, [active]: (prev[active] || "") + `\n\n*[Generation stopped by user]*` }));
+        setContent(prev => ({ ...prev, [sectionId]: (prev[sectionId] || "") + `\n\n*[Generation stopped by user]*` }));
       } else {
         console.error(e);
         setGenerateError('Network error. Please try again.');
@@ -504,6 +592,10 @@ export default function ManuscriptBuilder() {
     }, 1000);
     return () => clearInterval(timer);
   }, [rateLimitWait]);
+
+  useEffect(() => {
+    setSectionTruncated(false);
+  }, [active]);
 
   // Markdown formatting helper
   const insertMarkdown = (prefix, suffix = '') => {
@@ -584,24 +676,47 @@ export default function ManuscriptBuilder() {
     setEditError('');
     setPendingEditFlags(null);
     const target = resolveEditTarget();
+    const selectedModel = MODELS.find(m => m.id === selectedModelId) || MODELS[0];
+    abortControllerRef.current = new AbortController();
+    let previewBuf = '';
+    let previewRaf = null;
+    const flushPreview = () => {
+      previewRaf = null;
+      const t = previewBuf;
+      previewBuf = '';
+      if (t && !target) setPendingEdit(prev => (prev || '') + t);
+    };
+    const settlePreview = () => {
+      if (previewRaf != null) {
+        cancelAnimationFrame(previewRaf);
+        previewRaf = null;
+      }
+      flushPreview();
+    };
     try {
-      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/edit`, {
-        method: 'POST',
-        body: JSON.stringify({
-          topic,
-          section: active,
-          current_content: content[active],
-          instructions: editPrompt,
-          citation_style: citationStyle,
-          // Scoped revision: the server rewrites only this span and splices the
-          // reply back, so text outside it is copied, not regenerated.
-          ...(target && {
-            target_text: target.text,
-            target_start: target.start,
-            target_end: target.end,
-            target_kind: target.kind,
-          }),
+      const payload = {
+        topic,
+        section: active,
+        current_content: content[active],
+        instructions: editPrompt,
+        citation_style: citationStyle,
+        mode: autoMode ? 'auto' : 'manual',
+        ...(target && {
+          target_text: target.text,
+          target_start: target.start,
+          target_end: target.end,
+          target_kind: target.kind,
         }),
+      };
+      if (!autoMode) {
+        payload.provider = selectedModel.provider;
+        payload.model = selectedModel.model;
+      }
+      if (!target) setPendingEdit('');
+      const res = await api.raw(`/api/manuscript/edit/stream`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        signal: abortControllerRef.current.signal,
       });
       if (res.status === 503) {
         setEditError('AI revision is temporarily unavailable. Please try again in a moment.');
@@ -613,29 +728,66 @@ export default function ManuscriptBuilder() {
       }
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setEditError(typeof data.detail === 'string' ? data.detail : 'Failed to apply revision. Please try again.');
+        const detail = data.detail;
+        const message = typeof detail === 'string'
+          ? detail
+          : Array.isArray(detail)
+            ? detail.map(d => d.msg || d).join(' ')
+            : 'Failed to apply revision. Please try again.';
+        setEditError(message);
         return;
       }
-      const data = await res.json();
-      setPendingEdit(data.content);
-      // The revision carries its own verification verdict. Held against the
-      // pending text, not applied to the section, so the warning is visible
-      // while the diff is still rejectable.
-      setPendingEditFlags({
-        unverifiedNumbers: data.unverified_numbers || [],
-        uncitedClaims: data.uncited_claims || [],
-        citationMap: data.citation_map || [],
-        unverifiedCitations: Boolean(data.unverified_citations),
-        truncated: Boolean(data.truncated),
-        diagramErrors: data.diagram_errors || [],
-        diagramsDropped: data.diagrams_dropped || 0,
-        targetUnresolved: Boolean(data.target_unresolved),
-        targetOverrun: Boolean(data.target_overrun),
-        scoped: Boolean(target) && !data.target_unresolved,
-      });
-      setEditPrompt('');
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+      while (true) {
+        const { done: readerDone, value } = await reader.read();
+        if (readerDone) break;
+        buffer += decoder.decode(value, { stream: true });
+        let boundary = buffer.indexOf('\n\n');
+        while (boundary !== -1) {
+          const chunkStr = buffer.slice(0, boundary).trim();
+          buffer = buffer.slice(boundary + 2);
+          boundary = buffer.indexOf('\n\n');
+          if (!chunkStr.startsWith('data: ')) continue;
+          const dataStr = chunkStr.slice(6);
+          if (dataStr === '[DONE]') continue;
+          let data;
+          try {
+            data = JSON.parse(dataStr);
+          } catch (err) {
+            console.error('Error parsing edit stream chunk:', err, chunkStr);
+            continue;
+          }
+          if (data.type === 'chunk') {
+            if (!target) {
+              previewBuf += data.text || '';
+              if (previewRaf == null) previewRaf = requestAnimationFrame(flushPreview);
+            }
+          } else if (data.type === 'metadata') {
+            settlePreview();
+            setPendingEdit(data.content);
+            setPendingEditFlags({
+              unverifiedNumbers: data.unverified_numbers || [],
+              uncitedClaims: data.uncited_claims || [],
+              citationMap: data.citation_map || [],
+              unverifiedCitations: Boolean(data.unverified_citations),
+              truncated: Boolean(data.truncated),
+              diagramErrors: data.diagram_errors || [],
+              diagramsDropped: data.diagrams_dropped || 0,
+              targetUnresolved: Boolean(data.target_unresolved),
+              targetOverrun: Boolean(data.target_overrun),
+              scoped: Boolean(target) && !data.target_unresolved,
+            });
+            setEditPrompt('');
+          } else if (data.type === 'stopped' && data.reason === 'error') {
+            setEditError(data.message || 'Failed to apply revision. Please try again.');
+          }
+        }
+      }
+      settlePreview();
     } catch (e) {
-      setEditError('Network error. Please try again.');
+      if (e.name !== 'AbortError') setEditError('Network error. Please try again.');
     } finally {
       setEditing(false);
     }
@@ -676,53 +828,59 @@ export default function ManuscriptBuilder() {
     setRevisePanelOpen(false);
   };
 
-  const save = async ({ silent } = {}) => {
-    if (!topic.trim()) return;
+  const buildDraftSnapshot = useCallback(() => ({
+    topic: topic.trim(),
+    content,
+    gap_analysis: gapAnalysis,
+    manuscript_refs: manuscriptRefs,
+    citation_style: citationStyle,
+  }), [topic, content, gapAnalysis, manuscriptRefs, citationStyle]);
+
+  const save = useCallback(async ({ silent } = {}) => {
+    if (!topic.trim()) return false;
+    const snapshot = buildDraftSnapshot();
     if (!silent) setSaveStatus('saving');
     try {
-      const payload = { 
-        topic: topic.trim(), 
-        content,
-        gap_analysis: gapAnalysis,
-        manuscript_refs: manuscriptRefs,
-        citation_style: citationStyle
-      };
-      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/save`, { 
-        method: 'POST', 
-        body: JSON.stringify(payload) 
+      const res = await api.raw(`/api/manuscript/save`, {
+        method: 'POST',
+        body: JSON.stringify(snapshot),
       });
       if (res.ok) {
         const body = await res.json().catch(() => ({}));
         if (body.id) setLoadedDraftId(body.id);
-        lastSavedContentRef.current = { topic: topic.trim(), content };
+        // Only the payload that actually persisted is clean. In-flight edits stay dirty.
+        lastSavedContentRef.current = snapshot;
         if (!silent) {
           setSaveStatus('saved');
           setTimeout(() => setSaveStatus(''), 3000);
         }
-      } else if (!silent) {
-        setSaveStatus('error');
+        return true;
       }
+      if (!silent) setSaveStatus('error');
+      return false;
     } catch {
       if (!silent) setSaveStatus('error');
+      return false;
     }
-  };
+  }, [topic, buildDraftSnapshot, api]);
 
-  // Autosave Effect — skip while streaming to avoid stringify thrash
+  // Autosave — skip while streaming to avoid stringify thrash. Gap, refs and
+  // citation style are in the dirty snapshot, so changing them schedules a save
+  // and a failed request leaves the draft dirty instead of pretending it landed.
   useEffect(() => {
     if (generating) return;
     if (!topic.trim()) return;
 
-    const snapshot = { topic: topic.trim(), content };
-    const currentSnapshot = JSON.stringify(snapshot);
+    const currentSnapshot = JSON.stringify(buildDraftSnapshot());
     const lastSnapshot = JSON.stringify(lastSavedContentRef.current);
     if (currentSnapshot === lastSnapshot) return;
-    
-    const timeoutId = setTimeout(() => {
-      save();
+
+    const timeoutId = setTimeout(async () => {
+      await save();
     }, 5000);
-    
+
     return () => clearTimeout(timeoutId);
-  }, [content, topic, generating]);
+  }, [generating, topic, buildDraftSnapshot, save]);
 
   useEffect(() => {
     if (!showLoad) return;
@@ -733,7 +891,7 @@ export default function ManuscriptBuilder() {
         if (topic.trim()) {
           await save({ silent: true });
         }
-        const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/list`);
+        const res = await api.raw(`/api/manuscript/list`);
         const data = await res.json();
         setDrafts(Array.isArray(data.data) ? data.data : []);
       } catch {
@@ -743,7 +901,67 @@ export default function ManuscriptBuilder() {
       }
     };
     fetchDrafts();
-  }, [authFetch, showLoad]);
+  }, [api, showLoad]);
+
+  // ─── Version history (1.10) ──────────────────────────────────────────────
+  //
+  // The list is fetched when the panel opens rather than kept live: it only
+  // changes when this tab saves, and a draft being written to every few seconds
+  // would otherwise poll for a list nobody is looking at.
+
+  const openHistory = useCallback(async () => {
+    if (!topic.trim() && !loadedDraftId) return;
+    setShowHistory(true);
+    setVersionError('');
+    setVersionsLoading(true);
+    try {
+      // Flush anything unsaved first, so the version the user is about to roll
+      // back *from* is itself recoverable.
+      await save({ silent: true });
+      const params = loadedDraftId ? { draft_id: loadedDraftId } : { topic: topic.trim() };
+      const data = await api.get('/api/manuscript/versions', { params });
+      setVersions(Array.isArray(data.data) ? data.data : []);
+    } catch (e) {
+      setVersionError(e?.message || 'Could not load version history.');
+      setVersions([]);
+    } finally {
+      setVersionsLoading(false);
+    }
+  }, [api, topic, loadedDraftId, save]);
+
+  const restoreVersion = useCallback(async (version) => {
+    setRestoringVersion(version.id);
+    setVersionError('');
+    try {
+      const body = await api.post('/api/manuscript/restore', { version_id: version.id });
+      const draft = body.data || {};
+      const restoredContent = draft.content || {};
+      const restoredGap = draft.gap_analysis || null;
+      const restoredRefs = draft.manuscript_refs || null;
+      const restoredStyle = draft.citation_style || 'ieee';
+      setContent(restoredContent);
+      setGapAnalysis(restoredGap);
+      setManuscriptRefs(restoredRefs);
+      setCitationStyle(restoredStyle);
+      // The restore is already persisted, so mark the editor clean against it —
+      // otherwise autosave would immediately write the restored text back as a
+      // brand new version.
+      lastSavedContentRef.current = {
+        topic: (draft.topic || topic).trim(),
+        content: restoredContent,
+        gap_analysis: restoredGap,
+        manuscript_refs: restoredRefs,
+        citation_style: restoredStyle,
+      };
+      setShowHistory(false);
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus(''), 3000);
+    } catch (e) {
+      setVersionError(e?.message || 'Could not restore that version.');
+    } finally {
+      setRestoringVersion('');
+    }
+  }, [api, topic, setContent, setManuscriptRefs, lastSavedContentRef]);
 
   const handleNewPaper = () => {
     if (Object.keys(content).length > 0) {
@@ -780,24 +998,31 @@ export default function ManuscriptBuilder() {
       const params = new URLSearchParams();
       if (draftId) params.set('draft_id', draftId);
       else params.set('topic', rawTopic);
-      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/load?${params.toString()}`);
+      const res = await api.raw(`/api/manuscript/load?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
         const loaded = data.data || {};
         const loadedContent = loaded.content || {};
         const loadedTopic = loaded.topic || rawTopic || '';
+        const loadedGap = loaded.gap_analysis || null;
+        const loadedRefs = loaded.manuscript_refs || null;
+        const loadedStyle = loaded.citation_style || 'ieee';
         setContent(loadedContent);
         setTopic(loadedTopic);
-        setGapAnalysis(loaded.gap_analysis || null);
-        setManuscriptRefs(loaded.manuscript_refs || null);
-        if (loaded.citation_style) {
-          setCitationStyle(loaded.citation_style);
-        }
-        if (loaded.gap_analysis) {
+        setGapAnalysis(loadedGap);
+        setManuscriptRefs(loadedRefs);
+        setCitationStyle(loadedStyle);
+        if (loadedGap) {
           setGapPanelOpen(false);
         }
         setLoadedDraftId(loaded.id || draftId || null);
-        lastSavedContentRef.current = { topic: (loadedTopic || '').trim(), content: loadedContent };
+        lastSavedContentRef.current = {
+          topic: (loadedTopic || '').trim(),
+          content: loadedContent,
+          gap_analysis: loadedGap,
+          manuscript_refs: loadedRefs,
+          citation_style: loadedStyle,
+        };
         setShowLoad(false);
         setDraftFilter('');
       } else { setLoadError('No draft found for this topic.'); }
@@ -815,8 +1040,8 @@ export default function ManuscriptBuilder() {
       const params = new URLSearchParams();
       if (draftId) params.set('draft_id', draftId);
       else params.set('topic', rawTopic);
-      const res = await authFetch(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/delete?${params.toString()}`,
+      const res = await api.raw(
+        `/api/manuscript/delete?${params.toString()}`,
         { method: 'DELETE' }
       );
       if (!res.ok) {
@@ -863,8 +1088,8 @@ export default function ManuscriptBuilder() {
     setLatexExporting(true);
     setLatexError('');
     try {
-      const res = await authFetch(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/export-latex`,
+      const res = await api.raw(
+        `/api/manuscript/export-latex`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -949,6 +1174,14 @@ export default function ManuscriptBuilder() {
               </button>
               <button className="btn btn-secondary" onClick={() => { setShowLoad(true); setLoadError(''); setDraftFilter(''); setDraftToDelete(null); }}>
                 <FolderOpen size={14} /> Load Draft
+              </button>
+              <button
+                className="btn btn-secondary"
+                onClick={openHistory}
+                disabled={!topic.trim() && !loadedDraftId}
+                title="Earlier versions of this draft"
+              >
+                <History size={14} /> History
               </button>
             </div>
           </div>
@@ -1107,20 +1340,49 @@ export default function ManuscriptBuilder() {
             <h2>{currentStep?.label}</h2>
             <div className="manuscript-section-actions responsive-actions">
               {autoStatus && <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', width: '100%' }}>{autoStatus}</span>}
+              {!generating && researchReady && topic.trim() && (
+                <span
+                  style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
+                  title="The literature for this topic is already searched, screened and read, so generating starts immediately."
+                >
+                  <CheckCircle size={12} /> Research ready
+                </span>
+              )}
               {generating ? (
                 <button className="btn btn-secondary" onClick={stopGeneration} style={{ background: 'var(--danger)', color: 'white', borderColor: 'var(--danger)' }}>
                   <Spinner size={14} /> Stop
                 </button>
               ) : (
-                <button className="btn btn-secondary" onClick={generate} disabled={!topic.trim() || rateLimitWait > 0}>
-                  <Sparkles size={14} /> {rateLimitWait ? `Wait ${rateLimitWait}s` : 'Generate'}
+                <button className="btn btn-secondary" onClick={() => generate({ continueSection: sectionTruncated })} disabled={!topic.trim() || rateLimitWait > 0}>
+                  <Sparkles size={14} /> {rateLimitWait ? `Wait ${rateLimitWait}s` : sectionTruncated ? 'Continue' : 'Generate'}
                 </button>
               )}
-              <button className="btn btn-ghost" onClick={save} disabled={!topic.trim() || saveStatus === 'saving'}>
-                <Save size={14} /> {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : 'Save'}
+              <button
+                className="btn btn-ghost"
+                onClick={() => { void save(); }}
+                disabled={!topic.trim() || saveStatus === 'saving'}
+                style={saveStatus === 'error' ? { color: 'var(--danger)' } : undefined}
+              >
+                <Save size={14} /> {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : saveStatus === 'error' ? 'Save failed' : 'Save'}
               </button>
             </div>
           </div>
+
+          {/* Research pipeline stages (1.5). Replaced by the source strip the
+              moment the corpus resolves, so the two never stack. */}
+          {researchStages.length > 0 && !sourcesResolved && (
+            <div className="manuscript-research-stages">
+              <div className="manuscript-research-stages-title">
+                <Search size={12} /> Preparing research
+              </div>
+              {researchStages.map((s) => (
+                <div key={s.stage} className={`manuscript-research-stage is-${s.status}`}>
+                  {s.status === 'running' ? <Spinner size={12} /> : <CheckCircle size={12} />}
+                  <span>{s.detail || s.stage}</span>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Source Cards Strip */}
           {sourcesResolved && (
@@ -1273,6 +1535,11 @@ export default function ManuscriptBuilder() {
           {generateError && (
             <div style={{ marginTop: 'var(--space-4)', marginBottom: 'var(--space-4)', padding: 'var(--space-3) var(--space-4)', background: 'rgba(229,28,35,0.08)', border: '1px solid rgba(229,28,35,0.2)', borderRadius: 'var(--radius-md)', color: 'var(--danger)', fontSize: 'var(--fs-sm)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
               <X size={15} /> {generateError}
+            </div>
+          )}
+          {sectionTruncated && !generating && !generateError && (
+            <div style={{ marginTop: 'var(--space-4)', marginBottom: 'var(--space-4)', padding: 'var(--space-3) var(--space-4)', background: 'rgba(255,152,0,0.08)', border: '1px solid rgba(255,152,0,0.25)', borderRadius: 'var(--radius-md)', color: 'var(--warning)', fontSize: 'var(--fs-sm)' }}>
+              This section was cut off mid-sentence. Click Continue to keep writing from here.
             </div>
           )}
           {/* Unverified Stats Toast */}
@@ -1441,7 +1708,7 @@ export default function ManuscriptBuilder() {
                   {content[active] ? (
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm, remarkMath]}
-                      rehypePlugins={[rehypeKatex]}
+                      rehypePlugins={[[rehypeKatex, KATEX_REHYPE_OPTIONS]]}
                       components={{
                         table: TableOrChart,
                         a: ({ node, href, children, ...props }) => {
@@ -1453,7 +1720,7 @@ export default function ManuscriptBuilder() {
                         code: MarkdownCode
                       }}
                     >
-                      {processForUnverified((content[active] || '') + (generating ? ' <span class="write-cursor">▋</span>' : ''))}
+                      {normalizeLatexDelimiters(processForUnverified((content[active] || '') + (generating ? ' <span class="write-cursor">▋</span>' : '')))}
                     </ReactMarkdown>
                   ) : (
                     <p style={{ color: 'var(--text-subtle)', fontStyle: 'italic', margin: 0 }}>Nothing to preview.</p>
@@ -1472,7 +1739,7 @@ export default function ManuscriptBuilder() {
                       {content[active] ? (
                         <ReactMarkdown
                           remarkPlugins={[remarkGfm, remarkMath]}
-                          rehypePlugins={[rehypeKatex]}
+                          rehypePlugins={[[rehypeKatex, KATEX_REHYPE_OPTIONS]]}
                           components={{
                             table: TableOrChart,
                             a: ({ node, href, children, ...props }) => {
@@ -1484,7 +1751,7 @@ export default function ManuscriptBuilder() {
                             code: MarkdownCode
                           }}
                         >
-                          {processForUnverified(content[active])}
+                          {normalizeLatexDelimiters(processForUnverified(content[active]))}
                         </ReactMarkdown>
                       ) : (
                         <p style={{ color: '#999', fontStyle: 'italic', textAlign: 'center', marginTop: 'var(--space-7)' }}>
@@ -1509,7 +1776,7 @@ export default function ManuscriptBuilder() {
                           )}
                           <ReactMarkdown
                             remarkPlugins={[remarkGfm, remarkMath]}
-                            rehypePlugins={[rehypeKatex]}
+                            rehypePlugins={[[rehypeKatex, KATEX_REHYPE_OPTIONS]]}
                             components={{
                               table: TableOrChart,
                               a: ({ node, href, children, ...props }) => {
@@ -1521,7 +1788,7 @@ export default function ManuscriptBuilder() {
                               code: MarkdownCode
                             }}
                           >
-                            {processForUnverified(content[step.id])}
+                            {normalizeLatexDelimiters(processForUnverified(content[step.id]))}
                           </ReactMarkdown>
                         </div>
                       ) : null)}
@@ -1675,6 +1942,70 @@ export default function ManuscriptBuilder() {
             <div style={{ display: 'flex', gap: 'var(--space-3)', justifyContent: 'flex-end' }}>
               <button className="btn btn-ghost" onClick={() => setShowNewPaperConfirm(false)}>Cancel</button>
               <button className="btn btn-primary" onClick={confirmNewPaper} style={{ background: 'var(--danger)' }}>Yes, Start Fresh</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Version history (1.10) */}
+      {showHistory && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' }}
+          onClick={() => { if (!restoringVersion) setShowHistory(false); }}
+        >
+          <div className="animate-scale-in" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 'var(--space-6)', width: '100%', maxWidth: '520px' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
+              <h3 style={{ margin: 0 }}>Version History</h3>
+              <button
+                onClick={() => { if (!restoringVersion) setShowHistory(false); }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', display: 'flex' }}
+              >
+                <X size={17} />
+              </button>
+            </div>
+            <p style={{ fontSize: 'var(--fs-sm)', marginBottom: 'var(--space-3)' }}>
+              Each entry is what this draft looked like <em>before</em> a save. Restoring one keeps
+              your current text as a new entry, so a restore is undoable too.
+            </p>
+            {versionError && <p style={{ color: 'var(--danger)', fontSize: 'var(--fs-sm)', marginBottom: 'var(--space-3)' }}>{versionError}</p>}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', maxHeight: '340px', overflowY: 'auto', marginBottom: 'var(--space-4)', paddingRight: 'var(--space-1)' }}>
+              {versionsLoading && <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 'var(--fs-sm)' }}>Loading history...</p>}
+              {!versionsLoading && versions.length === 0 && !versionError && (
+                <div className="empty-state" style={{ padding: 'var(--space-4)', fontSize: 'var(--fs-sm)' }}>
+                  No earlier versions yet — one is kept every time a save replaces existing text.
+                </div>
+              )}
+              {!versionsLoading && versions.map((version) => {
+                const summary = version.summary || {};
+                const when = version.created_at ? new Date(version.created_at) : null;
+                return (
+                  <div key={version.id} className="manuscript-draft-row">
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div className="manuscript-draft-title">
+                        {when ? when.toLocaleString() : 'Earlier version'}
+                        {version.reason === 'restore' && ' · before a restore'}
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-subtle)', marginTop: '2px' }}>
+                        {(summary.sections || []).length} section{(summary.sections || []).length === 1 ? '' : 's'}
+                        {typeof summary.total_chars === 'number' && ` · ${summary.total_chars.toLocaleString()} characters`}
+                      </div>
+                    </div>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      disabled={Boolean(restoringVersion)}
+                      onClick={() => restoreVersion(version)}
+                      style={{ flexShrink: 0, height: 'auto', minHeight: '30px', padding: '0.35rem 0.75rem', fontSize: 'var(--fs-xs)' }}
+                    >
+                      {restoringVersion === version.id
+                        ? <Spinner size={14} />
+                        : <><RotateCcw size={13} /> Restore</>}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ display: 'flex', gap: 'var(--space-3)', justifyContent: 'flex-end' }}>
+              <button className="btn btn-ghost" disabled={Boolean(restoringVersion)} onClick={() => setShowHistory(false)}>Close</button>
             </div>
           </div>
         </div>

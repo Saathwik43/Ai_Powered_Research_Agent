@@ -13,6 +13,11 @@ import {
   isAbortError,
 } from '../utils/searchHeuristics';
 import { useSearchRequest } from '../hooks/useSearchRequest';
+import { useApiQuery } from '../hooks/useApiQuery';
+import { invalidate } from '../lib/queryCache';
+
+// The Dashboard's "recent surveys" rail reads this same key.
+const SURVEY_LIST_KEY = 'literature:list';
 
 // Progressive fetch: classify one page at a time. Raising limit on Load more
 // reuses search_all + relevance caches so only the new window slice is paid for.
@@ -71,7 +76,7 @@ function SourceOutcomes({ sources }) {
 }
 
 export default function LiteratureSurvey() {
-  const { authFetch } = useAuth();
+  const { api } = useAuth();
   const { literatureState } = useAppContext();
   const {
     query, setQuery,
@@ -102,26 +107,20 @@ export default function LiteratureSurvey() {
   const paperKey = (p) =>
     p.doi || p.id || p.url || `${p.title}|${p.year}|${p.source}|${p.authors}`;
 
-  const fetchSavedSurveys = async () => {
-    setLoadingSaved(true);
-    try {
-      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature/list`);
-      if (res.ok) {
-        const data = await res.json();
-        setSavedSurveys(data.data || []);
-      }
-    } catch (e) {
-      console.error("Failed to fetch saved surveys", e);
-    } finally {
-      setLoadingSaved(false);
-    }
-  };
+  // Same cache entry the Dashboard's "recent surveys" rail reads (1.13), so
+  // switching to this tab after visiting the Dashboard costs no round trip.
+  const savedQuery = useApiQuery(
+    SURVEY_LIST_KEY,
+    () => api.get('/api/literature/list').then((d) => d.data || []),
+    { enabled: activeTab === 'saved' },
+  );
+
+  const fetchSavedSurveys = savedQuery.refresh;
 
   useEffect(() => {
-    if (activeTab === 'saved') {
-      fetchSavedSurveys();
-    }
-  }, [activeTab]);
+    setSavedSurveys(savedQuery.data || []);
+    setLoadingSaved(savedQuery.loading);
+  }, [savedQuery.data, savedQuery.loading]);
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -182,8 +181,8 @@ export default function LiteratureSurvey() {
       setSourceOutcomes([]);
 
       try {
-        const res = await authFetch(
-          `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature?query=${encodeURIComponent(check.query)}&limit=${INITIAL_LIMIT}${fresh ? '&fresh=true' : ''}`,
+        const res = await api.raw(
+          `/api/literature?query=${encodeURIComponent(check.query)}&limit=${INITIAL_LIMIT}${fresh ? '&fresh=true' : ''}`,
           { signal }
         );
         if (!isCurrent()) return;
@@ -259,8 +258,8 @@ export default function LiteratureSurvey() {
     setLoadingMore(true);
     setSearchError('');
     try {
-      const res = await authFetch(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature?query=${encodeURIComponent(lastQuery)}&limit=${nextLimit}`
+      const res = await api.raw(
+        `/api/literature?query=${encodeURIComponent(lastQuery)}&limit=${nextLimit}`
       );
       if (res.status === 429 || res.status === 503) {
         setSearchError('Rate limit exceeded. Please wait a minute before trying again.');
@@ -365,21 +364,22 @@ export default function LiteratureSurvey() {
     if (!query || !papers.length) return;
     setSaveStatus('saving');
     try {
-      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature/save`, { method: 'POST', body: JSON.stringify({ query, papers }) });
-      setSaveStatus(res.ok ? 'saved' : 'error');
-      if (res.ok) setTimeout(() => setSaveStatus(''), 3000);
+      await api.post('/api/literature/save', {
+        query, papers, screened: papers.length, sources: sourceOutcomes,
+      });
+      setSaveStatus('saved');
+      // The list the Dashboard rail and the Saved tab both read is now stale.
+      invalidate(SURVEY_LIST_KEY);
+      setTimeout(() => setSaveStatus(''), 3000);
     } catch { setSaveStatus('error'); }
   };
 
   const deleteSurvey = async (surveyQuery) => {
     if (!window.confirm(`Are you sure you want to delete the survey "${surveyQuery}"?`)) return;
     try {
-      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature/delete/${encodeURIComponent(surveyQuery)}`, {
-        method: 'DELETE'
-      });
-      if (res.ok) {
-        fetchSavedSurveys();
-      }
+      await api.del(`/api/literature/delete/${encodeURIComponent(surveyQuery)}`);
+      invalidate(SURVEY_LIST_KEY);
+      fetchSavedSurveys();
     } catch (e) {
       console.error("Failed to delete survey", e);
     }
@@ -701,7 +701,7 @@ export default function LiteratureSurvey() {
               >
                 <div className="lit-saved-copy">
                   <h3>{survey.query}</h3>
-                  <p>{survey.papers?.length || 0} papers saved</p>
+                  <p>{survey.screened ?? survey.papers?.length ?? 0} papers screened{survey.saved_at ? ` · ${new Date(survey.saved_at).toLocaleDateString()}` : ''}</p>
                 </div>
                 <div className="lit-result-actions lit-saved-actions">
                   <button className="btn btn-secondary" onClick={() => exportSurveyToPDF(survey.papers, survey.query)}>

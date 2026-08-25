@@ -131,6 +131,7 @@ export function sanitizeMermaidChart(raw) {
   chart = chart.replace(/^mermaid\s*\n/i, '');
   chart = chart.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/__([^_]+)__/g, '$1');
   chart = chart.replace(/\$([^$\n]+)\$/g, '$1');
+  chart = chart.replace(/\\\[/g, '').replace(/\\\]/g, '');
   chart = chart.replace(/^pie\s*\n\s*title\s+/i, 'pie title ');
 
   if (/^xychart\b/i.test(chart) && !/^xychart-beta\b/i.test(chart)) {
@@ -154,7 +155,50 @@ export function sanitizeMermaidChart(raw) {
   chart = chart.replace(/^flowchart\s+LR\b/i, 'flowchart TD');
   chart = chart.replace(/^flowchart\s+RL\b/i, 'flowchart TD');
 
+  chart = quoteFlowchartNodeLabels(chart);
+
   return chart.trim();
+}
+
+/**
+ * `A[G = [ES-H]^{-1}]` closes the node at the first `]`, which is how
+ * methodology diagrams of Green's-function pipelines fail to render.
+ * Quote unquoted labels so nested brackets stay inside the node.
+ * Not applied to xychart `bar [...]` arrays.
+ */
+export function quoteFlowchartNodeLabels(chart) {
+  if (!/^(flowchart|graph)\b/i.test((chart || '').trimStart())) return chart;
+  return chart.split('\n').map((line) => {
+    if (/^\s*%%/.test(line)) return line;
+    let i = 0;
+    let result = '';
+    while (i < line.length) {
+      const slice = line.slice(i);
+      const m = slice.match(/^([A-Za-z][\w-]*)\[/);
+      if (m) {
+        const afterOpen = slice[m[0].length];
+        if (afterOpen === '"' || afterOpen === "'") {
+          result += m[0];
+          i += m[0].length;
+          continue;
+        }
+        let depth = 1;
+        let j = m[0].length;
+        while (j < slice.length && depth > 0) {
+          if (slice[j] === '[') depth += 1;
+          else if (slice[j] === ']') depth -= 1;
+          j += 1;
+        }
+        const label = slice.slice(m[0].length, Math.max(m[0].length, j - 1));
+        result += `${m[1]}["${label.replace(/"/g, "'")}"]`;
+        i += j;
+        continue;
+      }
+      result += line[i];
+      i += 1;
+    }
+    return result;
+  }).join('\n');
 }
 
 export function normalizeMermaidSvg(svg) {

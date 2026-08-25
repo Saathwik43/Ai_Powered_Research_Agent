@@ -12,9 +12,14 @@ submitted is not private the way their saved surveys are. Nothing here is
 attributed to a user.
 """
 
+import logging
 import re
+import time
 
+from core import shared_store
 from core.ttl_cache import TTLCache
+
+logger = logging.getLogger(__name__)
 
 # Recency-ordered, capacity-bounded. The TTL is long because a suggestion list
 # that forgets yesterday's work is not much of a suggestion list.
@@ -44,13 +49,64 @@ def record_query(query: str) -> None:
         _history[key] = cleaned
 
 
+async def record_query_shared(query: str) -> None:
+    """:func:`record_query`, also written through to the durable tier (1.2).
+
+    A suggestion list is only useful because it is shared — "what has this
+    deployment actually been used for". Holding it in one worker's memory made
+    it neither shared between workers nor durable across a deploy, which is the
+    same list of queries being forgotten twice.
+    """
+    cleaned = _WHITESPACE.sub(" ", str(query or "")).strip()
+    if not cleaned or len(cleaned) > _SUGGEST_MAX_LEN:
+        return
+    record_query(cleaned)
+    await shared_store.set(
+        _NS, cleaned.lower(), cleaned, _TTL_SECONDS, tag=_TAG,
+    )
+
+
 def recent_queries() -> list[str]:
     """Most-recently-used first."""
     return list(reversed(_history.values()))
 
 
+async def recent_queries_shared() -> list[str]:
+    """:func:`recent_queries`, warming this worker from the durable tier first."""
+    await _hydrate()
+    return recent_queries()
+
+
+_NS = "suggest"
+_TAG = "queries"
+
+# The durable list is pulled in once and then left alone: /api/suggest fires on
+# every keystroke behind a 250ms debounce, so a Mongo query per call would cost
+# far more than the suggestion is worth.
+_HYDRATE_INTERVAL = 300.0
+_hydrated_at = 0.0
+
+
+async def _hydrate() -> None:
+    global _hydrated_at
+    now = time.time()
+    if now - _hydrated_at < _HYDRATE_INTERVAL:
+        return
+    _hydrated_at = now
+    values = await shared_store.scan_tag(_NS, _TAG, limit=_MAX_QUERIES)
+    restored = 0
+    for phrase in values:
+        if isinstance(phrase, str) and phrase and phrase.lower() not in _history:
+            _history[phrase.lower()] = phrase
+            restored += 1
+    if restored:
+        logger.info("Suggestion history hydrated with %d stored quer(ies)", restored)
+
+
 def clear() -> None:
+    global _hydrated_at
     _history.clear()
+    _hydrated_at = 0.0
 
 
 def _suggest_rank(prefix: str, phrase: str) -> int | None:

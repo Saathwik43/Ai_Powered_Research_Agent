@@ -1149,3 +1149,20 @@
     width: 100%;
   }
 }
+
+/* Third-party processing disclosure (1.16). Sits under the dropzone, before
+   anything has been uploaded — a notice after the fact is not a choice. */
+.pdf-consent-notice {
+  margin-top: var(--space-4);
+  max-width: 520px;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle, var(--bg-card));
+  text-align: left;
+}
+
+.pdf-consent-notice a {
+  color: var(--primary);
+  text-decoration: underline;
+}

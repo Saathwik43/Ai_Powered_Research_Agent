@@ -2,15 +2,19 @@
 (usage, user management, API health, telemetry events, source toggles)."""
 
 import asyncio
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
 from bson import ObjectId
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
-from core.auth import get_current_user
+from core.auth import get_current_user, invalidate_user_cache
 from core.database import db
+from core.limiter import limiter
 from services.usage_tracker import DAILY_TOKEN_QUOTA, TOKENS_PER_MESSAGE, get_user_usage
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["admin"])
 
@@ -114,24 +118,29 @@ async def admin_get_all_users(current_user: dict = Depends(get_current_user)):
     _require_admin(current_user)
 
     today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-    user_docs, usage_rows = await asyncio.gather(
-        db["users"].find({}).to_list(length=1000),
-        db["usage_logs"].aggregate([
-            {"$group": {
-                "_id": "$user_id",
-                "tokens_total": {"$sum": "$tokens"},
-                "tokens_today": {
-                    "$sum": {"$cond": [{"$eq": ["$date", today]}, "$tokens", 0]},
-                },
-            }},
-        ]).to_list(length=5000),
-    )
-    usage_by_user = {row["_id"]: row for row in usage_rows}
+    user_docs = await db["users"].aggregate([
+        {"$lookup": {
+            "from": "usage_logs",
+            "let": {"uid": {"$toString": "$_id"}},
+            "pipeline": [
+                {"$match": {"$expr": {"$eq": ["$user_id", "$$uid"]}}},
+                {"$group": {
+                    "_id": None,
+                    "tokens_total": {"$sum": "$tokens"},
+                    "tokens_today": {
+                        "$sum": {"$cond": [{"$eq": ["$date", today]}, "$tokens", 0]},
+                    },
+                }},
+            ],
+            "as": "usage",
+        }},
+        {"$limit": 1000},
+    ]).to_list(length=1000)
 
     results = []
     for u in user_docs:
         uid_str = str(u["_id"])
-        usage = usage_by_user.get(uid_str) or {}
+        usage = (u.get("usage") or [None])[0] or {}
         tokens_today = int(usage.get("tokens_today") or 0)
         tokens_total = int(usage.get("tokens_total") or 0)
 
@@ -170,6 +179,11 @@ async def admin_update_user_role(user_id: str, payload: dict, current_user: dict
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
 
+    # `get_current_user` reads the user document from a 60s cache (1.14).
+    # Without this the promotion or demotion would not take effect until it
+    # expired, which for a demotion is a minute of admin access after it was
+    # revoked.
+    invalidate_user_cache(user_id)
     return {"message": f"User role updated to {new_role}"}
 
 @router.post("/api/admin/users/{user_id}/status")
@@ -184,6 +198,13 @@ async def admin_update_user_status(user_id: str, payload: dict, current_user: di
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
 
+    invalidate_user_cache(user_id)
+    if new_status == "suspended":
+        # A suspension has to end the session, not just fail the next request:
+        # an outstanding refresh token would keep minting access tokens.
+        await db["refresh_tokens"].update_many(
+            {"user_id": user_id, "used": False}, {"$set": {"used": True, "revoked": True}}
+        )
     return {"message": f"User status updated to {new_status}"}
 
 @router.post("/api/admin/users/{user_id}/quota")
@@ -215,17 +236,83 @@ async def admin_delete_user(user_id: str, current_user: dict = Depends(get_curre
     if current_user["user_id"] == user_id:
         raise HTTPException(status_code=400, detail="Cannot delete your own admin account")
 
-    res = await db["users"].delete_one({"_id": ObjectId(user_id)})
+    try:
+        oid = ObjectId(user_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid user id")
+
+    res = await db["users"].delete_one({"_id": oid})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
 
-    await db["usage_logs"].delete_many({"user_id": user_id})
-    await db["manuscripts"].delete_many({"user_id": user_id})
-    await db["pdf_chats"].delete_many({"user_id": user_id})
-    return {"message": "User and associated data deleted"}
+    invalidate_user_cache(user_id)
+    deleted = await purge_user_data(user_id)
+    logger.info("Deleted user %s and their data: %s", user_id, deleted)
+    return {"message": "User and associated data deleted", "deleted": deleted}
+
+
+# Every collection and bucket that stores something on a user's behalf. Three of
+# these were missing from the delete path, so "delete this user" left their
+# uploaded source documents, their saved literature surveys and the actual PDF
+# bytes in GridFS sitting in the database under an account that no longer
+# existed — including whatever private manuscript text those sources contained.
+_USER_OWNED_COLLECTIONS = (
+    "usage_logs",
+    "manuscripts",
+    "manuscript_references",
+    # A version holds the full text of a draft, so leaving it behind would keep
+    # exactly what deleting the account was meant to remove.
+    "manuscript_versions",
+    # Outstanding refresh tokens for an account that no longer exists (1.14).
+    "refresh_tokens",
+    "pdf_chats",
+    "sources",
+    "literature",
+)
+
+
+async def purge_user_data(user_id: str) -> dict:
+    """Remove everything stored for *user_id*. Returns a per-collection count."""
+    deleted: dict = {}
+    for name in _USER_OWNED_COLLECTIONS:
+        try:
+            result = await db[name].delete_many({"user_id": user_id})
+            deleted[name] = int(result.deleted_count)
+        except Exception as e:
+            logger.warning("Could not purge %s for user %s: %s", name, user_id, e)
+            deleted[name] = -1
+
+    deleted["pdfs"] = await _purge_user_pdfs(user_id)
+    return deleted
+
+
+async def _purge_user_pdfs(user_id: str) -> int:
+    """Drop the user's GridFS PDFs. Their chunks go with the file document —
+    deleting only `pdfs.files` would orphan the chunks, which are the bulk."""
+    from core.database import get_pdf_bucket
+
+    bucket = get_pdf_bucket()
+    removed = 0
+    try:
+        cursor = db["pdfs.files"].find({"metadata.user_id": user_id}, {"_id": 1})
+        async for doc in cursor:
+            try:
+                await bucket.delete(doc["_id"])
+                removed += 1
+            except Exception as e:
+                logger.warning("Could not delete GridFS file %s: %s", doc["_id"], e)
+    except Exception as e:
+        logger.warning("Could not enumerate GridFS files for user %s: %s", user_id, e)
+        return -1
+    return removed
 
 @router.get("/api/admin/system-status")
+# Tighter than the global default: `force=true` fans out a live probe to every
+# configured integration, so this is the most expensive route in the app for an
+# attacker who has got hold of an admin token.
+@limiter.limit("10/minute")
 async def admin_system_status(
+    request: Request,
     force: bool = False,
     current_user: dict = Depends(get_current_user),
 ):
@@ -237,7 +324,8 @@ async def admin_system_status(
 
 
 @router.post("/api/admin/system-status/probe")
-async def admin_probe_one(payload: dict, current_user: dict = Depends(get_current_user)):
+@limiter.limit("20/minute")
+async def admin_probe_one(request: Request, payload: dict, current_user: dict = Depends(get_current_user)):
     _require_admin(current_user)
     name = (payload or {}).get("name")
     if not name or not isinstance(name, str):

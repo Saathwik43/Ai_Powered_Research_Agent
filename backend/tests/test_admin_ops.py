@@ -4,6 +4,17 @@ from services.api_telemetry import _EVENTS, _LOCK, recent_events, track_call_syn
 from services import admin_status as ast
 
 
+def test_zero_parsed_items_is_not_success():
+    with _LOCK:
+        _EVENTS.clear()
+    with track_call_sync("OpenAlex", "search") as rec:
+        rec.succeed(http_status=200, items=0)
+    events = recent_events(5)
+    assert events[0]["ok"] is False
+    assert events[0]["items"] == 0
+    assert "0 items" in (events[0].get("error") or "")
+
+
 def test_recent_events_newest_first_and_filters():
     with _LOCK:
         _EVENTS.clear()
@@ -56,16 +67,17 @@ def test_arxiv_atom_xml_probe_is_operational():
     resp.json.side_effect = ValueError("not json")
 
     class _Client:
-        def __init__(self, *a, **k):
-            pass
-        async def __aenter__(self):
-            return self
-        async def __aexit__(self, *a):
-            return False
         async def get(self, *a, **k):
             return resp
 
-    with patch("services.admin_status.httpx.AsyncClient", _Client):
+        async def post(self, *a, **k):
+            return resp
+
+    # The probes now borrow the shared connection pool rather than opening a
+    # client per call, so the seam is `get_client`. Patching
+    # `admin_status.httpx.AsyncClient` reached through to the *real* httpx
+    # module and left the stub cached inside the pool for the rest of the run.
+    with patch("integrations.http_client.get_client", lambda: _Client()):
         result = asyncio.run(ast.check_arxiv())
     assert result["status"] == "operational"
     assert result["probe"]["items"] == 1

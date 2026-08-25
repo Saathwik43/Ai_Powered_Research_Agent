@@ -7,7 +7,36 @@ bytes). This checks the actual leading bytes of the uploaded file against
 known file-format signatures before the content is trusted downstream.
 """
 
-from fastapi import HTTPException
+from fastapi import HTTPException, UploadFile
+
+_UPLOAD_CHUNK = 1024 * 1024
+
+
+async def read_upload_capped(file: UploadFile, max_bytes: int) -> bytes:
+    """Read an upload into memory, refusing anything over *max_bytes*.
+
+    ``await file.read()`` followed by a length check reads the whole thing
+    first — the check fires after the memory has already been committed, which
+    is precisely the failure it looks like it prevents. Reading in chunks stops
+    at the ceiling instead.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(_UPLOAD_CHUNK)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large. Limit is {max_bytes // (1024 * 1024)}MB.",
+            )
+        chunks.append(chunk)
+    if total == 0:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+    return b"".join(chunks)
+
 
 _SIGNATURES = {
     "pdf": (b"%PDF-",),

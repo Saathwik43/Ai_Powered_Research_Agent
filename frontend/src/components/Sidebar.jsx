@@ -32,13 +32,13 @@ const Sidebar = ({ open, onClose, collapsed, onToggleCollapse }) => {
     : 'U';
 
   const [usage, setUsage] = useState(null);
-  const { authFetch } = useAuth();
+  const { api } = useAuth();
   
   useEffect(() => {
     if (!user) return;
     const fetchUsage = async () => {
       try {
-        const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/user/usage`);
+        const res = await api.raw(`/api/user/usage`);
         if (res.ok) {
           const data = await res.json();
           setUsage(data);
@@ -48,7 +48,7 @@ const Sidebar = ({ open, onClose, collapsed, onToggleCollapse }) => {
       }
     };
     fetchUsage();
-  }, [user, authFetch]);
+  }, [user, api]);
 
   return (
     <>

@@ -1,6 +1,6 @@
 import os
-import asyncio
 import httpx
+from core.retry import is_retryable, with_retry
 from integrations.http_client import pooled_client
 import logging
 from dotenv import load_dotenv
@@ -56,18 +56,26 @@ async def search_papers(query: str, limit: int = 8) -> list:
         try:
             async with pooled_client(timeout=15.0) as client:
                 last_status = None
-                for attempt in range(3):
+
+                async def attempt_search():
                     resp = await client.get(S2_SEARCH_URL, params=params, headers=headers)
-                    last_status = resp.status_code
-                    if resp.status_code == 429:
-                        retry_after = resp.headers.get("Retry-After", "")
-                        try:
-                            wait = min(float(retry_after), 4.0)
-                        except (TypeError, ValueError):
-                            wait = 1.5 * (attempt + 1)
-                        await asyncio.sleep(wait)
-                        continue
                     resp.raise_for_status()
+                    return resp
+
+                try:
+                    # One retry policy (`core.retry`): honours `Retry-After`,
+                    # jitters otherwise, and stops before the caller's own
+                    # deadline. This loop used to clamp Retry-After to 4s and
+                    # sleep a fixed 1.5s per attempt otherwise — so several
+                    # concurrent searches all retried in the same instant.
+                    resp = await with_retry(
+                        attempt_search, name="Semantic Scholar", attempts=3, budget=6.0
+                    )
+                except Exception as exc:
+                    last_status = getattr(getattr(exc, "response", None), "status_code", None)
+                    if not is_retryable(exc):
+                        raise
+                else:
                     papers = [_normalize_item(item) for item in resp.json().get("data", [])]
                     rec.succeed(http_status=resp.status_code, items=len(papers))
                     return papers

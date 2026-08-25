@@ -29,7 +29,7 @@ function AdminMark({ spinning }) {
 }
 
 const AdminDashboard = () => {
-  const { authFetch } = useAuth();
+  const { api } = useAuth();
   const [users, setUsers] = useState([]);
   const [systemSources, setSystemSources] = useState([]);
   const [systemCategories, setSystemCategories] = useState([]);
@@ -47,7 +47,7 @@ const AdminDashboard = () => {
 
   const fetchUsers = useCallback(async () => {
     try {
-      const usersRes = await authFetch('/api/admin/users');
+      const usersRes = await api.raw('/api/admin/users');
       if (usersRes.ok) {
         const uData = await usersRes.json();
         setUsers(uData.users || []);
@@ -59,12 +59,12 @@ const AdminDashboard = () => {
       console.error('Failed to fetch admin users:', error);
       setFetchError('Backend server is unreachable (Make sure backend server on port 8000 is running)');
     }
-  }, [authFetch]);
+  }, [api]);
 
   const fetchStatus = useCallback(async (force = false) => {
     try {
       const qs = force ? '?force=true' : '';
-      const statusRes = await authFetch(`/api/admin/system-status${qs}`);
+      const statusRes = await api.raw(`/api/admin/system-status${qs}`);
       if (statusRes.ok) {
         const sData = await statusRes.json();
         setSystemSources(sData.sources || []);
@@ -75,11 +75,11 @@ const AdminDashboard = () => {
     } catch (error) {
       console.error('Failed to fetch system status:', error);
     }
-  }, [authFetch]);
+  }, [api]);
 
   const fetchEvents = useCallback(async () => {
     try {
-      const res = await authFetch('/api/admin/events?limit=80');
+      const res = await api.raw('/api/admin/events?limit=80');
       if (res.ok) {
         const data = await res.json();
         setEvents(data.events || []);
@@ -87,18 +87,18 @@ const AdminDashboard = () => {
     } catch (error) {
       console.error('Failed to fetch admin events:', error);
     }
-  }, [authFetch]);
+  }, [api]);
 
   const fetchUsage = useCallback(async () => {
     try {
-      const res = await authFetch('/api/admin/usage');
+      const res = await api.raw('/api/admin/usage');
       if (res.ok) {
         setUsage(await res.json());
       }
     } catch (error) {
       console.error('Failed to fetch admin usage:', error);
     }
-  }, [authFetch]);
+  }, [api]);
 
   const fetchAdminData = useCallback(async ({ forceStatus = false } = {}) => {
     try {
@@ -165,7 +165,7 @@ const AdminDashboard = () => {
   const handleProbe = async (name) => {
     setProbingName(name);
     try {
-      const res = await authFetch('/api/admin/system-status/probe', {
+      const res = await api.raw('/api/admin/system-status/probe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name }),
@@ -184,7 +184,7 @@ const AdminDashboard = () => {
   const handleToggleSkip = async (source) => {
     setTogglingName(source.name);
     try {
-      const res = await authFetch('/api/admin/sources/enabled', {
+      const res = await api.raw('/api/admin/sources/enabled', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: source.name, enabled: source.enabled === false }),
@@ -348,7 +348,7 @@ const AdminDashboard = () => {
       )}
 
       {activeTab === 'users' && (
-        <UsersPanel users={users} authFetch={authFetch} onChanged={fetchUsers} />
+        <UsersPanel users={users} api={api} onChanged={fetchUsers} />
       )}
     </div>
   );

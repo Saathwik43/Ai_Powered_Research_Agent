@@ -20,16 +20,39 @@ class EmailSendError(Exception):
 
 
 async def send_reset_email(to_email: str, token: str) -> None:
+    link = f"{FRONTEND_URL.rstrip('/')}/reset-password?token={token}"
+    await _send(
+        to_email,
+        subject="Password Reset Request",
+        text=f"Reset your password: {link}\nExpires in 30 minutes.",
+    )
+
+
+async def send_verification_email(to_email: str, token: str) -> None:
+    link = f"{FRONTEND_URL.rstrip('/')}/verify-email?token={token}"
+    await _send(
+        to_email,
+        subject="Confirm your email address",
+        text=(
+            "Welcome to Research Agent.\n\n"
+            f"Confirm your email address to activate your account: {link}\n"
+            "This link expires in 24 hours.\n\n"
+            "If you did not create this account you can ignore this message — "
+            "the account cannot be used until the address is confirmed."
+        ),
+    )
+
+
+async def _send(to_email: str, subject: str, text: str) -> None:
     if not BREVO_API_KEY or not BREVO_SENDER_EMAIL:
         logger.error("Brevo config missing: BREVO_API_KEY/BREVO_SENDER_EMAIL not set.")
         raise EmailSendError("config_missing", "BREVO_API_KEY or BREVO_SENDER_EMAIL not set in env")
 
-    link = f"{FRONTEND_URL.rstrip('/')}/reset-password?token={token}"
     payload = {
         "sender": {"name": BREVO_SENDER_NAME, "email": BREVO_SENDER_EMAIL},
         "to": [{"email": to_email}],
-        "subject": "Password Reset Request",
-        "textContent": f"Reset your password: {link}\nExpires in 30 minutes.",
+        "subject": subject,
+        "textContent": text,
     }
     headers = {"api-key": BREVO_API_KEY, "Content-Type": "application/json"}
 
@@ -37,7 +60,7 @@ async def send_reset_email(to_email: str, token: str) -> None:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(BREVO_URL, json=payload, headers=headers)
         resp.raise_for_status()
-        logger.info(f"Password reset email sent to {to_email} (Brevo messageId={resp.json().get('messageId')})")
+        logger.info(f"Sent '{subject}' to {to_email} (Brevo messageId={resp.json().get('messageId')})")
 
     except httpx.HTTPStatusError as e:
         body = e.response.text[:500]

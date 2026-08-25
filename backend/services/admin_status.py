@@ -10,6 +10,7 @@ Live in-flight / last-call stats come from api_telemetry and answer
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import time
 from datetime import datetime, timezone
@@ -18,8 +19,16 @@ from typing import Any, Awaitable, Callable, Optional
 import httpx
 
 from ai.model_allowlist import resolve_groq_model
-from services.api_telemetry import inflight_total, live_for
+from services import api_health
+from services.api_telemetry import canonical_name, inflight_total, live_for
 from integrations.github_knowledge import REPOS
+# Health probes hit the same handful of hosts every time the admin desk
+# refreshes, and used to open a fresh connection (and TLS handshake) for each
+# one. 1.4 put the search integrations on the shared pool; this puts the probes
+# on it too, which is the other half of that ID.
+from integrations.http_client import pooled_client
+
+logger = logging.getLogger(__name__)
 
 Source = dict[str, Any]
 CheckFn = Callable[[], Awaitable[Source]]
@@ -88,7 +97,7 @@ async def _probe_chat(
     }
     start = time.time()
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with pooled_client(timeout=timeout) as client:
             res = await client.post(url, headers=headers, json=payload)
         latency = round((time.time() - start) * 1000)
         probe = {"operation": "generate", "model": model, "http_status": res.status_code}
@@ -221,7 +230,7 @@ async def check_huggingface() -> Source:
         return _no_key("Hugging Face Inference", "LLM Providers", "HUGGINGFACEHUB_API_TOKEN")
     start = time.time()
     try:
-        async with httpx.AsyncClient(timeout=12.0) as client:
+        async with pooled_client(timeout=12.0) as client:
             res = await client.post(
                 f"https://router.huggingface.co/hf-inference/models/{model}/v1/chat/completions",
                 headers={"Authorization": f"Bearer {key}"},
@@ -253,7 +262,7 @@ async def _probe_search(
 ) -> Source:
     start = time.time()
     try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, headers=headers or {}) as client:
+        async with pooled_client(headers=headers or {}, timeout=timeout) as client:
             res = await client.get(url, params=params)
         latency = round((time.time() - start) * 1000)
         count = 0
@@ -452,7 +461,14 @@ async def check_pdf_structure() -> Source:
             latency,
         )
     except Exception as e:
-        return _result("PDF Structure", "Document Processing", "offline", f"PyMuPDF unavailable: {e}")
+        # The exception class, not its message: an ImportError here carries the
+        # full filesystem path of the failed load, and this string is rendered
+        # verbatim in the admin console.
+        logger.warning("PDF structure health check failed", exc_info=True)
+        return _result(
+            "PDF Structure", "Document Processing", "offline",
+            f"PyMuPDF unavailable ({type(e).__name__})",
+        )
 
 
 async def check_llamacloud() -> Source:
@@ -461,7 +477,7 @@ async def check_llamacloud() -> Source:
         return _no_key("LlamaCloud", "Document Processing", "LLAMA_CLOUD_API_KEY")
     start = time.time()
     try:
-        async with httpx.AsyncClient(timeout=8.0) as client:
+        async with pooled_client(timeout=8.0) as client:
             res = await client.get(
                 "https://api.cloud.llamaindex.ai/api/v1/parsing/supported_file_extensions",
                 headers={"Authorization": f"Bearer {key}"},
@@ -494,7 +510,7 @@ async def check_brevo() -> Source:
         return _no_key("Brevo Email", "Infrastructure", "BREVO_API_KEY")
     start = time.time()
     try:
-        async with httpx.AsyncClient(timeout=8.0) as client:
+        async with pooled_client(timeout=8.0) as client:
             res = await client.get(
                 "https://api.brevo.com/v3/account",
                 headers={"api-key": key, "accept": "application/json"},
@@ -680,6 +696,11 @@ def _merge_live(src: Source) -> Source:
     merged = dict(src)
     name = src.get("name") or ""
     merged["live"] = live
+    # `live` is lifetime totals, so a source that worked all morning and has
+    # failed for the last ten minutes still reads as healthy there. `health` is
+    # the rolling window and the breaker state — which is what "should we be
+    # calling this right now" is actually decided on.
+    merged["health"] = api_health.health(canonical_name(name))
     merged["enabled"] = is_enabled(name)
     merged["skippable"] = name in SEARCH_SKIP_MAP
     in_flight = int(live.get("in_flight") or 0)

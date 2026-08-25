@@ -17,9 +17,16 @@ from fastapi import HTTPException
 @pytest.fixture(autouse=True)
 def mock_remote_address():
     user_id = str(uuid.uuid4())
+    previous = app.dependency_overrides.get(get_current_user)
     app.dependency_overrides[get_current_user] = lambda: {"user_id": user_id}
-    with patch("slowapi.util.get_remote_address", return_value=user_id):
-        yield
+    try:
+        with patch("slowapi.util.get_remote_address", return_value=user_id):
+            yield
+    finally:
+        if previous is None:
+            app.dependency_overrides.pop(get_current_user, None)
+        else:
+            app.dependency_overrides[get_current_user] = previous
 
 client = TestClient(app)
 

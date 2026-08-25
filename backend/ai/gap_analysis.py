@@ -24,6 +24,7 @@ from integrations.paper_search import search_all
 from fastapi import HTTPException
 import asyncio
 from ai.evidence_extraction import extract_evidence_for_paper
+from ai.pdf_extraction import _has_usable_evidence
 
 logger = logging.getLogger(__name__)
 
@@ -108,10 +109,17 @@ async def analyze_gaps(topic: str, papers: list = None) -> dict:
             papers = await _filter_relevant_papers(topic, papers)
             
     if papers:
+        sem = asyncio.Semaphore(3)
+
         async def fetch_evidence(p):
-            p["evidence"], p["evidence_source"] = await extract_evidence_for_paper(p)
-            return p
-            
+            async with sem:
+                if p.get("evidence_source") == "user_upload":
+                    return p
+                if _has_usable_evidence(p.get("evidence")):
+                    return p
+                p["evidence"], p["evidence_source"] = await extract_evidence_for_paper(p)
+                return p
+
         await asyncio.gather(*(fetch_evidence(p) for p in papers), return_exceptions=True)
 
     if len(papers) < 2:

@@ -2,13 +2,17 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-async def extract_source_text(file_bytes: bytes, content_type: str, filename: str) -> str:
+async def extract_source_text(
+    file_bytes: bytes, content_type: str, filename: str, allow_third_party: bool = False
+) -> str:
     ct = (content_type or "").lower()
     fn = (filename or "").lower()
 
     if ct == "application/pdf" or fn.endswith(".pdf"):
+        # Defaults to False: only a caller that has checked the uploader's
+        # consent can send the file off-premises (1.16).
         from ai.pdf_analysis import extract_pdf_text
-        return await extract_pdf_text(file_bytes)
+        return await extract_pdf_text(file_bytes, allow_third_party=allow_third_party)
 
     if ct.startswith("image/") or fn.endswith((".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".webp")):
         try:

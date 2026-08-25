@@ -7,17 +7,48 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-provider_semaphores = {
-    "Groq": asyncio.Semaphore(5),
-    "OpenRouter": asyncio.Semaphore(5),
-    "Cerebras": asyncio.Semaphore(5),
-    "HuggingFace": asyncio.Semaphore(3),
-    "Mistral": asyncio.Semaphore(3),
-    "Gemini": asyncio.Semaphore(3),
-    "OpenAI": asyncio.Semaphore(2),   # Free tier: 3 RPM ceiling, keep concurrency low
+provider_semaphores = {}  # lazy; created on the running loop, not at import
+
+_SEM_LIMITS = {
+    "Groq": 5,
+    "OpenRouter": 5,
+    "Cerebras": 5,
+    "HuggingFace": 3,
+    "Mistral": 3,
+    "Gemini": 3,
+    "OpenAI": 2,
+    "NVIDIA": 3,
+    "global": 3,
 }
 
-global_llm_sem = asyncio.Semaphore(3)  # kept for relevance.py backward-compat import
+
+def _provider_sem(name: str) -> asyncio.Semaphore:
+    """One semaphore per provider for process lifetime of this event loop.
+
+    `.get(name, Semaphore(3))` used to construct a fresh semaphore on every
+    miss, so the limit never applied. Import-time Semaphore() is also unsafe
+    if tests recreate the loop.
+    """
+    key = name if name in _SEM_LIMITS else str(name).title()
+    sem = provider_semaphores.get(key)
+    if sem is None:
+        sem = asyncio.Semaphore(_SEM_LIMITS.get(key, 3))
+        provider_semaphores[key] = sem
+    return sem
+
+
+class _LazySem:
+    def __init__(self, name: str):
+        self.name = name
+
+    def __aenter__(self):
+        return _provider_sem(self.name).__aenter__()
+
+    def __aexit__(self, *exc):
+        return _provider_sem(self.name).__aexit__(*exc)
+
+
+global_llm_sem = _LazySem("global")  # relevance.py / evidence_extraction.py
 
 from langchain_huggingface import HuggingFaceEndpoint
 from google import genai
@@ -28,6 +59,10 @@ current_provider: ContextVar[str | None] = ContextVar("current_provider", defaul
 current_model: ContextVar[str | None] = ContextVar("current_model", default=None)
 from services import usage_tracker
 from ai.model_allowlist import UnsupportedModelError, require_allowed_model, resolve_groq_model
+# The provider endpoints are the same handful of hosts on every generation, and
+# each call opened its own connection and TLS session. 1.4 pooled the search
+# integrations; this is the LLM half of that ID.
+from integrations.http_client import pooled_client
 import time
 
 logger = logging.getLogger(__name__)
@@ -212,7 +247,7 @@ async def _generate_openai(system_prompt: str, user_prompt: str, max_tokens: int
         "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
     }
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with pooled_client(timeout=60.0) as client:
         response = await client.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
         response.raise_for_status()
         data = response.json()
@@ -237,7 +272,7 @@ async def _generate_mistral(system_prompt: str, user_prompt: str, max_tokens: in
         "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
     }
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with pooled_client(timeout=60.0) as client:
         response = await client.post("https://api.mistral.ai/v1/chat/completions", headers=headers, json=payload)
         response.raise_for_status()
         data = response.json()
@@ -262,7 +297,7 @@ async def _generate_groq(system_prompt: str, user_prompt: str, max_tokens: int, 
         "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
     }
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with pooled_client(timeout=60.0) as client:
         response = await client.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload)
         response.raise_for_status()
         data = response.json()
@@ -287,7 +322,7 @@ async def _generate_cerebras(system_prompt: str, user_prompt: str, max_tokens: i
         "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
     }
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with pooled_client(timeout=60.0) as client:
         response = await client.post("https://api.cerebras.ai/v1/chat/completions", headers=headers, json=payload)
         response.raise_for_status()
         data = response.json()
@@ -312,7 +347,7 @@ async def _generate_nvidia(system_prompt: str, user_prompt: str, max_tokens: int
         "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
     }
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with pooled_client(timeout=60.0) as client:
         try:
             response = await client.post("https://integrate.api.nvidia.com/v1/chat/completions", headers=headers, json=payload)
             response.raise_for_status()
@@ -343,7 +378,7 @@ async def _generate_openrouter(system_prompt: str, user_prompt: str, max_tokens:
         "HTTP-Referer": os.getenv("APP_PUBLIC_URL", "http://localhost:5173"),
         "X-Title": "Research Agent",
     }
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with pooled_client(timeout=60.0) as client:
         response = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
         response.raise_for_status()
         data = response.json()
@@ -351,18 +386,28 @@ async def _generate_openrouter(system_prompt: str, user_prompt: str, max_tokens:
         return data["choices"][0]["message"]["content"].strip(), usage
 
 
+_hf_endpoint = None
+_hf_endpoint_key = None
+
+
 def _run_huggingface(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float) -> str:
+    global _hf_endpoint, _hf_endpoint_key
     key = os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN")
     if not key:
         raise RuntimeError("HUGGINGFACEHUB_API_TOKEN or HF_TOKEN is not configured.")
-    
-    llm = HuggingFaceEndpoint(
-        repo_id=os.getenv("HUGGINGFACE_MANUSCRIPT_MODEL", "mistralai/Mixtral-8x7B-Instruct-v0.1"),
-        task="text-generation",
-        max_new_tokens=max_tokens,
-        temperature=temperature,
-        huggingfacehub_api_token=key,
-    )
+
+    repo = os.getenv("HUGGINGFACE_MANUSCRIPT_MODEL", "mistralai/Mixtral-8x7B-Instruct-v0.1")
+    cache_key = (key, repo)
+    if _hf_endpoint is None or _hf_endpoint_key != cache_key:
+        _hf_endpoint = HuggingFaceEndpoint(
+            repo_id=repo,
+            task="text-generation",
+            max_new_tokens=max_tokens,
+            temperature=temperature,
+            huggingfacehub_api_token=key,
+        )
+        _hf_endpoint_key = cache_key
+    llm = _hf_endpoint
     prompt = f"{system_prompt}\n\n{user_prompt}" if system_prompt else user_prompt
     if "[INST]" not in prompt:
         prompt = f"[INST] {prompt} [/INST]"
@@ -376,7 +421,7 @@ def _run_huggingface(system_prompt: str, user_prompt: str, max_tokens: int, temp
 
 
 async def _generate_huggingface(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float) -> str:
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(_executor, _run_huggingface, system_prompt, user_prompt, max_tokens, temperature)
 
 
@@ -516,12 +561,13 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
                 user_id = usage_tracker.current_user_id.get()
                 if user_id:
                     await usage_tracker.check_quota(user_id)
-                async with track_call(tel_name, "generate") as rec:
-                    if effective_provider == "gemini":
-                        result, tokens = await asyncio.wait_for(provider_fn(system_prompt, user_prompt, max_tokens, temperature, effective_model, cached_content), timeout=60)
-                    else:
-                        result, tokens = await asyncio.wait_for(provider_fn(system_prompt, user_prompt, max_tokens, temperature), timeout=60)
-                    rec.succeed(http_status=200, items=tokens)
+                async with _provider_sem(effective_provider):
+                    async with track_call(tel_name, "generate") as rec:
+                        if effective_provider == "gemini":
+                            result, tokens = await asyncio.wait_for(provider_fn(system_prompt, user_prompt, max_tokens, temperature, effective_model, cached_content), timeout=60)
+                        else:
+                            result, tokens = await asyncio.wait_for(provider_fn(system_prompt, user_prompt, max_tokens, temperature), timeout=60)
+                        rec.succeed(http_status=200, items=tokens)
                 if user_id:
                     await usage_tracker.log_usage(user_id, tokens, effective_provider.title())
                 return result
@@ -557,7 +603,7 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
                 user_id = usage_tracker.current_user_id.get()
                 if user_id:
                     await usage_tracker.check_quota(user_id)
-                sem=provider_semaphores.get(provider_name, asyncio.Semaphore(3))
+                sem = _provider_sem(provider_name)
                 tel_name = _TELEMETRY_NAMES.get(provider_name.lower(), provider_name)
                 async with sem:
                     async with track_call(tel_name, "generate") as rec:
@@ -595,15 +641,15 @@ async def _stream_openai_compatible(url: str, headers: dict, payload: dict, prov
 
     payload = dict(payload)
     payload["stream"] = True
-    if provider_name in ("Groq", "OpenAI", "OpenRouter"):
-        payload["stream_options"] = {"include_usage": True}
+    payload["stream_options"] = {"include_usage": True}
 
     async with track_call(provider_name, "stream") as rec:
         try:
             total_chars = 0
             usage_tokens = 0
+            finish_reason = None
             timeout = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with pooled_client(timeout=timeout) as client:
                 async with client.stream("POST", url, headers=headers, json=payload) as response:
                     response.raise_for_status()
                     async for line in response.aiter_lines():
@@ -616,7 +662,10 @@ async def _stream_openai_compatible(url: str, headers: dict, payload: dict, prov
                             data = json.loads(data_str)
                             if data.get("usage"):
                                 usage_tokens = data["usage"].get("total_tokens", 0) or 0
-                            delta = data.get("choices", [{}])[0].get("delta", {}).get("content")
+                            choice = (data.get("choices") or [{}])[0]
+                            if choice.get("finish_reason"):
+                                finish_reason = choice["finish_reason"]
+                            delta = (choice.get("delta") or {}).get("content")
                             if delta:
                                 total_chars += len(delta)
                                 yield {"type": "chunk", "text": delta}
@@ -629,12 +678,17 @@ async def _stream_openai_compatible(url: str, headers: dict, payload: dict, prov
                         if user_id:
                             await usage_tracker.log_usage(user_id, usage_tokens, provider_name)
                     rec.succeed(http_status=200, items=usage_tokens or total_chars)
-                    yield {"type": "done"}
+                    yield {"type": "done", "finish_reason": finish_reason, "usage_tokens": usage_tokens}
         except httpx.HTTPStatusError as e:
-            await e.response.aread()
+            body = ""
+            try:
+                await e.response.aread()
+                body = e.response.text
+            except Exception:
+                body = ""
             rec.fail(http_status=e.response.status_code, error=f"HTTP {e.response.status_code}")
-            logger.error(f"Stream API HTTP Error {e.response.status_code}: {e.response.text}")
             if e.response.status_code == 429:
+                logger.info(f"{provider_name} stream skipped: rate limited (429).")
                 retry_after = e.response.headers.get("Retry-After")
                 if not retry_after:
                     retry_after = e.response.headers.get("x-ratelimit-reset-requests") or e.response.headers.get("x-ratelimit-reset-tokens")
@@ -646,8 +700,10 @@ async def _stream_openai_compatible(url: str, headers: dict, payload: dict, prov
                     pass
                 yield {"type": "stopped", "reason": "rate_limit", "retry_after_seconds": retry_val}
             elif e.response.status_code == 402:
+                logger.info(f"{provider_name} stream skipped: payment required (402).")
                 yield {"type": "stopped", "reason": "payment_required", "message": "Payment required (out of credits)."}
             else:
+                logger.error(f"Stream API HTTP Error {e.response.status_code}: {body}")
                 yield {"type": "stopped", "reason": "error", "message": f"HTTP Error {e.response.status_code}"}
         except Exception as e:
             rec.fail(error=str(e))
@@ -804,13 +860,24 @@ async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: in
                     contents=user_prompt,
                     config=config,
                 )
+                usage_tokens = 0
                 async for chunk in response_stream:
                     if chunk.text:
                         yield {"type": "chunk", "text": chunk.text}
-                    if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
-                        logger.info(f"Gemini stream usage: {chunk.usage_metadata}")
-                rec.succeed(http_status=200)
-                yield {"type": "done"}
+                    meta = getattr(chunk, "usage_metadata", None)
+                    if meta is not None:
+                        usage_tokens = getattr(meta, "total_token_count", None) or getattr(meta, "total_tokens", 0) or usage_tokens
+                if usage_tokens:
+                    user_id = usage_tracker.current_user_id.get()
+                    if user_id:
+                        await usage_tracker.log_usage(user_id, int(usage_tokens), "Gemini")
+                rec.succeed(http_status=200, items=usage_tokens or None)
+                finish = None
+                try:
+                    finish = getattr(response_stream, "finish_reason", None)
+                except Exception:
+                    finish = None
+                yield {"type": "done", "finish_reason": finish, "usage_tokens": usage_tokens}
             except Exception as e:
                 rec.fail(error=str(e))
                 if "429" in str(e):
@@ -883,8 +950,9 @@ async def stream_completion_auto(
                     yield chunk
                     return
         except Exception as e:
-            if "payment_required" in str(e):
-                logger.info(f"Auto mode {provider} skipped: account out of credits (402).")
+            reason = str(e)
+            if "payment_required" in reason or "rate_limit" in reason:
+                logger.info(f"Auto mode {provider} skipped: {reason}.")
             else:
                 logger.error(f"Auto mode {provider} failed: {e}")
             if full_accumulated_text:

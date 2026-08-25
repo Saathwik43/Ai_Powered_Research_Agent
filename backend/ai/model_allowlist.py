@@ -101,3 +101,20 @@ def assert_allowed_model(provider: str | None, model: str | None) -> tuple[str, 
         return require_allowed_model(provider, model)
     except UnsupportedModelError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def bound_requested_model(
+    mode: str | None, provider: str | None, model: str | None
+) -> tuple[str | None, str | None]:
+    """Allowlist a *named* pair. Auto mode and an omitted pair must not 400.
+
+    The UI's Auto cascade does not send a provider. The JSON revise path also
+    used to omit the pair entirely. Rejecting those as unsupported blocked
+    legitimate revisions with HTTP 400 before the generator ran.
+    """
+    if (mode or "manual").strip().lower() == "auto":
+        return None, None
+    p, m = normalize_pair(provider, model)
+    if not p:
+        return None, None
+    return assert_allowed_model(p, m)

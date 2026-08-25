@@ -127,6 +127,14 @@ def _finish(
         if len(_EVENTS) > _EVENTS_MAX:
             del _EVENTS[: len(_EVENTS) - _EVENTS_MAX]
 
+    # Outside the lock, and outside the counters: the rolling window and the
+    # circuit breaker read "is this failing *now*", which the lifetime totals
+    # above cannot answer. Fed from here so every existing track_call site
+    # contributes without being touched.
+    from services import api_health
+
+    api_health.record(canonical_name(name), ok)
+
 
 def _abandon(name: str) -> None:
     with _LOCK:
@@ -143,6 +151,11 @@ class CallTracker:
         _begin(self.name, self.operation)
 
     def succeed(self, *, http_status: Optional[int] = None, items: Optional[int] = None) -> None:
+        # HTTP 200 with zero parsed items is not a success for search/parse
+        # telemetry — otherwise empty libraries look healthy.
+        if items is not None and items <= 0:
+            self._done(False, http_status=http_status, items=items, error="0 items parsed")
+            return
         self._done(True, http_status=http_status, items=items, error=None)
 
     def fail(

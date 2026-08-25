@@ -41,6 +41,8 @@ import logging
 import time
 from dataclasses import dataclass
 
+from core import shared_store
+
 logger = logging.getLogger(__name__)
 
 # Measured with scripts/eval_semantic_cache.py against gemini-embedding-001
@@ -172,6 +174,7 @@ def store(bucket_key: str, cache_key: str, query_embedding: list, display_query:
 def clear() -> None:
     """Drop everything. For tests and admin cache-flush paths."""
     _store.clear()
+    _hydrated_at.clear()
 
 
 def stats() -> dict:
@@ -180,4 +183,97 @@ def stats() -> dict:
         "entries": sum(len(b) for b in _store.values()),
         "rerank_threshold": RERANK_THRESHOLD,
         "verbatim_threshold": VERBATIM_THRESHOLD,
+        "hydrated_buckets": len(_hydrated_at),
     }
+
+
+# ─── Durable tier (1.2) ────────────────────────────────────────────────────────
+#
+# The in-memory store above is per worker and dies with the process, which makes
+# the semantic cache the *first* thing a deploy loses and the most expensive to
+# rebuild: every entry costs a full fan-out. The two functions below are what
+# the search path calls; they keep the memory tier as the fast path and fall
+# through to `core.shared_store`.
+#
+# Lookup is a similarity scan, so a key-by-key fetch cannot serve it — the whole
+# bucket has to be resident. `_hydrate` pulls a bucket in once and then leaves it
+# alone for HYDRATE_INTERVAL, so a cold worker pays one query rather than one
+# per search.
+
+HYDRATE_INTERVAL = 60.0
+
+# bucket -> last time it was pulled from the shared store
+_hydrated_at: dict[str, float] = {}
+
+
+async def lookup_shared(bucket_key: str, cache_key: str, query_embedding: list) -> SemanticHit | None:
+    """:func:`lookup`, with the shared store behind it on a miss."""
+    hit = lookup(bucket_key, cache_key, query_embedding)
+    if hit is not None:
+        return hit
+    if not await _hydrate(bucket_key):
+        return None
+    return lookup(bucket_key, cache_key, query_embedding)
+
+
+async def store_shared(bucket_key: str, cache_key: str, query_embedding: list,
+                       display_query: str, papers: list, sources=()) -> None:
+    """:func:`store`, also writing through to the shared store."""
+    store(bucket_key, cache_key, query_embedding, display_query, papers, sources=sources)
+    if not query_embedding or not papers:
+        return
+    await shared_store.set(
+        shared_store.NS_SEMANTIC,
+        f"{bucket_key}|{cache_key}",
+        {
+            "cache_key": cache_key,
+            "embedding": list(query_embedding),
+            "papers": papers,
+            "display_query": display_query,
+            "sources": [s.as_dict() if hasattr(s, "as_dict") else s for s in (sources or ())],
+        },
+        TTL_SECONDS,
+        tag=bucket_key,
+    )
+
+
+async def _hydrate(bucket_key: str) -> bool:
+    """Warm *bucket_key* from the shared store. True if anything is resident."""
+    now = time.time()
+    if now - _hydrated_at.get(bucket_key, 0.0) < HYDRATE_INTERVAL:
+        return bool(_store.get(bucket_key))
+
+    _hydrated_at[bucket_key] = now
+    entries = await shared_store.scan_tag(shared_store.NS_SEMANTIC, bucket_key, limit=MAX_ENTRIES)
+    if not entries:
+        return bool(_store.get(bucket_key))
+
+    # Rebuilt as SourceOutcome records, not the dicts they were stored as:
+    # SearchMeta.sources_as_dicts() calls .as_dict() on every entry, so leaving
+    # them as plain dicts would turn a cache hit into an AttributeError at the
+    # one place the per-database yield is rendered. Imported here rather than at
+    # module scope — paper_search imports this module.
+    from integrations.paper_search import _outcomes_from_dicts
+
+    bucket = _store.setdefault(bucket_key, {})
+    restored = 0
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        key = entry.get("cache_key")
+        embedding = entry.get("embedding")
+        papers = entry.get("papers")
+        if not key or not embedding or not papers or key in bucket:
+            continue
+        # stored_at is not carried across: the shared entry's own TTL already
+        # decided it is live, and dating it from now keeps _prune from
+        # immediately dropping what was just restored.
+        bucket[key] = (
+            embedding, papers, entry.get("display_query") or "", now,
+            _outcomes_from_dicts(entry.get("sources")),
+        )
+        restored += 1
+    _prune(bucket, now)
+    if restored:
+        logger.info("Semantic cache hydrated %d entr(ies) into bucket %s", restored, bucket_key)
+    return bool(bucket)

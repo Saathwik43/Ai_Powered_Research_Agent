@@ -43,6 +43,36 @@ CSP_POLICY = (
     "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
 )
 
+# ─── Request / upload size ceilings (0.9) ─────────────────────────────────────
+#
+# Every one of these paths used to read an entire request into memory with no
+# bound: `await file.read()` on an upload, `resp.text` on a user-supplied URL,
+# and FastAPI's JSON parse on any body at all. On a small dyno a couple of
+# concurrent multi-hundred-megabyte posts is an OOM kill, which takes down every
+# other user's in-flight request with it.
+
+
+def _int_env(name: str, default: int) -> int:
+    try:
+        value = int(os.getenv(name) or default)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+# Largest single uploaded file (PDF/DOCX source). Matches the 10MB the PDF
+# endpoint already advertised in its error message.
+MAX_UPLOAD_BYTES = _int_env("MAX_UPLOAD_BYTES", 10 * 1024 * 1024)
+
+# Largest body of any kind. Above the upload cap because a multipart envelope
+# adds boundaries and fields around the file, and manuscript saves post a whole
+# draft as JSON.
+MAX_REQUEST_BODY_BYTES = _int_env("MAX_REQUEST_BODY_BYTES", 16 * 1024 * 1024)
+
+# Largest response we will pull down from a URL the user asked us to ingest.
+# Smaller than an upload: this is article HTML, not a document.
+MAX_URL_FETCH_BYTES = _int_env("MAX_URL_FETCH_BYTES", 5 * 1024 * 1024)
+
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",

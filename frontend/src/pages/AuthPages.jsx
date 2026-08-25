@@ -5,12 +5,44 @@ import { GoogleLogin } from '@react-oauth/google';
 import { AlertCircle, ArrowRight, CheckCircle2, Eye, EyeOff, Lock, Mail, User } from 'lucide-react';
 import './AuthPages.css';
 
+const API = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
+/**
+ * FastAPI answers a schema failure with `detail` as an *array* of error
+ * objects, not a string. Rendering that array straight into JSX throws
+ * ("Objects are not valid as a React child") and blanks the page — which the
+ * email field can now trigger, since it validates as EmailStr server-side.
+ */
+const detailText = (data) => {
+  const detail = data?.detail;
+  if (!detail) return '';
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    return detail.map((d) => d?.msg || String(d)).join(' ');
+  }
+  return String(detail.msg || 'Request failed.');
+};
+
+/**
+ * Mirrors `core.auth.password_rule_violation` on the server. The server is
+ * still the authority — this only saves a round trip, and the two messages are
+ * worded the same so a user never sees the rule change between them.
+ */
+const passwordProblem = (password) => {
+  if (password.length < 8) return 'Password must be at least 8 characters.';
+  if (!/[A-Za-z]/.test(password)) return 'Password must contain at least one letter.';
+  if (!/[0-9]/.test(password)) return 'Password must contain at least one digit.';
+  return '';
+};
+
 const Login = () => {
   const { login } = useAuth();
   const navigate = useNavigate();
   const [form, setForm] = useState({ email: '', password: '' });
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const [needsVerification, setNeedsVerification] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
@@ -18,17 +50,44 @@ const Login = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setMessage('');
+    setNeedsVerification(false);
     setLoading(true);
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/auth/login`, {
+      const res = await fetch(`${API}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       });
       const data = await res.json();
-      if (!res.ok) { setError(data.detail || 'Login failed.'); return; }
-      login(data.token, data.user);
+      if (!res.ok) {
+        setError(detailText(data) || 'Login failed.');
+        // The account exists and the password was right — it just has not
+        // confirmed its address yet, so offer the way out rather than leaving
+        // the user staring at an error they cannot act on.
+        if (res.status === 403) setNeedsVerification(true);
+        return;
+      }
+      login(data.token, data.user, data.refresh_token);
       navigate('/dashboard');
+    } catch {
+      setError('Could not connect to server.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API}/api/auth/resend-verification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: form.email }),
+      });
+      const data = await res.json();
+      setError('');
+      setMessage(data.message || 'Verification link sent.');
     } catch {
       setError('Could not connect to server.');
     } finally {
@@ -40,14 +99,14 @@ const Login = () => {
     setError('');
     setLoading(true);
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/auth/google`, {
+      const res = await fetch(`${API}/api/auth/google`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token: credentialResponse.credential }),
       });
       const data = await res.json();
-      if (!res.ok) { setError(data.detail || 'Google sign-in failed.'); return; }
-      login(data.token, data.user);
+      if (!res.ok) { setError(detailText(data) || 'Google sign-in failed.'); return; }
+      login(data.token, data.user, data.refresh_token);
       navigate('/dashboard');
     } catch {
       setError('Could not connect to server.');
@@ -65,6 +124,12 @@ const Login = () => {
     >
       <form onSubmit={handleSubmit} className="auth-form">
         {error && <ErrorBanner message={error} />}
+        {message && <SuccessBanner message={message} />}
+        {needsVerification && (
+          <button type="button" className="btn btn-secondary w-full" onClick={handleResend} disabled={loading}>
+            Resend verification email
+          </button>
+        )}
         <InputField icon={<Mail size={17} />} label="Email" name="email" type="email" value={form.email} onChange={handleChange} placeholder="you@example.com" />
         <InputField
           icon={<Lock size={17} />}
@@ -107,6 +172,8 @@ const Signup = () => {
   const [form, setForm] = useState({ name: '', email: '', password: '' });
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [pendingEmail, setPendingEmail] = useState('');
+  const [resent, setResent] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
@@ -114,18 +181,38 @@ const Signup = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    if (form.password.length < 6) { setError('Password must be at least 6 characters.'); return; }
+    const problem = passwordProblem(form.password);
+    if (problem) { setError(problem); return; }
     setLoading(true);
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/auth/signup`, {
+      const res = await fetch(`${API}/api/auth/signup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       });
       const data = await res.json();
-      if (!res.ok) { setError(data.detail || 'Signup failed.'); return; }
-      login(data.token, data.user);
-      navigate('/dashboard');
+      if (!res.ok) { setError(detailText(data) || 'Signup failed.'); return; }
+      // Signup no longer returns a session. The account is inert until the
+      // address is confirmed, which is what stops someone registering with an
+      // address they do not own and waiting for its owner to sign in.
+      setPendingEmail(data.email || form.email);
+    } catch {
+      setError('Could not connect to server.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API}/api/auth/resend-verification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: pendingEmail }),
+      });
+      const data = await res.json();
+      setResent(data.message || 'Verification link sent.');
     } catch {
       setError('Could not connect to server.');
     } finally {
@@ -137,14 +224,14 @@ const Signup = () => {
     setError('');
     setLoading(true);
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/auth/google`, {
+      const res = await fetch(`${API}/api/auth/google`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token: credentialResponse.credential }),
       });
       const data = await res.json();
-      if (!res.ok) { setError(data.detail || 'Google sign-up failed.'); return; }
-      login(data.token, data.user);
+      if (!res.ok) { setError(detailText(data) || 'Google sign-up failed.'); return; }
+      login(data.token, data.user, data.refresh_token);
       navigate('/dashboard');
     } catch {
       setError('Could not connect to server.');
@@ -152,6 +239,24 @@ const Signup = () => {
       setLoading(false);
     }
   };
+
+  if (pendingEmail) {
+    return (
+      <AuthLayout
+        eyebrow="One more step"
+        title="Check your email"
+        subtitle={`We sent a confirmation link to ${pendingEmail}. Open it to activate your account — the link expires in 24 hours.`}
+        footer={<>Already confirmed? <Link to="/login">Sign in</Link></>}
+      >
+        <div className="auth-form">
+          {resent && <SuccessBanner message={resent} />}
+          <button type="button" className="btn btn-secondary w-full" onClick={handleResend} disabled={loading}>
+            {loading ? <><Spin /> Sending</> : 'Resend the link'}
+          </button>
+        </div>
+      </AuthLayout>
+    );
+  }
 
   return (
     <AuthLayout
@@ -171,7 +276,7 @@ const Signup = () => {
           type={showPassword ? 'text' : 'password'}
           value={form.password}
           onChange={handleChange}
-          placeholder="Min. 6 characters"
+          placeholder="Min. 8 characters, with a letter and a digit"
           suffix={
             <button className="input-icon-btn" type="button" onClick={() => setShowPassword(p => !p)} aria-label={showPassword ? 'Hide password' : 'Show password'}>
               {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
@@ -210,13 +315,13 @@ const ForgotPassword = () => {
     setMessage('');
     setLoading(true);
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/auth/forgot-password`, {
+      const res = await fetch(`${API}/api/auth/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       });
       const data = await res.json();
-      if (!res.ok) { setError(data.detail || 'Failed to send reset link.'); return; }
+      if (!res.ok) { setError(detailText(data) || 'Failed to send reset link.'); return; }
       setMessage(data.message || 'If that email exists, a reset link has been sent.');
     } catch {
       setError('Could not connect to server.');
@@ -268,7 +373,13 @@ const ResetPassword = () => {
 
   useEffect(() => {
     if (!token) { setTokenStatus('invalid'); return; }
-    fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/auth/validate-reset-token?token=${token}`)
+    // POST, not a query string: a reset token in the URL is written to browser
+    // history and leaks through Referer and proxy logs.
+    fetch(`${API}/api/auth/validate-reset-token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    })
       .then(res => res.json())
       .then(data => setTokenStatus(data.valid ? 'valid' : 'invalid'))
       .catch(() => setTokenStatus('invalid'));
@@ -282,19 +393,17 @@ const ResetPassword = () => {
       setError('Invalid or missing reset token.');
       return;
     }
-    if (newPassword.length < 6) {
-      setError('Password must be at least 6 characters.');
-      return;
-    }
+    const problem = passwordProblem(newPassword);
+    if (problem) { setError(problem); return; }
     setLoading(true);
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/auth/reset-password`, {
+      const res = await fetch(`${API}/api/auth/reset-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token, new_password: newPassword }),
       });
       const data = await res.json();
-      if (!res.ok) { setError(data.detail || 'Failed to reset password.'); return; }
+      if (!res.ok) { setError(detailText(data) || 'Failed to reset password.'); return; }
       setMessage(data.message || 'Password updated. Please log in.');
       setTimeout(() => {
         navigate('/login');
@@ -347,7 +456,7 @@ const ResetPassword = () => {
           type={showPassword ? 'text' : 'password'}
           value={newPassword}
           onChange={(e) => setNewPassword(e.target.value)}
-          placeholder="Min. 6 characters"
+          placeholder="Min. 8 characters, with a letter and a digit"
           suffix={
             <button className="input-icon-btn" type="button" onClick={() => setShowPassword(p => !p)} aria-label={showPassword ? 'Hide password' : 'Show password'}>
               {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
@@ -359,6 +468,84 @@ const ResetPassword = () => {
           {loading ? <><Spin /> Updating password</> : <>Update password <ArrowRight size={16} /></>}
         </button>
       </form>
+    </AuthLayout>
+  );
+};
+
+/**
+ * Landing page for the link in the confirmation email.
+ *
+ * Confirming signs the user straight in: they have just proved control of the
+ * address, which is the whole thing the flow was waiting for, and sending them
+ * back to a login form to retype a password they set two minutes ago buys
+ * nothing.
+ */
+const VerifyEmail = () => {
+  const { login } = useAuth();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const token = searchParams.get('token') || '';
+
+  const [status, setStatus] = useState('checking'); // 'checking' | 'done' | 'invalid'
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!token) { setStatus('invalid'); setError('No verification token in the link.'); return; }
+    let cancelled = false;
+    fetch(`${API}/api/auth/verify-email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    })
+      .then(async (res) => {
+        const data = await res.json();
+        if (cancelled) return;
+        if (!res.ok) {
+          setError(detailText(data) || 'This verification link is invalid or has expired.');
+          setStatus('invalid');
+          return;
+        }
+        login(data.token, data.user, data.refresh_token);
+        setStatus('done');
+        setTimeout(() => navigate('/dashboard'), 1500);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setError('Could not connect to server.');
+        setStatus('invalid');
+      });
+    return () => { cancelled = true; };
+  }, [token, login, navigate]);
+
+  if (status === 'checking') {
+    return (
+      <AuthLayout eyebrow="Security" title="Confirming your email..." subtitle="One moment.">
+        <div />
+      </AuthLayout>
+    );
+  }
+
+  if (status === 'invalid') {
+    return (
+      <AuthLayout
+        eyebrow="Security"
+        title="Link expired"
+        subtitle="This confirmation link is no longer valid. Sign in to have a new one sent."
+        footer={<>Back to <Link to="/login">Sign in</Link></>}
+      >
+        <div className="auth-form">
+          <ErrorBanner message={error} />
+          <Link to="/login" className="btn btn-primary w-full auth-submit">Go to sign in</Link>
+        </div>
+      </AuthLayout>
+    );
+  }
+
+  return (
+    <AuthLayout eyebrow="All set" title="Email confirmed" subtitle="Taking you to your workspace.">
+      <div className="auth-form">
+        <SuccessBanner message="Your account is active." />
+      </div>
     </AuthLayout>
   );
 };
@@ -529,4 +716,4 @@ const SuccessBanner = ({ message }) => (
 
 const Spin = () => <span className="auth-spin" />;
 
-export { Login, Signup, ForgotPassword, ResetPassword };
+export { Login, Signup, ForgotPassword, ResetPassword, VerifyEmail };

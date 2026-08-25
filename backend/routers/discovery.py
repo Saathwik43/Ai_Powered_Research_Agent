@@ -2,8 +2,11 @@
 Crossref, the GitHub knowledge base, and saved literature surveys."""
 
 import asyncio
+from datetime import datetime, timezone
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from bson import ObjectId
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from ai.guardrails import validate_input_layers_a_b
 from ai.relevance import _filter_relevant_papers
@@ -18,20 +21,18 @@ from integrations.github_knowledge import (
     list_all_repos,
     list_categories,
     search_github_knowledge,
-    sync_all_repositories,
-    sync_repository,
 )
 from integrations.paper_search import (
     SHARED_LIMIT_PER_SOURCE,
     search_all,
     search_all_with_meta,
 )
-from schemas import GithubSyncPayload, LiteratureSavePayload
+from schemas import LiteratureSavePayload
 from services.query_history import (
     _suggest_rank,
     normalize_suggest_input,
-    recent_queries,
-    record_query,
+    recent_queries_shared,
+    record_query_shared,
 )
 
 router = APIRouter(tags=["discovery"])
@@ -138,7 +139,7 @@ async def get_literature(
     if filtered:
         # Only successful queries become suggestions — proposing a query that
         # finds nothing is worse than proposing nothing.
-        record_query(query)
+        await record_query_shared(query)
 
     if meta.matched_query:
         # The user asked one question and is being shown another question's
@@ -169,7 +170,10 @@ SUGGEST_LIMIT = 8
 
 
 @router.get("/api/suggest")
-async def suggest_queries(q: str = "", current_user: dict = Depends(get_current_user)):
+# Fires on every keystroke behind a 250ms debounce, so it needs headroom the
+# search routes do not.
+@limiter.limit("120/minute")
+async def suggest_queries(request: Request, q: str = "", current_user: dict = Depends(get_current_user)):
     """
     Autocomplete for the search box.
 
@@ -183,7 +187,7 @@ async def suggest_queries(q: str = "", current_user: dict = Depends(get_current_
       4. substring anywhere                 (fallback)
     """
     prefix = normalize_suggest_input(q)
-    pool = recent_queries() + _SEED_SUGGESTIONS
+    pool = await recent_queries_shared() + _SEED_SUGGESTIONS
 
     seen: set[str] = set()
     candidates: list[str] = []
@@ -209,7 +213,8 @@ async def suggest_queries(q: str = "", current_user: dict = Depends(get_current_
 # ─── arXiv — Keyword Search ────────────────────────────────────────────────────
 
 @router.get("/api/arxiv/search")
-async def arxiv_search_endpoint(query: str, limit: int = 10, current_user: dict = Depends(get_current_user)):
+@limiter.limit("20/minute")
+async def arxiv_search_endpoint(request: Request, query: str, limit: int = 10, current_user: dict = Depends(get_current_user)):
     """Search arXiv directly by keyword."""
     if not validate_input_layers_a_b(query):
         return {"data": [], "count": 0, "coherence_check": "failed"}
@@ -221,7 +226,8 @@ async def arxiv_search_endpoint(query: str, limit: int = 10, current_user: dict 
 # ─── arXiv — Category RSS Feed ────────────────────────────────────────────────
 
 @router.get("/api/arxiv/feed")
-async def arxiv_feed(category: str = "cs.AI", limit: int = 10, current_user: dict = Depends(get_current_user)):
+@limiter.limit("30/minute")
+async def arxiv_feed(request: Request, category: str = "cs.AI", limit: int = 10, current_user: dict = Depends(get_current_user)):
     """
     Fetch latest papers from an arXiv RSS category feed.
     category: arXiv code e.g. cs.AI, cs.LG, cs.CR, cs.CV, cs.CL, quant-ph, q-bio.GN
@@ -231,7 +237,9 @@ async def arxiv_feed(category: str = "cs.AI", limit: int = 10, current_user: dic
 
 
 @router.get("/api/arxiv/trending")
-async def arxiv_trending(current_user: dict = Depends(get_current_user)):
+# Six category feeds per call.
+@limiter.limit("15/minute")
+async def arxiv_trending(request: Request, current_user: dict = Depends(get_current_user)):
     """
     Fetch latest papers from multiple arXiv categories at once for the dashboard.
     Returns a dict keyed by category code.
@@ -247,7 +255,8 @@ async def arxiv_trending(current_user: dict = Depends(get_current_user)):
 # ─── Crossref Journal Search ───────────────────────────────────────────────────
 
 @router.get("/api/crossref-journals")
-async def get_crossref_journals(query: str, current_user: dict = Depends(get_current_user)):
+@limiter.limit("20/minute")
+async def get_crossref_journals(request: Request, query: str, current_user: dict = Depends(get_current_user)):
     journals = await search_journals(query)
     formatted = []
     for j in journals:
@@ -262,51 +271,49 @@ async def get_crossref_journals(query: str, current_user: dict = Depends(get_cur
 
 # ─── GitHub Knowledge Base ─────────────────────────────────────────────────────
 
+# The knowledge base is read-only at runtime. Cloning moved to
+# `scripts/sync_github_repos.py`, which the deploy runs before the app boots —
+# a `git clone` triggered by a request holds a worker for minutes and writes
+# hundreds of megabytes of container disk on demand (audit API-GH). There is no
+# POST /api/github/sync any more.
+
 @router.get("/api/github/repos")
-async def get_github_repos(current_user: dict = Depends(get_current_user)):
-    """List all configured GitHub knowledge repos and their sync status."""
+@limiter.limit("30/minute")
+async def get_github_repos(request: Request, current_user: dict = Depends(get_current_user)):
+    """List all configured GitHub knowledge repos and whether they are on disk."""
     return {"data": list_all_repos()}
 
 
-_sync_lock = asyncio.Lock()
-
-@router.post("/api/github/sync")
-async def sync_github(payload: GithubSyncPayload, current_user: dict = Depends(get_current_user)):
-    """
-    Sync one or all GitHub repos.
-    """
-    if _sync_lock.locked():
-        raise HTTPException(status_code=409, detail="Sync already in progress")
-
-    async with _sync_lock:
-        repo_name = payload.repo
-        if repo_name:
-            success = await asyncio.to_thread(sync_repository, repo_name)
-            return {"message": f"{'Synced' if success else 'Failed'}: {repo_name}", "success": success}
-        else:
-            results = await asyncio.to_thread(sync_all_repositories)
-            return {"message": "Sync complete.", "results": results}
-
-
 @router.get("/api/github/categories")
-async def get_github_categories(repo: str = "papers-we-love", current_user: dict = Depends(get_current_user)):
+@limiter.limit("30/minute")
+async def get_github_categories(request: Request, repo: str = "papers-we-love", current_user: dict = Depends(get_current_user)):
     """List categories in a specific GitHub repo."""
     cats = await asyncio.to_thread(list_categories, repo)
     if not cats:
-        return {"data": [], "message": f"Repo '{repo}' not synced yet. POST /api/github/sync first."}
+        return {
+            "data": [],
+            "message": (
+                f"Repo '{repo}' is not present in this deployment. It is checked out at "
+                "build time by `python -m scripts.sync_github_repos`."
+            ),
+        }
     return {"data": cats}
 
 
 @router.get("/api/github/papers")
-async def get_github_papers(repo: str = "papers-we-love", category: str = "", current_user: dict = Depends(get_current_user)):
+@limiter.limit("30/minute")
+async def get_github_papers(request: Request, repo: str = "papers-we-love", category: str = "", current_user: dict = Depends(get_current_user)):
     """List papers in a category of a GitHub repo."""
     papers = await asyncio.to_thread(find_papers_by_category, category, repo)
     return {"data": papers, "count": len(papers)}
 
 
 @router.get("/api/github/search")
-async def search_github(query: str, current_user: dict = Depends(get_current_user)):
-    """Search all synced GitHub repos for papers matching the query."""
+# Each call walks every markdown file in every checked-out repo, so it is disk
+# work proportional to the corpus, not a lookup.
+@limiter.limit("20/minute")
+async def search_github(request: Request, query: str, current_user: dict = Depends(get_current_user)):
+    """Search all checked-out GitHub repos for papers matching the query."""
     if not validate_input_layers_a_b(query):
         return {"data": [], "count": 0, "coherence_check": "failed"}
     results = await asyncio.to_thread(search_github_knowledge, query)
@@ -316,20 +323,30 @@ async def search_github(query: str, current_user: dict = Depends(get_current_use
 # ─── Save / Load Literature Survey (per user) ─────────────────────────────────
 
 @router.post("/api/literature/save")
-async def save_literature(payload: LiteratureSavePayload, current_user: dict = Depends(get_current_user)):
+@limiter.limit("30/minute")
+async def save_literature(request: Request, payload: LiteratureSavePayload, current_user: dict = Depends(get_current_user)):
     user_id = current_user["user_id"]
     collection = db["literature"]
+    now = datetime.now(timezone.utc).isoformat()
+    screened = payload.screened if payload.screened is not None else len(payload.papers or [])
+    fields = {
+        "papers": payload.papers,
+        "saved_at": now,
+        "screened": screened,
+        "sources": payload.sources or [],
+    }
     existing = await collection.find_one({"user_id": user_id, "query": payload.query})
     if existing:
-        await collection.update_one({"user_id": user_id, "query": payload.query}, {"$set": {"papers": payload.papers}})
+        await collection.update_one({"user_id": user_id, "query": payload.query}, {"$set": fields})
         return {"message": "Literature survey updated.", "query": payload.query}
     else:
-        await collection.insert_one({"user_id": user_id, "query": payload.query, "papers": payload.papers})
+        await collection.insert_one({"user_id": user_id, "query": payload.query, **fields})
         return {"message": "Literature survey saved.", "query": payload.query}
 
 
 @router.get("/api/literature/load")
-async def load_literature(query: str, current_user: dict = Depends(get_current_user)):
+@limiter.limit("60/minute")
+async def load_literature(request: Request, query: str, current_user: dict = Depends(get_current_user)):
     user_id = current_user["user_id"]
     collection = db["literature"]
     doc = await collection.find_one({"user_id": user_id, "query": query}, {"_id": 0, "user_id": 0})
@@ -339,15 +356,37 @@ async def load_literature(query: str, current_user: dict = Depends(get_current_u
 
 
 @router.get("/api/literature/list")
-async def list_literature_surveys(current_user: dict = Depends(get_current_user)):
+@limiter.limit("60/minute")
+async def list_literature_surveys(
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+    limit: int = Query(50, ge=1, le=100),
+    cursor: Optional[str] = Query(None),
+):
     user_id = current_user["user_id"]
     collection = db["literature"]
-    cursor = collection.find({"user_id": user_id}, {"_id": 0, "user_id": 0}).sort("_id", -1)
-    surveys = [doc async for doc in cursor]
-    return {"data": surveys}
+    query = {"user_id": user_id}
+    if cursor:
+        try:
+            query["_id"] = {"$lt": ObjectId(cursor)}
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid cursor.")
+    docs = await (
+        collection.find(query, {"user_id": 0})
+        .sort("_id", -1)
+        .limit(limit)
+        .to_list(length=limit)
+    )
+    next_cursor = str(docs[-1]["_id"]) if len(docs) == limit else None
+    surveys = []
+    for doc in docs:
+        doc.pop("_id", None)
+        surveys.append(doc)
+    return {"data": surveys, "next_cursor": next_cursor}
 
 @router.delete("/api/literature/delete/{query}")
-async def delete_literature(query: str, current_user: dict = Depends(get_current_user)):
+@limiter.limit("30/minute")
+async def delete_literature(request: Request, query: str, current_user: dict = Depends(get_current_user)):
     user_id = current_user["user_id"]
     collection = db["literature"]
     result = await collection.delete_one({"user_id": user_id, "query": query})

@@ -11,23 +11,66 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-import httpx
 from bson import ObjectId
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
 from ai.pdf_analysis import analyze_uploaded_paper, extract_pdf_structure, extract_pdf_text
 from ai.source_ingestion import extract_source_text
 from core.auth import get_current_user
+from core.config import MAX_UPLOAD_BYTES, MAX_URL_FETCH_BYTES
 from core.limiter import limiter
 from core.database import db, get_pdf_bucket
-from core.file_validation import verify_pdf_signature, verify_upload_signature
-from schemas import PdfChatSavePayload
-from core.ssrf_guard import assert_public_url
+from core.file_validation import read_upload_capped, verify_pdf_signature, verify_upload_signature
+from core.processing_consent import consent_state, record_consent, user_allows_third_party
+from schemas import PdfChatSavePayload, ProcessingConsentPayload
+from core.ssrf_guard import safe_fetch
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["pdf"])
+
+
+async def _load_owned_chat(chat_id: str, user_id: str) -> dict:
+    """Load a pdf_chats document the caller owns, or 400/404.
+
+    Everything derived from a chat id is a server-side cache scope — the rolling
+    conversation summary and the Gemini context cache. Both used to be keyed on
+    the raw id straight off the request body, so passing somebody else's id (a
+    24-hex ObjectId, guessable in bulk) returned their paper's cached context.
+    """
+    try:
+        oid = ObjectId(chat_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid chat ID.")
+    doc = await db["pdf_chats"].find_one({"_id": oid, "user_id": user_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Chat not found.")
+    return doc
+
+
+def _history_from_stored_messages(messages: list) -> list:
+    """Same shape the frontend used to POST as `history` on every turn."""
+    out = []
+    for msg in messages or []:
+        if not isinstance(msg, dict):
+            continue
+        if msg.get("isLoading") or msg.get("error"):
+            continue
+        role = msg.get("role") or "assistant"
+        data = msg.get("data") if isinstance(msg.get("data"), dict) else None
+        if data and msg.get("type") in ("structured", "gap_analysis"):
+            gaps = "; ".join(data.get("gaps") or [])
+            covered = "; ".join(data.get("well_covered") or [])
+            direction = data.get("suggested_direction") or ""
+            content = (
+                f"[Gap analysis]\nWell covered: {covered}\nGaps: {gaps}\nSuggested: {direction}"
+            )
+        else:
+            content = msg.get("content") or ""
+        if str(content).strip():
+            out.append({"role": role, "content": content})
+    return out
 
 
 @router.post("/api/manuscript/extract-pdf")
@@ -36,13 +79,16 @@ async def extract_pdf_endpoint(request: Request, file: UploadFile = File(...), c
     if not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="File must be a PDF")
 
-    contents = await file.read()
-    if len(contents) > 10 * 1024 * 1024:  # 10MB limit
-        raise HTTPException(status_code=400, detail="File too large. Limit is 10MB.")
+    contents = await read_upload_capped(file, MAX_UPLOAD_BYTES)
     verify_pdf_signature(contents)
 
+    # Whether this file may be sent to LlamaCloud (1.16). Resolved per upload,
+    # not cached on the client, so revoking consent takes effect on the very
+    # next file rather than whenever the page is next reloaded.
+    allow_third_party = await user_allows_third_party(current_user["user_id"])
+
     text, structure = await asyncio.gather(
-        extract_pdf_text(contents),
+        extract_pdf_text(contents, allow_third_party=allow_third_party),
         extract_pdf_structure(contents)
     )
 
@@ -52,7 +98,32 @@ async def extract_pdf_endpoint(request: Request, file: UploadFile = File(...), c
         metadata={"user_id": str(current_user["user_id"]), "content_type": "application/pdf"}
     )
 
-    return {"text": text, "structure": structure, "file_id": str(file_id)}
+    return {
+        "text": text,
+        "structure": structure,
+        "file_id": str(file_id),
+        # Told, not implied: the client shows which parser handled the file.
+        "parsed_by": "third_party" if allow_third_party else "local",
+    }
+
+
+@router.get("/api/user/processing-consent")
+@limiter.limit("30/minute")
+async def get_processing_consent(request: Request, current_user: dict = Depends(get_current_user)):
+    """What the user has been told about third-party processing, and their answer."""
+    from core.auth import _load_user
+
+    return consent_state(await _load_user(current_user["user_id"]))
+
+
+@router.post("/api/user/processing-consent")
+@limiter.limit("10/minute")
+async def set_processing_consent(
+    request: Request,
+    payload: ProcessingConsentPayload,
+    current_user: dict = Depends(get_current_user),
+):
+    return await record_consent(current_user["user_id"], payload.granted)
 
 @router.post("/api/sources/upload")
 @limiter.limit("10/minute")
@@ -66,12 +137,13 @@ async def upload_source(
     user_id = current_user["user_id"]
     if url and url.strip():
         url_str = url.strip()
-        assert_public_url(url_str)
         try:
-            async with httpx.AsyncClient(timeout=10.0, follow_redirects=False, max_redirects=0) as client:
-                resp = await client.get(url_str)
-                resp.raise_for_status()
-                html_text = resp.text
+            # Pins the resolved address and re-validates each redirect hop, so a
+            # rebinding record or a `302` into the metadata service cannot slip
+            # past the check the way a bare hostname validation let them.
+            resp = await safe_fetch(url_str, max_bytes=MAX_URL_FETCH_BYTES, timeout=10.0)
+            resp.raise_for_status()
+            html_text = resp.text
             try:
                 import importlib
                 trafilatura = importlib.import_module("trafilatura")
@@ -83,12 +155,19 @@ async def upload_source(
                 text = ' '.join(text.split())
             filename = url_str.split("//")[-1].split("/")[0] or url_str
             content_type = "url"
+        except HTTPException:
+            # Already a deliberate, safe message (blocked target, too large).
+            raise
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Failed to fetch content from URL: {e}")
+            logger.info("Source URL fetch failed for %s: %s", url_str, e)
+            raise HTTPException(status_code=400, detail="Failed to fetch content from that URL.")
     elif file:
-        raw = await file.read()
+        raw = await read_upload_capped(file, MAX_UPLOAD_BYTES)
         verify_upload_signature(raw, file.content_type, file.filename)
-        text = await extract_source_text(raw, file.content_type, file.filename)
+        text = await extract_source_text(
+            raw, file.content_type, file.filename,
+            allow_third_party=await user_allows_third_party(user_id),
+        )
         filename = file.filename
         content_type = file.content_type
     else:
@@ -136,8 +215,17 @@ async def get_pdf(request: Request, file_id: str, current_user: dict = Depends(g
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid file_id")
 
-    grid_out = await get_pdf_bucket().open_download_stream(oid)
-    if grid_out.metadata.get("user_id") != str(current_user["user_id"]):
+    try:
+        grid_out = await get_pdf_bucket().open_download_stream(oid)
+    except Exception:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # A GridFS file written without metadata (or by an older code path) has
+    # `metadata is None`, and `None.get` was a 500 that leaked a traceback into
+    # the logs on what is really just "this file has no owner recorded".
+    # No recorded owner means nobody can claim it.
+    metadata = grid_out.metadata or {}
+    if metadata.get("user_id") != str(current_user["user_id"]):
         raise HTTPException(status_code=403, detail="Not your file")
 
     async def stream():
@@ -154,16 +242,38 @@ async def get_pdf(request: Request, file_id: str, current_user: dict = Depends(g
 @limiter.limit("5/minute")
 async def analyze_pdf_endpoint(
     request: Request,
-    text: str = Form(...),
+    text: Optional[str] = Form(None),
     structure: Optional[str] = Form(None),
     custom_prompt: Optional[str] = Form(None),
     chat_id: Optional[str] = Form(None),
     history: Optional[str] = Form(None),
     current_user: dict = Depends(get_current_user)
 ):
-    struct_dict = json.loads(structure) if structure else None
-    hist_list = json.loads(history) if history else []
-    result = await analyze_uploaded_paper(text, custom_prompt, struct_dict, hist_list, chat_id)
+    try:
+        struct_dict = json.loads(structure) if structure else None
+        hist_list = json.loads(history) if history else []
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="structure and history must be valid JSON.")
+
+    # The cache scope is built here, from an id the server has confirmed this
+    # caller owns — never from the raw request field. `chat_id` alone was enough
+    # to address another user's rolling summary and Gemini context cache.
+    cache_scope = None
+    if chat_id:
+        doc = await _load_owned_chat(chat_id, str(current_user["user_id"]))
+        cache_scope = f"{current_user['user_id']}:{chat_id}"
+        # Follow-up turns send the id, not megabytes of paper text. Fill any
+        # omitted fields from the saved chat the caller already owns.
+        if not (text and str(text).strip()):
+            text = doc.get("text") or ""
+        if struct_dict is None and doc.get("structure") is not None:
+            struct_dict = doc["structure"]
+        if not hist_list:
+            hist_list = _history_from_stored_messages(doc.get("messages") or [])
+    elif not (text and str(text).strip()):
+        raise HTTPException(status_code=400, detail="text is required when chat_id is not set.")
+
+    result = await analyze_uploaded_paper(text, custom_prompt, struct_dict, hist_list, cache_scope)
     return result
 
 
@@ -200,20 +310,35 @@ async def save_pdf_chat(request: Request, payload: PdfChatSavePayload, current_u
 
 @router.get("/api/pdf-chats/list")
 @limiter.limit("30/minute")
-async def list_pdf_chats(request: Request, current_user: dict = Depends(get_current_user)):
+async def list_pdf_chats(
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+    limit: int = Query(50, ge=1, le=100),
+    cursor: Optional[str] = Query(None),
+):
     user_id = current_user["user_id"]
     collection = db["pdf_chats"]
-    # only return metadata, not full text or messages
-    cursor = collection.find(
-        {"user_id": user_id},
-        {"text": 0, "structure": 0, "messages": 0, "user_id": 0}
-    ).sort("updated_at", -1)
-
+    query = {"user_id": user_id}
+    if cursor:
+        try:
+            query["_id"] = {"$lt": ObjectId(cursor)}
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid cursor.")
+    docs = await (
+        collection.find(
+            query,
+            {"text": 0, "structure": 0, "messages": 0, "user_id": 0},
+        )
+        .sort("_id", -1)
+        .limit(limit)
+        .to_list(length=limit)
+    )
     chats = []
-    async for doc in cursor:
+    for doc in docs:
         doc["chat_id"] = str(doc.pop("_id"))
         chats.append(doc)
-    return {"data": chats}
+    next_cursor = chats[-1]["chat_id"] if len(chats) == limit else None
+    return {"data": chats, "next_cursor": next_cursor}
 
 @router.get("/api/pdf-chats/{chat_id}")
 @limiter.limit("30/minute")

@@ -4,7 +4,7 @@ import {
 } from 'lucide-react';
 import { Spinner } from '../../components/Loader';
 
-export default function UsersPanel({ users, authFetch, onChanged }) {
+export default function UsersPanel({ users, api, onChanged }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedUser, setSelectedUser] = useState(null);
@@ -28,7 +28,7 @@ export default function UsersPanel({ users, authFetch, onChanged }) {
   const handleRoleToggle = async (targetUser) => {
     const newRole = targetUser.role === 'admin' ? 'user' : 'admin';
     try {
-      const res = await authFetch(`/api/admin/users/${targetUser.user_id}/role`, {
+      const res = await api.raw(`/api/admin/users/${targetUser.user_id}/role`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role: newRole }),
@@ -42,7 +42,7 @@ export default function UsersPanel({ users, authFetch, onChanged }) {
   const handleStatusToggle = async (targetUser) => {
     const newStatus = targetUser.status === 'suspended' ? 'active' : 'suspended';
     try {
-      const res = await authFetch(`/api/admin/users/${targetUser.user_id}/status`, {
+      const res = await api.raw(`/api/admin/users/${targetUser.user_id}/status`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus }),
@@ -57,7 +57,7 @@ export default function UsersPanel({ users, authFetch, onChanged }) {
     if (!selectedUser) return;
     setActionLoading(true);
     try {
-      const res = await authFetch(`/api/admin/users/${selectedUser.user_id}/quota`, {
+      const res = await api.raw(`/api/admin/users/${selectedUser.user_id}/quota`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -80,7 +80,7 @@ export default function UsersPanel({ users, authFetch, onChanged }) {
     if (!deleteConfirmUser) return;
     setActionLoading(true);
     try {
-      const res = await authFetch(`/api/admin/users/${deleteConfirmUser.user_id}`, {
+      const res = await api.raw(`/api/admin/users/${deleteConfirmUser.user_id}`, {
         method: 'DELETE',
       });
       if (res.ok) {

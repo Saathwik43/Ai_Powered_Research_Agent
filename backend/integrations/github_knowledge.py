@@ -1,6 +1,16 @@
+"""Read-only access to the GitHub paper-list repos checked out under ``data/``.
+
+The clone/pull itself lives in ``scripts/sync_github_repos.py`` and runs at
+**deploy time**, not on a request. It used to run inside ``POST
+/api/github/sync``: an authenticated user could make the server shell out to
+``git clone`` against three repositories, holding a worker for as long as the
+network took and writing hundreds of megabytes into the container's disk, with
+one process-wide lock as the only bound. Nothing here shells out any more —
+this module reads whatever the deploy step left on disk.
+"""
+
 import os
 import re
-import subprocess
 import logging
 from pathlib import Path
 
@@ -25,47 +35,6 @@ REPOS = {
         "topics": ["cybersecurity", "machine-learning", "threat-detection", "anomaly-detection"],
     },
 }
-
-
-def _sync_repo(name: str) -> bool:
-    repo = REPOS[name]
-    clone_dir = repo["dir"]
-    url = repo["url"]
-    try:
-        clone_dir.parent.mkdir(parents=True, exist_ok=True)
-        if not clone_dir.exists():
-            logger.info(f"Cloning {name}...")
-            subprocess.run(
-                ["git", "clone", "--depth", "1", url, str(clone_dir)],
-                check=True, capture_output=True
-            )
-            logger.info(f"Cloned {name}.")
-        else:
-            logger.info(f"Pulling {name}...")
-            subprocess.run(
-                ["git", "pull"],
-                cwd=str(clone_dir), check=True, capture_output=True
-            )
-            logger.info(f"Pulled {name}.")
-        return True
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Error syncing {name}: {e}")
-        return False
-
-
-def sync_repository(name: str = "papers-we-love") -> bool:
-    """Sync a single repo by name."""
-    if name not in REPOS:
-        return False
-    return _sync_repo(name)
-
-
-def sync_all_repositories() -> dict:
-    """Sync all repos and return status per repo."""
-    results = {}
-    for name in REPOS:
-        results[name] = _sync_repo(name)
-    return results
 
 
 def list_categories(name: str = "papers-we-love") -> list:

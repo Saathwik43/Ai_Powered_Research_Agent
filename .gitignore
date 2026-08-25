@@ -11,8 +11,15 @@ all_fixes.patch
 reports/
 Sample paper/
 
-# Test files and artifacts
-test_*.py
+# Scratch test files and artifacts.
+#
+# `test_*.py` was unanchored, so it matched at every depth and hid the whole
+# `backend/tests/` suite: files already committed still showed as tracked, but
+# every *new* test was invisible to `git status` and would have been dropped
+# from its own commit. Anchored to the repo root, with the real suite un-ignored.
+/test_*.py
+!backend/tests/
+!backend/tests/**
 *.xml
 *.pdf
 *.txt
@@ -25,3 +32,7 @@ backend.log
 
 .cursor/
 .claude/
+# OAuth client secrets must never be committed. One was found untracked in
+# backend/integrations/ on 2026-08-24 - delete it and rotate the credential.
+client_secret*.json
+*client_secret*.json

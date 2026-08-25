@@ -987,3 +987,38 @@
   opacity: 0.55;
   cursor: not-allowed;
 }
+
+/* Research pipeline progress (1.5). Shown between pressing Generate and the
+   first token, which on a cold topic used to be a blank screen. */
+.manuscript-research-stages {
+  margin-bottom: var(--space-4);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.manuscript-research-stages-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-subtle);
+}
+
+.manuscript-research-stage {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.manuscript-research-stage.is-done { color: var(--text); }
+.manuscript-research-stage.is-failed { color: var(--danger); }
+.manuscript-research-stage.is-skipped { opacity: 0.65; }

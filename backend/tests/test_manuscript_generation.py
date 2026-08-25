@@ -918,12 +918,11 @@ class TestEditPromptFraming(unittest.TestCase):
         self.assertNotIn("PROPOSED methodology", prompt)
         self.assertNotIn("PROJECTED/EXPECTED", prompt)
 
-    def test_generation_and_edit_share_one_definition(self):
-        gen = manuscript_generation._prompt("a topic", "results", "", "ieee")
-        edit = self._prompt_for("results")
-        framing = manuscript_generation._METHOD_RESULTS_FRAMING["results"]
-        self.assertIn(framing, gen)
-        self.assertIn(framing, edit)
+    def test_generation_prompt_forbids_latex_bracket_delimiters(self):
+        prompt = manuscript_generation._prompt("a topic", "methodology", "", "ieee")
+        self.assertIn("dollar delimiters", prompt)
+        self.assertIn("$$ E = mc^2 $$", prompt)
+        self.assertIn("double-quoted", prompt)
 
     def test_braces_in_user_input_do_not_break_the_template(self):
         prompt = manuscript_generation._edit_prompt_fn(

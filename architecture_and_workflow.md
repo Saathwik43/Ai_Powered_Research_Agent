@@ -11,11 +11,39 @@ graph TD
     subgraph Frontend [Frontend - React + Vite]
         UI[User Interface & Manuscript Builder]
         SSE[SSE Stream Listener & Typewriter State]
+        ApiClient[One API client - lib/api.js + query cache]
     end
 
     subgraph Backend [Backend API - FastAPI]
+        subgraph Edge [Middleware - outermost first]
+            CORS[CORS - trimmed origin allowlist]
+            BodyCap[Body size cap - 16MB, pre-buffer]
+            RateLimit[Rate limiter - default on every route]
+            Headers[Security headers + CSP]
+        end
         Router[API Routes / routers/*.py]
         Auth[Authentication & Quotas - core/ + services/]
+        Refresh[Refresh rotation + reuse detection - 1.14]
+        Verify[Email verification + reset - separate signing keys]
+        SSRF[SSRF guard - pinned IP, ports 80/443]
+        Consent[Third-party processing consent - 1.16]
+
+        subgraph SelfHeal [API self-heal]
+            Registry[Source registry - one fan-out list]
+            Health[Rolling health window + circuit breaker]
+            Retry[One retry policy - Retry-After + jitter]
+        end
+
+        subgraph Caches [Cache tiers]
+            L1[In-process TTLCache / semantic cache]
+            L2[Shared store - Mongo, survives restart - 1.2]
+            Emb[(paper_embeddings - kept forever - 1.3)]
+        end
+
+        subgraph Research [Background research - 1.5]
+            Jobs[research_jobs - persisted stages]
+            Corpus[prepare_corpus - search, screen, evidence]
+        end
       
         subgraph AI_Engine [AI Engine Modules]
             TD_AI[Topic Discovery]
@@ -64,9 +92,20 @@ graph TD
         HF[HuggingFace API]
     end
 
-    UI <-->|REST & SSE Stream| Router
+    UI --> ApiClient
+    ApiClient <-->|REST & SSE Stream| CORS
+    CORS --> BodyCap
+    BodyCap --> RateLimit
+    RateLimit --> Headers
+    Headers --> Router
     Router --> Auth
-    Auth <-->|Verify Users & Usage Logs| MongoDB
+    Auth --> Verify
+    Auth --> Refresh
+    Refresh <-->|Token families, reuse detection| MongoDB
+    Auth <-->|Verify Users & Usage Logs - 60s user cache| MongoDB
+    Router -->|User-supplied URLs & OA PDFs| SSRF
+    Router -->|PDF upload| Consent
+    Consent -.->|Only with explicit consent| Extraction
   
     Router <-->|Delegates Streaming & Tasks| AI_Engine
     Router <-->|Delegates Literature Search| Integrations
@@ -90,7 +129,7 @@ graph TD
     Integrations -.->|Pooled HTTP, parallel fan-out| EuropePMC
     Integrations -.->|Pooled HTTP, parallel fan-out| Springer
     Integrations -.->|Pooled HTTP, parallel fan-out| DOAJ
-    Integrations -.->|Local corpus, no network| GitHubKB
+    Integrations -.->|Local corpus, cloned at deploy| GitHubKB
     Integrations -.->|After dedupe| Unpaywall
 
     Integrations --> Ladder
@@ -99,8 +138,27 @@ graph TD
     Ladder -->|3. open-access biomedical| PMCXML
     Ladder -->|4. any PDF| PDFStruct
     Ladder -.->|5. last resort| LLM_P
-  
+
+    Integrations --> Registry
+    Registry -->|Skip a source whose circuit is open| Health
+    Registry -->|Retry only what a retry can fix| Retry
+    Health -.->|Fed by every tracked call| Integrations
+
+    Integrations <--> L1
+    L1 -->|Miss| L2
+    L2 <--> MongoDB
+    L2 <--> Emb
+    Emb <--> MongoDB
+
+    Router -->|Topic known: warm the corpus| Jobs
+    Jobs --> Corpus
+    Corpus --> Integrations
+    Corpus -->|Prepared corpus| L2
+    Jobs <-->|Persisted stages, replayed on reconnect| MongoDB
+    MG_AI -->|Reads the prepared corpus| L2
+
     Router <-->|Save / Load Drafts, Surveys & Manuscripts| MongoDB
+    Router <-->|Version history + restore - 1.10| MongoDB
 ```
 
 > **No hosted document-parsing service.** The evidence ladder replaced a hosted
@@ -108,6 +166,90 @@ graph TD
 > 503) and GROBID is a JVM service needing several GB, which does not fit the
 > deploy target. Tiers 1–4 are keyless, and tier 4 runs in-process, so an
 > uploaded PDF no longer depends on any third party.
+
+> **Nothing clones on a request.** The GitHub knowledge repos are checked out
+> into `backend/data/` by `python -m scripts.sync_github_repos` at build time.
+> Until Aug 2026 `POST /api/github/sync` shelled out to `git clone` inside a
+> request handler, so any signed-in user could hold a worker for minutes and
+> write hundreds of megabytes of container disk on demand. That route is gone;
+> the remaining `/api/github/*` routes only read what the deploy left on disk.
+
+### Request-safety layers
+
+Every request crosses four middleware layers before a route sees it, ordered so
+that a rejection still carries CORS headers — a 429 or 413 without them reaches
+the browser as an unexplained network failure rather than a reason.
+
+| Layer | Rejects | Configured by |
+|---|---|---|
+| CORS | Unknown origin | `CORS_ORIGINS` |
+| Body cap | `Content-Length` over the ceiling, and a chunked body that exceeds it mid-stream | `MAX_REQUEST_BODY_BYTES` (16MB) |
+| Rate limit | Over-budget caller, keyed on user id then client address | `DEFAULT_RATE_LIMIT`, `TRUSTED_PROXY_HOPS` |
+| Security headers | — (adds CSP, HSTS, nosniff, frame-deny) | `core/config.SECURITY_HEADERS` |
+
+`TRUSTED_PROXY_HOPS` **must** be set to the number of proxies in front of the
+app (1 on Render). At the default of 0 the header is ignored and every
+anonymous caller shares one bucket, because behind a proxy `request.client.host`
+is the proxy for all of them. Reading the leftmost `X-Forwarded-For` entry
+instead would be worse: that part of the chain is caller-supplied, so anyone
+could mint a fresh bucket per request.
+
+### Token classes
+
+Three token classes, each with its own signing key, audience and `purpose`
+claim. A reset link used to be signed with the session key and `purpose` was
+never checked on decode, so pasting the token from a reset email into an
+`Authorization` header was a full login.
+
+| Token | Key | Audience | Lifetime |
+|---|---|---|---|
+| Session (access) | `JWT_SECRET_KEY` | `research-agent:access` | 1h (`ACCESS_TOKEN_EXPIRE_HOURS`) |
+| Refresh | `JWT_REFRESH_SECRET_KEY`, else derived | `research-agent:refresh` | 14d (`REFRESH_TOKEN_EXPIRE_DAYS`) |
+| Password reset | `JWT_RESET_SECRET_KEY`, else derived by HMAC from the session key | `research-agent:password-reset` | 30 min |
+| Email verification | `JWT_VERIFY_SECRET_KEY`, else derived | `research-agent:email-verify` | 24h |
+
+The derived keys mean no new environment variable is needed to deploy, while
+each can still be pinned for independent rotation.
+
+### Refresh rotation and reuse detection (1.14)
+
+A 24-hour bearer token was a 24-hour window for anything that got hold of one:
+nothing but an explicit logout could end it early. The session is now a short
+access token plus a long **rotating** refresh token.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant A as API
+    participant DB as refresh_tokens
+
+    C->>A: POST /api/auth/login
+    A->>DB: Record jti₁ (family F, used=false)
+    A-->>C: access (1h) + refresh jti₁
+
+    Note over C,A: Access token expires; authFetch rotates once and replays.
+    C->>A: POST /api/auth/refresh (jti₁)
+    A->>DB: Write jti₂ first, then mark jti₁ used → jti₂
+    A-->>C: new access + refresh jti₂
+
+    Note over C,A: The successor is written before the predecessor is retired,<br/>so a crash between the two leaves a token that still works.
+
+    rect rgb(250, 235, 235)
+        C--xA: POST /api/auth/refresh (jti₁ — already spent)
+        A->>DB: Revoke every token in family F
+        A-->>C: 401 — both holders must sign in again
+    end
+```
+
+A spent refresh token being presented again means two parties hold it, and
+there is no way to tell which one is asking. Revoking the family is the OAuth
+2.0 BCP treatment and the whole reason rotation is worth having. Logout and
+admin suspension revoke the family too — blacklisting the bearer token alone
+would leave the refresh token minting new ones.
+
+`get_current_user` reads the `users` document from a 60-second cache rather than
+on every request; role changes, suspension and deletion invalidate it
+explicitly, so a demotion takes effect immediately rather than a minute later.
 
 ## End-to-End User Workflow
 
@@ -121,6 +263,18 @@ sequenceDiagram
     participant DB as MongoDB
     participant Sources as Academic Search & Evidence Engine
     participant Cascade as Multi-Provider LLM Cascade
+    participant Mail as Brevo (email)
+
+    User->>Front: 0. Sign up
+    Front->>API: POST /api/auth/signup
+    API->>DB: Create account with email_verified=false
+    API->>Mail: Verification link (24h, separate signing key)
+    API-->>Front: "Check your email" — no session token
+    Note over API,DB: The account cannot sign in yet. This is what stops<br/>someone registering with an address they do not own<br/>and inheriting the session when its real owner<br/>later signs in with Google.
+    User->>Front: Click the emailed link
+    Front->>API: POST /api/auth/verify-email
+    API->>DB: email_verified=true, bump token version (single use)
+    API-->>Front: Session token — signed in
 
     User->>Front: 1. Input interest / area
     Front->>API: GET /api/topics
@@ -141,11 +295,24 @@ sequenceDiagram
     Front->>API: POST /api/literature/save
     API->>DB: Store saved survey
   
+    Note over Front,API: As soon as the topic settles, the corpus is built in the<br/>background (1.5) — so by the time Generate is pressed the<br/>fan-out, screening and full-text fetches are already done.
+    Front->>API: POST /api/manuscript/research/prepare (topic)
+    API->>DB: research_jobs — one run per topic, stages persisted
+    API->>Sources: search ➔ screen ➔ evidence
+    API->>DB: Prepared corpus into the shared cache (1h)
+    API-->>Front: "Research ready"
+
     User->>Front: 3. Draft Manuscript Section (Streaming)
     Front->>API: POST /api/manuscript/stream (topic, section, mode="auto")
-    API->>Sources: Gather papers & extract evidence (Throttled Semaphore=3)
+    alt Corpus already prepared
+        API->>DB: Read the prepared corpus — no fan-out
+    else Cold topic
+        API->>Sources: Gather papers & extract evidence (Throttled Semaphore=3)
+        API-->>Front: SSE Event: status (search ➔ screen ➔ evidence, live)
+    end
     Note over Sources: Evidence ladder per paper:<br/>arXiv HTML ➔ arXiv LaTeX ➔ Europe PMC JATS<br/>➔ PyMuPDF PDF structure ➔ LLM on title+abstract
     Sources-->>API: Reference mapping & evidence context
+    Note over API: Titles, abstracts, evidence, URLs and the user's own<br/>uploads go into the prompt inside &lt;sources&gt;, with any<br/>forged delimiter defused and a system rule saying the<br/>delimited regions are data, never instructions.
     API-->>Front: SSE Event: sources_list (emit references upfront)
   
     API->>Cascade: Stream completion (Gemini ➔ Groq ➔ Mistral ➔ OpenRouter ➔ OpenAI)
@@ -163,12 +330,19 @@ sequenceDiagram
   
     Cascade-->>API: Generation Complete
     API->>API: Sentence Grounding & Numerical Claim Validation
-    API-->>Front: SSE Event: metadata (citation flags, numerical checks, formatted refs)
+    API->>API: Citation index check — every [N] must name a real reference
+    API-->>Front: SSE Event: metadata (citation flags, invalid citations, numerical checks, formatted refs)
     API-->>Front: SSE Event: done
   
     User->>Front: Edit & Save manuscript
     Front->>API: POST /api/manuscript/save
+    API->>DB: Snapshot the state being replaced into manuscript_versions (1.10)
     API->>DB: Store manuscript draft
+    opt Undo a bad save
+        Front->>API: POST /api/manuscript/restore (version_id)
+        API->>DB: Snapshot current, then write the version back
+        API-->>Front: Restored draft — the restore is itself undoable
+    end
   
     User->>Front: 4. Find Publication Venue & Check Guidelines
     Front->>API: POST /api/venues (send abstract)
@@ -193,11 +367,14 @@ flowchart TD
     K --> C{search_all cache<br/>keyed by canonical form}
     C -->|hit, under 10 min| R[Ranked papers]
     C -->|miss| SF{Single-flight<br/>identical concurrent searches share one run}
-    SF --> E[Embed query once]
-    E --> SC{Semantic cache<br/>cosine vs stored queries}
+    SF --> SH{Shared store<br/>survives restart and reaches every worker}
+    SH -->|hit| R
+    SH -->|miss| E[Embed query once<br/>vector kept forever by canonical query]
+    E --> SC{Semantic cache<br/>cosine vs stored queries<br/>bucket hydrated from the shared store}
     SC -->|>= 0.97| RV[Serve stored ranking<br/>+ matched_query]
     SC -->|>= 0.92| RR[Reuse papers, re-rank<br/>against typed query + matched_query]
-    SC -->|below| F[Fan out to 9 sources in parallel<br/>20s ceiling, slow sources cancelled]
+    SC -->|below| CB{Circuit breaker<br/>skip sources failing right now}
+    CB --> F[Fan out to the healthy sources in parallel<br/>stop once 5 have answered + 3s grace<br/>20s ceiling as the backstop]
     RV --> R
     RR --> R
     F --> D[Deduplicate & merge<br/>DOI / arXiv id / normalized title]
@@ -211,11 +388,28 @@ flowchart TD
     U -->|manuscript, gap| W[Head 15, relevance filter]
 ```
 
+### Cache tiers
+
+Three, and only the first is per-worker:
+
+| Tier | Where | Holds | Lifetime |
+|---|---|---|---|
+| L1 | `TTLCache` / `semantic_cache` in process | Search results, semantic entries, relevance verdicts | Minutes; dies with the worker |
+| L2 | `cache_entries` in Mongo (`core/shared_store.py`) | The same, shared across workers and across deploys | 10 min (search) to 6h (relevance verdicts) |
+| Embeddings | `paper_embeddings` in Mongo | Vectors keyed by DOI → arXiv id → title, and by canonical query | **No expiry** — a paper's embedding does not go stale |
+
+L2 never raises and never blocks for long: on failure every call degrades to a
+miss and the caller does the real work, and consecutive failures trip a breaker
+so a broken store costs one timeout every few minutes rather than one per
+lookup.
+
 ### Source roster
 
-Nine sources fan out in parallel. `SOURCE_NAMES` in `integrations/paper_search.py`
-is the ordering, and per-database yield is reported back on `SearchMeta.sources`
-so a source that timed out is distinguishable from one that returned nothing.
+Nine sources fan out in parallel. `integrations/registry.py` is the single list —
+it is the fan-out order *and* the order per-database yield is reported in, so the
+two cannot drift. Yield comes back on `SearchMeta.sources`, so a source that
+timed out is distinguishable from one that returned nothing and from one that was
+skipped because its circuit is open.
 
 | Source | Key | Notes |
 |---|---|---|
@@ -276,7 +470,45 @@ slightly different candidate pool rather than answers to someone else's
 question.
 
 Entries are bucketed by fan-out parameters, so a `limit=5` search can never be
-served from a `limit=50` entry, and the store is capped and TTL-pruned.
+served from a `limit=50` entry, and the store is capped and TTL-pruned. A bucket
+is hydrated from the shared store on the first miss after a restart and then
+left alone for 60 seconds — the lookup is a similarity scan, so the whole bucket
+has to be resident and a per-search query would cost more than it saves.
+
+### Self-healing sources
+
+`services/api_health.py` answers "is this failing **right now**", which the
+lifetime counters in `api_telemetry` cannot: a source that answered a thousand
+times this morning and has failed every call for ten minutes still reads as 99%
+healthy there. Every tracked call feeds a rolling window; the decision is made
+on the most recent 20 outcomes inside it, so a long history of success does not
+delay noticing an outage.
+
+| | |
+|---|---|
+| Window | 300s, most recent 20 calls judged |
+| Opens at | ≥ 5 calls and ≥ 60% failed |
+| Cooldown | 60s, doubling to a 900s ceiling on each failed probe |
+| Recovery | One half-open probe call; success closes it, failure re-opens it for longer |
+
+An open circuit means the source is skipped for that search and reported as
+`skipped` with the reason, rather than being called and costing the full
+per-source timeout for nothing. `succeed(items=0)` counts as a failure here
+exactly as it does for telemetry (API-6), so a source answering `200` with an
+empty body forever is eventually skipped too.
+
+`core/retry.py` is the one retry policy: retry only what a retry can fix (429,
+5xx, timeouts, connection errors — never a 400/401/404), honour a numeric
+`Retry-After`, otherwise back off with **full** jitter, and stop before the
+caller's own deadline. Fixed sleeps were the previous behaviour, and they put
+every concurrent retry in the same instant.
+
+The fan-out no longer waits on stragglers either: once five sources have
+answered, the rest get a three-second grace period and are then cancelled. The
+20-second ceiling remains as the backstop rather than being what every search
+actually costs — Semantic Scholar's tail latency used to set the wait for
+everyone, and its papers are almost always duplicates the other sources already
+returned.
 
 **Disclosure is mandatory.** Every hit sets `matched_query` on the response and
 the UI renders "Showing results for X — search instead for Y". The escape hatch
@@ -337,14 +569,18 @@ every retry.
 
 | Cache | Key | TTL | Scope |
 |---|---|---|---|
-| `search_all` results | canonical query + fan-out params | 10 min | process |
+| `search_all` results | canonical query + fan-out params | 10 min | process **+ shared** |
 | In-flight searches | same key | request | process |
-| Paper embeddings | blake2b digest of title + abstract | 10 min / 1 min on failure | process |
-| Semantic query results | query embedding, cosine-matched | 10 min | process |
-| Relevance verdicts | canonical topic + normalized title | 10 min | process |
+| Paper embeddings | paper identity: DOI → arXiv id → title | 10 min in process, **never** in the store | process **+ shared** |
+| Query embeddings | canonical query | 10 min in process, **never** in the store | process **+ shared** |
+| Semantic query results | query embedding, cosine-matched | 10 min | process **+ shared** |
+| Relevance verdicts | canonical topic + paper identity | 10 min in process, 6h shared | process **+ shared** |
+| Suggestion history | lowercase query | 7 days | process **+ shared** |
+| Prepared research corpus | canonical topic | 1 hour | process **+ shared** |
 | Classifier failures | same key | 1 min | process |
-| Extracted evidence | normalized title prefix | 10 min | process |
+| Extracted evidence | `core.paper_identity` | 10 min | process |
 | arXiv category feed | category + limit | 15 min | process |
+| Cached user document | user id | 60s, invalidated on role/status/delete | process |
 | Gemini context cache | prompt cache key | 30 min | provider |
 
 Every cache is a `core.ttl_cache.TTLCache`: expiry on read *and* an LRU
@@ -357,16 +593,26 @@ applies it is enforced at the call site and remains authoritative — search
 results are deliberately readable past their 10-minute freshness window so a
 total source outage can fall back to a stale entry rather than return nothing.
 
-All search caches are per-process and in-memory. With more than one worker each
-holds its own copy. `TTLCache` is the seam where a Redis backend goes: the call
-sites already speak only its interface.
+Anything marked **shared** falls through to `core/shared_store.py` on an
+in-process miss, so a redeploy or a second worker no longer starts cold. Mongo
+rather than Redis: the deployment already has one, a TTL index does the
+eviction, and nothing new has to be provisioned. The backend is one file's worth
+of private functions, which is where a Redis implementation would drop in.
 
 ### HTTP connection pooling
 
 Every integration used to construct its own `httpx.AsyncClient` per call, so a
 single search paid one TCP handshake and one TLS negotiation per source. They
 now share one pooled client (`integrations/http_client.py`) with keep-alive,
-closed on app shutdown via the lifespan.
+closed on app shutdown via the lifespan. The LLM providers
+(`ai/llm_provider.py`) and the admin health probes (`services/admin_status.py`)
+are on the same pool — they hit the same handful of hosts on every generation
+and every status refresh, which is exactly the case keep-alive exists for.
+
+A client created on a different event loop is discarded rather than reused: the
+app runs one loop, but a management script calling `asyncio.run`, or
+`uvicorn --reload` between reloads, would otherwise inherit a pool whose sockets
+are already gone.
 
 Per-source settings that used to live on the client — User-Agent, timeout —
 are per-*source*, not per-connection, so `pooled_client(headers=..., timeout=...)`
@@ -374,6 +620,13 @@ applies them as per-request defaults instead. That keeps each source's latency
 budget (PubMed 5s, arXiv 15s) while they all share one pool.
 
 ### Rate limits and guardrails
+
+Every route has a budget. `DEFAULT_RATE_LIMIT` (120/minute) is applied by
+`SlowAPIMiddleware` to anything that has not declared its own `@limiter.limit`,
+so a new endpoint is throttled the moment it is added rather than whenever
+somebody remembers to decorate it. Routes that cost more than a database read —
+LLM calls, source fan-outs, the GitHub corpus walk, the admin probe — declare a
+tighter budget, and slowapi skips the default for those.
 
 `/api/topics` and `/api/literature` trigger the same fan-out and both carry
 `5/minute` — throttling only one let the other keep burning source quota after

@@ -12,7 +12,14 @@ import {
   isAbortError,
 } from '../utils/searchHeuristics';
 import { useSearchRequest } from '../hooks/useSearchRequest';
+import { useApiQuery } from '../hooks/useApiQuery';
+import { invalidate, readCache, writeCache } from '../lib/queryCache';
 import './Dashboard.css';
+
+// Where the last search lives between visits to this page, and for how long.
+const DASH_STATE_KEY = 'dashboard:last-search';
+const DASH_STATE_TTL = 30 * 60_000;
+const SURVEY_LIST_KEY = 'literature:list';
 
 
 
@@ -66,22 +73,19 @@ function AnimatedNumber({ value, duration = 900, prefix = '', suffix = '' }) {
 }
 
 export default function Dashboard() {
-  const { authFetch } = useAuth();
-  const [topic, setTopic] = useState(() => sessionStorage.getItem('dash_topic') || '');
+  const { api } = useAuth();
+  // The last search is remembered in memory, not sessionStorage (1.13).
+  // Abstracts are large: a wide search serialised to ~hundreds of KB, and
+  // sessionStorage's ~5MB per-origin quota throws on the *write*, so the
+  // failure arrived as an unhandled exception inside a useEffect rather than
+  // as a lost cache. This survives navigating away and back within the tab,
+  // which is the only thing the storage was ever buying.
+  const restored = readCache(DASH_STATE_KEY) || {};
+  const [topic, setTopic] = useState(restored.topic || '');
   const [suggestions, setSuggestions] = useState([]);
   const [showSug, setShowSug] = useState(false);
-  const [results, setResults] = useState(() => {
-    try {
-      if (sessionStorage.getItem('dash_cache_ver') !== 'topic-rel-2') return [];
-      return JSON.parse(sessionStorage.getItem('dash_results') || '[]');
-    } catch { return []; }
-  });
-  const [relatedPapers, setRelatedPapers] = useState(() => {
-    try {
-      if (sessionStorage.getItem('dash_cache_ver') !== 'topic-rel-2') return [];
-      return JSON.parse(sessionStorage.getItem('dash_relatedPapers') || '[]');
-    } catch { return []; }
-  });
+  const [results, setResults] = useState(restored.results || []);
+  const [relatedPapers, setRelatedPapers] = useState(restored.relatedPapers || []);
   const [visibleRelatedCount, setVisibleRelatedCount] = useState(RELATED_PAGE_SIZE);
   const [loading, setLoading] = useState(false);
   const [papersLoading, setPapersLoading] = useState(false);
@@ -89,35 +93,13 @@ export default function Dashboard() {
   const [categoryPapers, setCategoryPapers] = useState([]);
   const [catLoading, setCatLoading] = useState(false);
   const [error, setError] = useState('');
-  const [hasSearched, setHasSearched] = useState(() => {
-    if (sessionStorage.getItem('dash_cache_ver') !== 'topic-rel-2') return false;
-    return sessionStorage.getItem('dash_hasSearched') === 'true';
-  });
+  const [hasSearched, setHasSearched] = useState(Boolean(restored.hasSearched));
   const [recentSurveys, setRecentSurveys] = useState([]);
   const [loadingRecent, setLoadingRecent] = useState(false);
 
   useEffect(() => {
-    sessionStorage.setItem('dash_cache_ver', 'topic-rel-2');
-  }, []);
-
-  useEffect(() => {
-    const id = setTimeout(() => {
-      sessionStorage.setItem('dash_topic', topic);
-    }, 300);
-    return () => clearTimeout(id);
-  }, [topic]);
-
-  useEffect(() => {
-    sessionStorage.setItem('dash_results', JSON.stringify(results));
-  }, [results]);
-
-  useEffect(() => {
-    sessionStorage.setItem('dash_relatedPapers', JSON.stringify(relatedPapers));
-  }, [relatedPapers]);
-
-  useEffect(() => {
-    sessionStorage.setItem('dash_hasSearched', String(hasSearched));
-  }, [hasSearched]);
+    writeCache(DASH_STATE_KEY, { topic, results, relatedPapers, hasSearched }, DASH_STATE_TTL);
+  }, [topic, results, relatedPapers, hasSearched]);
 
   useEffect(() => {
     setVisibleRelatedCount(RELATED_PAGE_SIZE);
@@ -145,8 +127,8 @@ export default function Dashboard() {
     debounce.current = setTimeout(() => {
       void runSuggest(val.trim().toLowerCase(), async ({ signal, isCurrent }) => {
         try {
-          const res = await authFetch(
-            `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/suggest?q=${encodeURIComponent(val.trim())}`,
+          const res = await api.raw(
+            `/api/suggest?q=${encodeURIComponent(val.trim())}`,
             { signal }
           );
           if (!res.ok || !isCurrent()) return;
@@ -162,7 +144,7 @@ export default function Dashboard() {
         }
       });
     }, 180);
-  }, [authFetch, runSuggest]);
+  }, [api, runSuggest]);
 
   // Explicit user stop. Owns both the abort and the resulting UI state, so the
   // aborted request's own catch/finally can stay silent (see discover()).
@@ -186,10 +168,7 @@ export default function Dashboard() {
     setHasSearched(false);
     setActiveCategory(null);
     setCategoryPapers([]);
-    sessionStorage.removeItem('dash_topic');
-    sessionStorage.removeItem('dash_results');
-    sessionStorage.removeItem('dash_relatedPapers');
-    sessionStorage.removeItem('dash_hasSearched');
+    invalidate(DASH_STATE_KEY);
   }, [stopDiscover, stopCategoryFeed]);
 
   const discover = async (q = topic) => {
@@ -213,10 +192,10 @@ export default function Dashboard() {
       setHasSearched(true);
       try {
         const [topicRes, paperRes] = await Promise.all([
-          authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/topics?intent=${encodeURIComponent(check.query)}`, {
+          api.raw(`/api/topics?intent=${encodeURIComponent(check.query)}`, {
             signal,
           }),
-          authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature?query=${encodeURIComponent(check.query)}&limit=6`, {
+          api.raw(`/api/literature?query=${encodeURIComponent(check.query)}&limit=6`, {
             signal,
           }),
         ]);
@@ -287,8 +266,8 @@ export default function Dashboard() {
     // its feed is loading, but switching categories cancels the previous one.
     await runCategoryFeed(cat.arxiv, async ({ signal, isCurrent }) => {
       try {
-        const res = await authFetch(
-          `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/arxiv/feed?category=${cat.arxiv}&limit=9`,
+        const res = await api.raw(
+          `/api/arxiv/feed?category=${cat.arxiv}&limit=9`,
           { signal }
         );
         const data = await res.json();
@@ -309,30 +288,29 @@ export default function Dashboard() {
     return () => document.removeEventListener('mousedown', h);
   }, []);
 
+  // Shared with the Literature Survey page: both used to fetch this list on
+  // every mount, so opening one after the other was two round trips for the
+  // same rows.
+  const surveyQuery = useApiQuery(
+    SURVEY_LIST_KEY,
+    () => api.get('/api/literature/list').then((d) => d.data || []),
+  );
+
   useEffect(() => {
-    const fetchRecentSurveys = async () => {
-      setLoadingRecent(true);
-      try {
-        const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature/list`);
-        if (res.ok) {
-          const data = await res.json();
-          setRecentSurveys((data.data || []).slice(0, 3));
-        }
-      } catch (e) {}
-      setLoadingRecent(false);
-    };
-    fetchRecentSurveys();
-  }, [authFetch]);
+    setRecentSurveys((surveyQuery.data || []).slice(0, 3));
+    setLoadingRecent(surveyQuery.loading);
+  }, [surveyQuery.data, surveyQuery.loading]);
 
   const deleteRecentSurvey = async (query, e) => {
     e.stopPropagation();
     if (!window.confirm(`Are you sure you want to delete the survey "${query}"?`)) return;
     try {
-      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/literature/delete/${encodeURIComponent(query)}`, {
-        method: 'DELETE',
-      });
-      if (res.ok) setRecentSurveys(prev => prev.filter(s => s.query !== query));
-    } catch (err) {}
+      await api.del(`/api/literature/delete/${encodeURIComponent(query)}`);
+      setRecentSurveys((prev) => prev.filter((s) => s.query !== query));
+      invalidate(SURVEY_LIST_KEY);
+    } catch (err) {
+      // The row stays; the list refreshes on the next visit.
+    }
   };
 
   const showWelcome = !loading && results.length === 0 && !error && !activeCategory;

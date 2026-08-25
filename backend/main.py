@@ -6,6 +6,7 @@ reads settings at import time.
 """
 
 from core.config import (  # noqa: F401 — loads .env + logging on import
+    MAX_REQUEST_BODY_BYTES,
     SECURITY_HEADERS,
     get_cors_origins,
 )
@@ -19,9 +20,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
-from core.auth import seed_admin
+from core.auth import backfill_email_verified, seed_admin
 from core.limiter import limiter
+from core.request_limits import BodySizeLimitMiddleware
 from core.database import ensure_indexes, ping_db
 from routers import admin, auth, discovery, manuscript, pdf
 
@@ -33,6 +36,9 @@ async def lifespan(app: FastAPI):
     await ping_db()
     await ensure_indexes()
     await seed_admin()
+    # Login now requires a verified address; accounts created before that rule
+    # existed carry no such field and would all be locked out (see 0.4).
+    await backfill_email_verified()
     try:
         from services.admin_status import _ensure_disabled_loaded
         await _ensure_disabled_loaded()
@@ -45,16 +51,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="AI-Powered Research Paper Publishing Agent", lifespan=lifespan, debug=False)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=get_cors_origins(),
-    allow_credentials=False,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept"],
-)
-
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+# ─── Middleware ────────────────────────────────────────────────────────────────
+# Starlette builds the stack so that the LAST middleware added is the OUTERMOST.
+# Ordering matters here: CORS has to wrap the two rejecting layers below, or a
+# 429 or 413 reaches the browser without CORS headers and the SPA reports it as
+# an unexplained network failure instead of showing the real reason.
+#
+#   CORS  →  body-size cap  →  rate limit  →  security headers  →  routes
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
@@ -62,6 +65,25 @@ async def add_security_headers(request: Request, call_next):
     for name, value in SECURITY_HEADERS.items():
         response.headers[name] = value
     return response
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+# Applies `DEFAULT_RATE_LIMIT` to every route that has not declared its own
+# `@limiter.limit`. slowapi skips routes it sees as explicitly marked, so the
+# per-route budgets still win where they exist (0.6).
+app.add_middleware(SlowAPIMiddleware)
+
+# Refuse an oversized request before multipart parsing or JSON buffering
+# allocates anything for it (0.9).
+app.add_middleware(BodySizeLimitMiddleware, max_body_bytes=MAX_REQUEST_BODY_BYTES)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=get_cors_origins(),
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
+)
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):

@@ -6,7 +6,7 @@ import { useSearchRequest } from '../hooks/useSearchRequest';
 import { isAbortError } from '../utils/searchHeuristics';
 
 export default function SourcesPanel({ topic }) {
-  const { authFetch } = useAuth();
+  const { api } = useAuth();
   const [sources, setSources] = useState([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -30,8 +30,8 @@ export default function SourcesPanel({ topic }) {
       setLoading(true);
       setError('');
       try {
-        const res = await authFetch(
-          `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/sources?topic=${encodeURIComponent(trimmed)}`,
+        const res = await api.raw(
+          `/api/sources?topic=${encodeURIComponent(trimmed)}`,
           { signal }
         );
         if (!isCurrent()) return;
@@ -69,7 +69,7 @@ export default function SourcesPanel({ topic }) {
     formData.append('topic', topic.trim());
 
     try {
-      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/sources/upload`, {
+      const res = await api.raw(`/api/sources/upload`, {
         method: 'POST',
         body: formData,
       });
@@ -100,7 +100,7 @@ export default function SourcesPanel({ topic }) {
     formData.append('topic', topic.trim());
 
     try {
-      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/sources/upload`, {
+      const res = await api.raw(`/api/sources/upload`, {
         method: 'POST',
         body: formData,
       });
@@ -119,7 +119,7 @@ export default function SourcesPanel({ topic }) {
 
   const handleDelete = async (sourceId) => {
     try {
-      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/sources/${sourceId}`, {
+      const res = await api.raw(`/api/sources/${sourceId}`, {
         method: 'DELETE',
       });
       if (!res.ok) throw new Error('Failed to delete source');

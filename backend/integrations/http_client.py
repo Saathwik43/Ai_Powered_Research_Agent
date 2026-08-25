@@ -46,7 +46,18 @@ _LIMITS = httpx.Limits(
 _DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=20.0, write=10.0, pool=10.0)
 
 _client: httpx.AsyncClient | None = None
+# The loop the current client's connections belong to. An httpx client holds
+# transports bound to the loop that created them, so reusing one across loops
+# raises "Event loop is closed" on the first request rather than reconnecting.
+_client_loop = None
 _lock = asyncio.Lock()
+
+
+def _current_loop():
+    try:
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        return None
 
 
 def get_client() -> httpx.AsyncClient:
@@ -56,15 +67,25 @@ def get_client() -> httpx.AsyncClient:
     Safe to call from any coroutine. The double-check is not strictly required
     under a single event loop — there is no await between the check and the
     assignment — but it keeps the contract obvious.
+
+    A client created on a *different* loop is discarded rather than returned:
+    the app runs one loop, but anything that spins up its own (a management
+    script calling ``asyncio.run``, ``uvicorn --reload`` between reloads, the
+    test suite) would otherwise inherit a pool whose sockets are already gone.
     """
-    global _client
-    if _client is None or _client.is_closed:
+    global _client, _client_loop
+    loop = _current_loop()
+    stale_loop = loop is not None and _client_loop is not None and _client_loop is not loop
+    if _client is None or _client.is_closed or stale_loop:
+        if stale_loop:
+            logger.debug("Discarding HTTP pool from a previous event loop.")
         _client = httpx.AsyncClient(
             limits=_LIMITS,
             timeout=_DEFAULT_TIMEOUT,
             follow_redirects=True,
             headers={"User-Agent": "ResearchAgent/1.0"},
         )
+        _client_loop = loop
     return _client
 
 
@@ -117,9 +138,10 @@ async def pooled_client(headers: dict | None = None, timeout=None):
 
 async def aclose() -> None:
     """Close the pool. Called from the app lifespan on shutdown."""
-    global _client
+    global _client, _client_loop
     async with _lock:
-        if _client is not None and not _client.is_closed:
+        if _client is not None and not getattr(_client, "is_closed", True):
             await _client.aclose()
             logger.info("Shared HTTP connection pool closed.")
         _client = None
+        _client_loop = None

@@ -23,6 +23,9 @@ const ForgotPassword = lazy(() =>
 const ResetPassword = lazy(() =>
   import('./pages/AuthPages').then((m) => ({ default: m.ResetPassword }))
 );
+const VerifyEmail = lazy(() =>
+  import('./pages/AuthPages').then((m) => ({ default: m.VerifyEmail }))
+);
 
 const AppLoader = () => (
   <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
@@ -125,6 +128,9 @@ function AppRoutes() {
           <Route path="/signup" element={<PublicRoute><Signup /></PublicRoute>} />
           <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
           <Route path="/reset-password" element={<PublicRoute><ResetPassword /></PublicRoute>} />
+          {/* Not wrapped in PublicRoute: the page signs the user in itself, and
+              a redirect-if-authenticated guard would bounce them off it. */}
+          <Route path="/verify-email" element={<VerifyEmail />} />
           <Route path="/*" element={<ProtectedLayout />} />
         </Routes>
       </Suspense>

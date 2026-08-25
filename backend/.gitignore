@@ -2,9 +2,15 @@
 __pycache__/
 *.pyc
 
-# Scratch / test files
-test_*.py
-scratch_*.py
+# Scratch files dropped in the backend root while debugging.
+#
+# Anchored with a leading slash. Unanchored, `test_*.py` matches at every depth,
+# so the entire `tests/` suite was ignored — the files already committed showed
+# up as tracked, and every *new* test was invisible to `git status` and would
+# have been left out of its own commit.
+/test_*.py
+/scratch_*.py
+!tests/
 *.xml
 *.pdf
 *.txt

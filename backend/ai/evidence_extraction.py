@@ -3,7 +3,6 @@ from integrations.europepmc import fetch_full_text, get_pmcid
 import anyio.to_thread
 import json
 import logging
-import re
 import time
 from ai.llm_provider import generate_completion
 from ai.pdf_extraction import (
@@ -15,6 +14,7 @@ from ai.pdf_extraction import (
     _empty_evidence,
 )
 from ai.pdf_structure import extract_structure
+from core.paper_identity import identity_keys, paper_identity
 
 logger = logging.getLogger(__name__)
 
@@ -35,23 +35,43 @@ def empty_evidence() -> dict:
 
 
 # In-memory evidence cache.
-# Key: normalised_title_prefix  ->  Value: (evidence_dict, timestamp, source)
+# Key: paper identity (DOI > arXiv id > full title > content digest)
+#   ->  Value: (evidence_dict, timestamp, source)
 # TTL: 600s (10 minutes)
 _evidence_cache: dict[str, tuple[dict, float, str]] = {}
 _CACHE_TTL = 600
 
 
-def _cache_key(paper: dict) -> str:
-    """Stable cache key from first 60 chars of normalised title."""
-    title = re.sub(r"[^a-z0-9 ]", "", (paper.get("title", "") or "").lower()).strip()[:60]
-    return title
+def _cache_key(paper: dict) -> str | None:
+    """Identity to cache this paper's extracted evidence under, or None.
 
+    The key used to be the first 60 characters of the normalised title, which
+    had two failure modes. Two papers whose titles agreed for 60 characters
+    ("...Segmentation, Part I" / "Part II") shared one evidence record. Worse,
+    an *untitled* paper produced the empty string — so every user-uploaded
+    source with no title collided on one cache entry, and the notes extracted
+    from one person's private document were served to the next person whose
+    upload also had no title.
 
+    `paper_identity` is the shared definition used by search dedupe and the
+    relevance cache, and it falls back to a content digest rather than to "".
+    A paper with no identifier *and* no content is not cacheable at all, so it
+    gets None and skips the cache entirely.
+    """
+    if identity_keys(paper):
+        return paper_identity(paper)
+    # No DOI, no arXiv id, no title. paper_identity would digest the abstract;
+    # with no abstract either there is nothing distinguishing left to key on.
+    if (paper.get("abstract") or "").strip():
+        return paper_identity(paper)
+    return None
 
 
 
 def _get_cached_evidence(paper: dict) -> tuple[dict, str] | None:
     cache_key = _cache_key(paper)
+    if cache_key is None:
+        return None
     cached = _evidence_cache.get(cache_key)
     if not cached:
         return None
@@ -65,7 +85,13 @@ def _get_cached_evidence(paper: dict) -> tuple[dict, str] | None:
 
 
 def _store_cached_evidence(paper: dict, evidence: dict, source: str) -> dict:
-    _evidence_cache[_cache_key(paper)] = (evidence.copy(), time.time(), source)
+    cache_key = _cache_key(paper)
+    if cache_key is None:
+        # Nothing identifies this paper, so any key we invent would be shared
+        # with the next unidentifiable one. Re-extracting costs a call; getting
+        # it wrong hands one user's notes to another.
+        return evidence
+    _evidence_cache[cache_key] = (evidence.copy(), time.time(), source)
     return evidence
 
 

@@ -94,7 +94,7 @@ function GuidelinesModal({ g, onClose }) {
 }
 
 export default function VenueRecommendations() {
-  const { authFetch } = useAuth();
+  const { api } = useAuth();
   const [domain, setDomain]     = useState('');
   const [abstract, setAbstract] = useState('');
   const [venues, setVenues]     = useState([]);
@@ -108,7 +108,7 @@ export default function VenueRecommendations() {
     if (!domain.trim()) return;
     setLoading(true); setVenues([]); setError(''); setHasSearched(true);
     try {
-      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/venues`, { method: 'POST', body: JSON.stringify({ abstract, domain }) });
+      const res = await api.raw(`/api/venues`, { method: 'POST', body: JSON.stringify({ abstract, domain }) });
       if (res.status === 429 || res.status === 503) {
         if (res.status === 503) {
           try {
@@ -147,7 +147,7 @@ export default function VenueRecommendations() {
     const key = venue.id || venue.name;
     setGuideLoading(key);
     try {
-      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/guidelines`, { method: 'POST', body: JSON.stringify({ manuscript: { abstract, domain }, venue: { name: venue.name, type: venue.type, scope: venue.scope } }) });
+      const res = await api.raw(`/api/guidelines`, { method: 'POST', body: JSON.stringify({ manuscript: { abstract, domain }, venue: { name: venue.name, type: venue.type, scope: venue.scope } }) });
       const data = await res.json();
       setGuidelines(data.data);
     } catch (e) { console.error(e); }

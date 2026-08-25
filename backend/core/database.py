@@ -78,6 +78,8 @@ async def _ensure_index(collection, keys, *, unique: bool = False, expireAfterSe
 async def ensure_indexes():
     # Manuscripts: (user_id, topic) unique so save cannot race into duplicate drafts.
     await _ensure_index(db["manuscripts"], [("user_id", 1), ("topic", 1)], unique=True)
+    # Version history is always read newest-first for one draft (1.10).
+    await _ensure_index(db["manuscript_versions"], [("user_id", 1), ("manuscript_id", 1), ("_id", -1)])
     await _ensure_index(db["usage_logs"], [("user_id", 1), ("date", 1)])
     await _ensure_index(db["literature"], [("user_id", 1), ("query", 1)])
     await _ensure_index(db["users"], "email", unique=True)
@@ -87,4 +89,15 @@ async def ensure_indexes():
     await _ensure_index(db["sources"], [("user_id", 1), ("topic", 1)])
     await _ensure_index(db["revoked_tokens"], "jti", unique=True)
     await _ensure_index(db["revoked_tokens"], "expires_at", expireAfterSeconds=0)
+    # Refresh-token rotation (1.14). Reuse detection reads by _id (the jti);
+    # revoking a leaked session reads by family. TTL clears abandoned families.
+    await _ensure_index(db["refresh_tokens"], [("family", 1), ("used", 1)])
+    await _ensure_index(db["refresh_tokens"], "expires_at", expireAfterSeconds=0)
+    # Shared cache tier (core/shared_store.py). `exp` is TTL-indexed so Mongo
+    # does the eviction; (ns, tag) serves the semantic cache's bucket warm-up.
+    # Background research jobs (1.5). Keyed by canonical topic (the _id), so the
+    # only extra index needed is the TTL that clears finished runs.
+    await _ensure_index(db["research_jobs"], "expires_at", expireAfterSeconds=0)
+    await _ensure_index(db["cache_entries"], "exp", expireAfterSeconds=0)
+    await _ensure_index(db["cache_entries"], [("ns", 1), ("tag", 1)])
     logger.info("Database indexes ensured.")

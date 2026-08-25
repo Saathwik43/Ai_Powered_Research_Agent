@@ -22,9 +22,12 @@ from core.paper_identity import (
     normalize_doi,
     normalize_title,
     paper_doi,
+    paper_identity,
 )
+from core import shared_store
 from core.ttl_cache import TTLCache
-from services import semantic_cache
+from integrations import registry
+from services import api_health, semantic_cache
 
 logger = logging.getLogger(__name__)
 # Bounded so a long-lived process cannot accumulate results and 3072-float
@@ -45,18 +48,10 @@ SHARED_LIMIT_PER_SOURCE = 20
 RERANK_WINDOW = 30
 
 # Fan-out order. Outcomes are reported in this order so a PRISMA-style
-# "which databases were searched" line is stable across cache hits.
-SOURCE_NAMES = (
-    "SemanticScholar",
-    "OpenAlex",
-    "Crossref",
-    "PubMed",
-    "arXiv",
-    "GitHub",
-    "Springer",
-    "EuropePMC",
-    "DOAJ",
-)
+# "which databases were searched" line is stable across cache hits. Derived from
+# the registry rather than repeated here — the two drifting apart is how a
+# source ends up searched but never reported (or the reverse).
+SOURCE_NAMES = registry.source_names()
 
 def _current_year() -> int:
     """Read the year per call — a module constant goes stale on New Year in a
@@ -84,12 +79,19 @@ async def _embed_papers_cached(papers: list) -> list:
     """
     Embeddings for *papers*, aligned by position, with None where unavailable.
 
-    Cache hits cost nothing; every miss goes into a single batched request
-    instead of one request per paper. TTL matches the previous per-paper
-    behaviour: 600s for a real embedding, 60s for a failure so a transient
-    outage is retried soon without hammering the API.
+    Three tiers. The in-process cache is keyed by a digest of the exact text
+    that would be embedded, so it can only ever return the right vector. Behind
+    it sits the durable store (1.3), keyed by **paper identity** — DOI, else
+    arXiv id, else the normalised title — so the same paper embeds once, ever,
+    across restarts and workers, even when a different source supplied a
+    slightly different abstract. Only what neither tier has reaches the API,
+    batched into as few requests as possible.
+
+    A failure is cached briefly (60s) in memory and never persisted: a transient
+    outage must not write "this paper has no embedding" into a store that has no
+    expiry.
     """
-    from ai.llm_provider import get_embeddings_batch
+    from ai.llm_provider import get_embeddings_batch, EMBEDDING_MODEL
 
     now = time.time()
     # Content digest, not hash(): str.__hash__ is salted per process, so the
@@ -107,13 +109,51 @@ async def _embed_papers_cached(papers: list) -> list:
             misses.append(i)
 
     if misses:
+        misses = await _fill_from_embedding_store(
+            papers, keys, embeddings, misses, EMBEDDING_MODEL, now
+        )
+
+    if misses:
         texts = [_paper_embedding_text(papers[i]) for i in misses]
         fetched = await get_embeddings_batch(texts, task_type="RETRIEVAL_DOCUMENT")
+        durable: dict = {}
         for i, emb in zip(misses, fetched):
             embeddings[i] = emb
             _embedding_cache[keys[i]] = (emb, now + (60 if emb is None else 600))
+            if emb:
+                durable[shared_store.embedding_key(
+                    paper_identity(papers[i]), EMBEDDING_MODEL, "RETRIEVAL_DOCUMENT"
+                )] = emb
+        if durable:
+            await shared_store.put_embeddings(durable)
 
     return embeddings
+
+
+async def _fill_from_embedding_store(
+    papers: list, keys: list, embeddings: list, misses: list[int], model: str, now: float
+) -> list[int]:
+    """Serve what the durable store already knows; return the still-missing positions."""
+    if not shared_store.enabled():
+        return misses
+
+    identity_by_position = {
+        i: shared_store.embedding_key(paper_identity(papers[i]), model, "RETRIEVAL_DOCUMENT")
+        for i in misses
+    }
+    stored = await shared_store.get_embeddings(set(identity_by_position.values()))
+    if not stored:
+        return misses
+
+    still_missing = []
+    for i in misses:
+        vector = stored.get(identity_by_position[i])
+        if vector:
+            embeddings[i] = vector
+            _embedding_cache[keys[i]] = (vector, now + 600)
+        else:
+            still_missing.append(i)
+    return still_missing
 
 
 # Identity lives in core/paper_identity.py, shared with ai/relevance.py so the
@@ -477,14 +517,24 @@ async def _resolve_search(
     bucket_key: str,
     allow_semantic_cache: bool,
 ) -> tuple[list, SearchMeta]:
-    """Semantic-cache lookup, then the real fan-out. Runs under single-flight."""
+    """Durable cache, semantic cache, then the real fan-out. Under single-flight."""
+    # The durable tier before the embedding call, not after: on a restart the
+    # results are already there, and paying for a query embedding just to
+    # discover that would be the wrong order.
+    shared = await _shared_exact_lookup(cache_key)
+    if shared is not None:
+        papers, sources = shared
+        _cache[cache_key] = (papers, time.time(), sources)
+        logger.info(f"Returning shared-cache literature results for {query}")
+        return papers, SearchMeta(cache="exact", sources=sources)
+
     # The query embedding is needed by the rerank step anyway, so fetching it
     # here costs nothing on a true miss — it is handed to _execute_search
     # rather than fetched twice.
     query_embedding = await _query_embedding(query) if semantic_rerank else None
 
     if allow_semantic_cache and query_embedding:
-        hit = semantic_cache.lookup(bucket_key, cache_key, query_embedding)
+        hit = await semantic_cache.lookup_shared(bucket_key, cache_key, query_embedding)
         if hit is not None:
             papers = hit.papers
             if hit.needs_rerank:
@@ -509,14 +559,80 @@ async def _resolve_search(
     return papers, SearchMeta(cache="miss", sources=sources)
 
 
+# The durable copy of a fan-out. Same 600s freshness window the in-memory tier
+# enforces, so "restarted" and "did not restart" answer identically.
+SHARED_SEARCH_TTL = 600
+
+
+async def _shared_exact_lookup(cache_key: str) -> tuple[list, tuple[SourceOutcome, ...]] | None:
+    """The stored fan-out for *cache_key* from the durable tier, or None."""
+    payload = await shared_store.get(shared_store.NS_SEARCH, cache_key)
+    if not isinstance(payload, dict):
+        return None
+    papers = payload.get("papers")
+    if not isinstance(papers, list) or not papers:
+        return None
+    return papers, _outcomes_from_dicts(payload.get("sources"))
+
+
+async def _shared_exact_store(cache_key: str, papers: list, sources: tuple) -> None:
+    if not papers:
+        return
+    await shared_store.set(
+        shared_store.NS_SEARCH,
+        cache_key,
+        {"papers": papers, "sources": [s.as_dict() for s in sources]},
+        SHARED_SEARCH_TTL,
+    )
+
+
+def _outcomes_from_dicts(raw) -> tuple[SourceOutcome, ...]:
+    """Rebuild SourceOutcome records from their stored dict form, ignoring any
+    field a future version added that this one does not know about."""
+    if not isinstance(raw, list):
+        return ()
+    fields = {"name", "status", "count", "ms", "error"}
+    out = []
+    for item in raw:
+        if isinstance(item, dict) and item.get("name"):
+            out.append(SourceOutcome(**{k: v for k, v in item.items() if k in fields}))
+    return tuple(out)
+
+
 async def _query_embedding(query: str) -> list | None:
-    """Embedding for *query*, or None when embeddings are unavailable."""
+    """Embedding for *query*, or None when embeddings are unavailable.
+
+    Persisted by canonical query key (1.3). Query embeddings are the ones a
+    restart hurts most: the semantic cache cannot answer a single search until
+    the typed query has been embedded again, so a cold worker pays for an
+    embedding before it can even discover it already has the results.
+    """
+    from ai.llm_provider import EMBEDDING_MODEL
+
+    store_key = shared_store.embedding_key(
+        f"query:{canonical_key(query)}", EMBEDDING_MODEL, "RETRIEVAL_QUERY"
+    )
+    cached = _embedding_cache.get(store_key)
+    if cached and time.time() < cached[1]:
+        return cached[0]
+
+    stored = await shared_store.get_embeddings([store_key])
+    vector = stored.get(store_key)
+    if vector:
+        _embedding_cache[store_key] = (vector, time.time() + 600)
+        return vector
+
     try:
         from ai.llm_provider import get_embedding
-        return await get_embedding(query, task_type="RETRIEVAL_QUERY")
+        vector = await get_embedding(query, task_type="RETRIEVAL_QUERY")
     except Exception as e:
         logger.warning(f"Query embedding failed, semantic cache disabled for this search: {e}")
         return None
+
+    if vector:
+        _embedding_cache[store_key] = (vector, time.time() + 600)
+        await shared_store.put_embeddings({store_key: vector})
+    return vector
 
 
 async def _rank_and_rerank(query: str, papers: list, query_embedding: list | None) -> list:
@@ -556,6 +672,61 @@ async def _rank_and_rerank(query: str, papers: list, query_embedding: list | Non
     return papers
 
 
+# How the fan-out stops waiting. Once this many sources have answered, the rest
+# get a short grace period and are then cancelled — the aggregate ceiling stays
+# as the backstop, but it is no longer what every search actually costs.
+#
+# The case this fixes: Semantic Scholar's tail latency. Eight sources answer in
+# two seconds, one takes nineteen, and every user waits for the nineteen because
+# the only stopping condition was the 20s ceiling. Its papers are almost always
+# duplicates of what the other eight already returned (dedupe merges them), so
+# the wait bought a handful of merged fields at ten times the latency.
+HEDGE_QUORUM = 5
+HEDGE_GRACE_SECONDS = 3.0
+
+
+async def _wait_with_grace(tasks: set, ceiling: float) -> tuple[set, set]:
+    """Wait for *tasks*, giving up on stragglers once a quorum has answered.
+
+    Returns ``(done, pending)`` exactly as ``asyncio.wait`` does, so the caller's
+    timeout/harvest handling is unchanged.
+    """
+    if not tasks:
+        return set(), set()
+
+    quorum = min(HEDGE_QUORUM, len(tasks))
+    deadline = time.monotonic() + ceiling
+    done: set = set()
+    pending: set = set(tasks)
+
+    while pending:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        # Before the quorum, wait out the whole budget. After it, the grace
+        # period is the real deadline.
+        slice_timeout = remaining if len(done) < quorum else min(remaining, HEDGE_GRACE_SECONDS)
+        finished, pending = await asyncio.wait(
+            pending, timeout=slice_timeout, return_when=asyncio.FIRST_COMPLETED
+        )
+        done |= finished
+        if not finished:
+            # The slice expired with nothing new — either the ceiling or the
+            # grace period, and both mean stop.
+            break
+        if len(done) >= quorum and pending:
+            # Quorum reached on this pass: one more short window for anything
+            # about to land, then the caller cancels the rest.
+            finished, pending = await asyncio.wait(
+                pending,
+                timeout=min(max(0.0, deadline - time.monotonic()), HEDGE_GRACE_SECONDS),
+            )
+            done |= finished
+            break
+
+    return done, pending
+
+
 async def _execute_search(
     query: str,
     limit_per_source: int,
@@ -576,41 +747,40 @@ async def _execute_search(
 
     skipped: list[str] = []
 
-    def _task(name, coro):
-        if name in exclude_sources:
-            # The coroutine was already constructed by the call below, so close it
-            # explicitly instead of letting it leak as a "never awaited" warning.
-            coro.close()
-            skipped.append(name)
-            return None
-        return (name, asyncio.create_task(coro, name=name))
-
-    named = [t for t in [
-        _task("SemanticScholar", s2_search(query, limit=limit_per_source)),
-        _task("OpenAlex",        openalex_search(query, limit=limit_per_source)),
-        _task("Crossref",        crossref_search(query, limit=limit_per_source)),
-        _task("PubMed",          pubmed_search(query, limit=limit_per_source)),
-        _task("arXiv",           arxiv_search(query, limit=limit_per_source)),
-        _task("GitHub",          asyncio.to_thread(search_github_knowledge, query)),
-        _task("Springer",        springer_search(query, limit=limit_per_source)),
-        # BASE and CORE were removed from the fan-out rather than left to time
-        # out: BASE answers "Access denied for IP address" (it allow-lists
-        # registered egress IPs, which a PaaS dyno does not have), and CORE's
-        # own index returns HTTP 500 "not enough resources were available to
-        # cover 100% of the index". Both cost the full per-source timeout and
-        # contributed zero papers.
-        _task("EuropePMC",       europepmc_search(query, limit=limit_per_source)),
-        _task("DOAJ",            doaj_search(query, limit=limit_per_source)),
-    ] if t is not None]
+    # Sources come from `integrations.registry` — one list, which is also the
+    # order per-database yield is reported in. The callable is resolved through
+    # this module's namespace, so patching e.g. `paper_search.arxiv_search`
+    # still works.
+    circuit_open: dict[str, str] = {}
+    named: list[tuple[str, asyncio.Task]] = []
+    for source in registry.all_sources():
+        if source.name in exclude_sources:
+            skipped.append(source.name)
+            continue
+        # A source that has been failing for the last few minutes costs this
+        # search its whole per-source timeout and returns nothing. Skip it until
+        # the breaker lets a probe through.
+        reason = api_health.blocked_reason(source.name)
+        if reason is not None and not api_health.allow(source.name):
+            circuit_open[source.name] = reason
+            continue
+        named.append((source.name, asyncio.create_task(
+            source.call(query, limit_per_source), name=source.name
+        )))
 
     task_to_name = {task: name for name, task in named}
     all_tasks = {task for _, task in named}
     by_name: dict[str, SourceOutcome] = {
         name: SourceOutcome(name=name, status="skipped") for name in skipped
     }
+    for name, reason in circuit_open.items():
+        by_name[name] = SourceOutcome(name=name, status="skipped", error=reason)
+    if circuit_open:
+        logger.info("Skipping %d source(s) with an open circuit: %s",
+                    len(circuit_open), sorted(circuit_open))
 
     # Bound aggregate source latency while still returning fast partial results.
-    done, pending = await asyncio.wait(all_tasks, timeout=source_timeout) if all_tasks else (set(), set())
+    done, pending = await _wait_with_grace(all_tasks, source_timeout)
 
     # Cancel only the stragglers — tasks that already finished are untouched.
     if pending:
@@ -736,7 +906,10 @@ async def _execute_search(
         logging.getLogger(__name__).warning(f"Unpaywall enrichment failed (non-fatal): {e}")
 
     _cache[cache_key] = (unique, now, sources)
+    await _shared_exact_store(cache_key, unique, sources)
     # Remember the meaning of this query too, so a paraphrase can reuse it.
     if query_embedding:
-        semantic_cache.store(bucket_key, cache_key, query_embedding, query, unique, sources=sources)
+        await semantic_cache.store_shared(
+            bucket_key, cache_key, query_embedding, query, unique, sources=sources
+        )
     return unique, sources

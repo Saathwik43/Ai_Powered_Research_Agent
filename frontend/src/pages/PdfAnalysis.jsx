@@ -19,6 +19,7 @@ import {
   parseCodeLanguage,
   codeChildrenToText,
 } from '../utils/mermaidChart';
+import { normalizeLatexDelimiters, KATEX_REHYPE_OPTIONS } from '../utils/latexMath';
 import 'katex/dist/katex.min.css';
 import './PdfAnalysis.css';
 import { Document, Page, pdfjs } from 'react-pdf';
@@ -28,7 +29,7 @@ import 'react-pdf/dist/Page/TextLayer.css';
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 const REMARK_PLUGINS = [remarkGfm, remarkMath];
-const REHYPE_PLUGINS = [[rehypeKatex, { strict: false, throwOnError: false, errorColor: 'inherit' }]];
+const REHYPE_PLUGINS = [[rehypeKatex, KATEX_REHYPE_OPTIONS]];
 
 // `kind: 'gaps'` runs the backend's structured gap-analysis branch, which
 // returns { type: 'structured', data } and renders into Findings. Everything
@@ -50,6 +51,27 @@ const MODES = [
   { id: 'ask', label: 'Ask', Icon: MessageSquare },
   { id: 'findings', label: 'Findings', Icon: Layers },
 ];
+
+function titleCaseSection(key) {
+  return String(key)
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Backend sections are `{name: body}` dicts; headings/toc may still be arrays. */
+function headingsFromStructure(structure) {
+  if (!structure) return [];
+  const sections = structure.sections;
+  if (sections && typeof sections === 'object' && !Array.isArray(sections)) {
+    return Object.keys(sections)
+      .filter((key) => key && key !== 'full_text')
+      .map((key) => ({ title: titleCaseSection(key) }));
+  }
+  if (Array.isArray(sections)) return sections;
+  if (Array.isArray(structure.headings)) return structure.headings;
+  if (Array.isArray(structure.toc)) return structure.toc;
+  return [];
+}
 
 function isGapMessage(msg) {
   return (
@@ -149,7 +171,7 @@ function MessageBubble({ msg, markdownComponents }) {
           rehypePlugins={REHYPE_PLUGINS}
           components={markdownComponents}
         >
-          {(msg.content || '').replace(/\[?(?:Page|Pg\.?)\s*(\d+)\]?/gi, '[Page $1](#page-$1)')}
+          {normalizeLatexDelimiters((msg.content || '').replace(/\[?(?:Page|Pg\.?)\s*(\d+)\]?/gi, '[Page $1](#page-$1)'))}
         </ReactMarkdown>
       </div>
     );
@@ -176,7 +198,7 @@ const MemoMessageBubble = memo(MessageBubble);
 
 export default function PdfAnalysis() {
   const pixelRatio = window.devicePixelRatio || 1;
-  const { authFetch } = useAuth();
+  const { api } = useAuth();
   const [file, setFile] = useState(null);
   const [extractedText, setExtractedText] = useState('');
   const [structure, setStructure] = useState(null);
@@ -196,6 +218,10 @@ export default function PdfAnalysis() {
   const [activeChatId, setActiveChatId] = useState(null);
   const [historyCollapsed, setHistoryCollapsed] = useState(true);
   const [loadingChats, setLoadingChats] = useState(false);
+  // 1.16 — uploaded PDFs used to be sent to LlamaCloud with nothing said about
+  // it. Consent is off until the user turns it on; local parsing is the default.
+  const [consent, setConsent] = useState(null);
+  const [consentSaving, setConsentSaving] = useState(false);
 
   const chatEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -222,8 +248,8 @@ export default function PdfAnalysis() {
     if (fileId && (!file || !file?.size)) {
       const loadPdf = async () => {
         try {
-          const res = await authFetch(
-            `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/pdf/${fileId}`
+          const res = await api.raw(
+            `/api/manuscript/pdf/${fileId}`
           );
           if (res.ok) {
             const blob = await res.blob();
@@ -242,7 +268,7 @@ export default function PdfAnalysis() {
     return () => {
       if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
     };
-  }, [fileId, file, authFetch]);
+  }, [fileId, file, api]);
 
   useEffect(() => {
     if (mode === 'ask') chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -311,7 +337,7 @@ export default function PdfAnalysis() {
   const fetchChatList = async () => {
     setLoadingChats(true);
     try {
-      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/pdf-chats/list`);
+      const res = await api.raw(`/api/pdf-chats/list`);
       if (res.ok) {
         const data = await res.json();
         setChatList(data.data || []);
@@ -325,7 +351,7 @@ export default function PdfAnalysis() {
 
   const loadChat = async (chatId) => {
     try {
-      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/pdf-chats/${chatId}`);
+      const res = await api.raw(`/api/pdf-chats/${chatId}`);
       if (res.ok) {
         const data = await res.json();
         const chat = data.data;
@@ -341,8 +367,8 @@ export default function PdfAnalysis() {
 
         if (chat.file_id) {
           try {
-            const pdfRes = await authFetch(
-              `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/pdf/${chat.file_id}`
+            const pdfRes = await api.raw(
+              `/api/manuscript/pdf/${chat.file_id}`
             );
             if (pdfRes.ok) {
               const blob = await pdfRes.blob();
@@ -364,8 +390,8 @@ export default function PdfAnalysis() {
   const deleteChat = async (chatId, e) => {
     e.stopPropagation();
     try {
-      const res = await authFetch(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/pdf-chats/${chatId}`,
+      const res = await api.raw(
+        `/api/pdf-chats/${chatId}`,
         { method: 'DELETE' }
       );
       if (res.ok) {
@@ -388,7 +414,7 @@ export default function PdfAnalysis() {
         messages: newMessages,
         file_id: currentFileId,
       };
-      const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/pdf-chats/save`, {
+      const res = await api.raw(`/api/pdf-chats/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -400,6 +426,28 @@ export default function PdfAnalysis() {
       }
     } catch (e) {
       console.error('Failed to save chat', e);
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get('/api/user/processing-consent')
+      .then((state) => { if (!cancelled) setConsent(state); })
+      // A failed lookup leaves `consent` null, which hides the control. The
+      // server still defaults to local parsing, so nothing leaks either way.
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [api]);
+
+  const updateConsent = async (granted) => {
+    setConsentSaving(true);
+    try {
+      setConsent(await api.post('/api/user/processing-consent', { granted }));
+    } catch (e) {
+      setError(e?.message || 'Could not save that preference.');
+    } finally {
+      setConsentSaving(false);
     }
   };
 
@@ -426,8 +474,8 @@ export default function PdfAnalysis() {
     formData.append('file', selected);
 
     try {
-      const res = await authFetch(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/extract-pdf`,
+      const res = await api.raw(
+        `/api/manuscript/extract-pdf`,
         { method: 'POST', body: formData }
       );
       if (!res.ok) {
@@ -466,7 +514,7 @@ export default function PdfAnalysis() {
   const submitAnalysis = async ({ prompt = '', kind = 'ask' } = {}) => {
     const isGaps = kind === 'gaps';
     const finalPrompt = isGaps ? '' : prompt;
-    if (!extractedText) return;
+    if (!activeChatId && !extractedText) return;
     if (!isGaps && !finalPrompt.trim()) return;
 
     const userMsg = {
@@ -483,15 +531,20 @@ export default function PdfAnalysis() {
 
     try {
       const formData = new FormData();
-      formData.append('text', extractedText);
+      // Follow-up turns: chat id only. The server hydrates text/structure/history
+      // from pdf_chats. First turn (no id yet) still sends the extracted payload.
+      if (activeChatId) {
+        formData.append('chat_id', activeChatId);
+      } else {
+        formData.append('text', extractedText);
+        if (structure) formData.append('structure', JSON.stringify(structure));
+        formData.append('history', JSON.stringify(historyPayload(messages)));
+      }
       // Deliberately omitted for 'gaps' -- its absence is the branch selector.
       if (!isGaps) formData.append('custom_prompt', finalPrompt);
-      if (structure) formData.append('structure', JSON.stringify(structure));
-      if (activeChatId) formData.append('chat_id', activeChatId);
-      formData.append('history', JSON.stringify(historyPayload(messages)));
 
-      const res = await authFetch(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/manuscript/analyze-pdf`,
+      const res = await api.raw(
+        `/api/manuscript/analyze-pdf`,
         { method: 'POST', body: formData }
       );
       if (!res.ok) {
@@ -572,7 +625,7 @@ export default function PdfAnalysis() {
     setNumPages(null);
   };
 
-  const structureHeadings = structure?.sections || structure?.headings || structure?.toc || [];
+  const structureHeadings = useMemo(() => headingsFromStructure(structure), [structure]);
 
   return (
     <div className="pdf-analysis-layout">
@@ -713,6 +766,32 @@ export default function PdfAnalysis() {
                 <h3>Drop your PDF here</h3>
                 <p>or click to browse</p>
               </div>
+
+              {/* 1.16 — say what leaves this server, before anything is uploaded. */}
+              {consent?.available && (
+                <div className="pdf-consent-notice">
+                  <label style={{ display: 'flex', gap: '0.6rem', alignItems: 'flex-start', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(consent.current)}
+                      disabled={consentSaving}
+                      onChange={(e) => updateConsent(e.target.checked)}
+                      style={{ marginTop: '0.2rem', width: 'auto' }}
+                    />
+                    <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                      {consent.disclosure}
+                      {consent.processors?.[0]?.url && (
+                        <>
+                          {' '}
+                          <a href={consent.processors[0].url} target="_blank" rel="noreferrer noopener">
+                            Their privacy policy
+                          </a>.
+                        </>
+                      )}
+                    </span>
+                  </label>
+                </div>
+              )}
             </div>
           ) : (
             <>
@@ -793,7 +872,7 @@ export default function PdfAnalysis() {
                       )}
                     </div>
 
-                    {Array.isArray(structureHeadings) && structureHeadings.length > 0 && (
+                    {structureHeadings.length > 0 && (
                       <aside className="pdf-toc-rail">
                         <h3>Structure</h3>
                         <ul>

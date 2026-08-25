@@ -26,6 +26,7 @@ import time
 import re
 
 from ai.llm_provider import generate_completion
+from core import shared_store
 from core.paper_identity import paper_identity
 from core.query_key import canonical_key
 from core.ttl_cache import TTLCache
@@ -67,6 +68,18 @@ def _cache_key(topic: str, paper: dict) -> tuple:
     first one's classification (audit A5).
     """
     return (canonical_key(topic), paper_identity(paper))
+
+
+def _shared_key(topic: str, paper: dict) -> str:
+    """The same identity as :func:`_cache_key`, flattened for the shared store."""
+    return f"{canonical_key(topic)}|{paper_identity(paper)}"
+
+
+# A verdict is durable in a way the in-process TTL never claimed to be: the
+# 600s window bounds *memory*, not freshness — whether a paper is relevant to a
+# topic does not change within the hour. Persisting for 6h is what stops a
+# redeploy from re-billing an entire survey's classification (1.2).
+_SHARED_TTL = 6 * 3600
 
 
 _CLASSIFIER_SYSTEM_PROMPT = (
@@ -243,6 +256,11 @@ async def _filter_relevant_papers(topic: str, papers: list) -> list:
         else:
             verdicts[position] = resolved
 
+    # Second tier: verdicts another worker (or this one, before a restart)
+    # already paid for. One round trip for the whole undecided set.
+    if undecided:
+        undecided = await _resolve_from_shared_store(topic, papers, undecided, verdicts, now)
+
     async def _classify_chunk(positions: list[int]) -> None:
         """Judge one chunk, recording verdicts and honouring fail-open."""
         chunk = [papers[i] for i in positions]
@@ -275,13 +293,16 @@ async def _filter_relevant_papers(topic: str, papers: list) -> list:
                     _failure_cache[_cache_key(topic, paper)] = now
                     batch.append(True)
 
+        durable: dict[str, bool] = {}
         for i, paper, is_relevant in zip(positions, chunk, batch):
             verdicts[i] = is_relevant
             ck = _cache_key(topic, paper)
             _failure_cache.pop(ck, None)
             _relevance_cache[ck] = (is_relevant, now)
+            durable[_shared_key(topic, paper)] = bool(is_relevant)
             if not is_relevant:
                 logger.info(f"Filtered out irrelevant paper: {paper.get('title', '')}")
+        await shared_store.set_many(shared_store.NS_RELEVANCE, durable, _SHARED_TTL)
 
     from ai.llm_provider import global_llm_sem
 
@@ -294,3 +315,30 @@ async def _filter_relevant_papers(topic: str, papers: list) -> list:
         await asyncio.gather(*[_throttled(c) for c in chunks])
 
     return [paper for position, paper in enumerate(papers) if verdicts.get(position, True)]
+
+
+async def _resolve_from_shared_store(
+    topic: str, papers: list, undecided: list[int], verdicts: dict, now: float
+) -> list[int]:
+    """Fill *verdicts* from the durable store; return the positions still open."""
+    if not shared_store.enabled():
+        return undecided
+
+    key_by_position = {i: _shared_key(topic, papers[i]) for i in undecided}
+    stored = await shared_store.get_many(shared_store.NS_RELEVANCE, set(key_by_position.values()))
+    if not stored:
+        return undecided
+
+    still_open = []
+    for position in undecided:
+        verdict = stored.get(key_by_position[position])
+        if isinstance(verdict, bool):
+            verdicts[position] = verdict
+            _relevance_cache[_cache_key(topic, papers[position])] = (verdict, now)
+            if not verdict:
+                logger.info(
+                    f"Filtered out irrelevant paper (shared cache): {papers[position].get('title', '')}"
+                )
+        else:
+            still_open.append(position)
+    return still_open

@@ -9,6 +9,8 @@ from integrations.arxiv import detect_arxiv_id_from_text, fetch_latex_source
 from llama_parse import LlamaParse
 from pypdf import PdfReader
 from fastapi import HTTPException
+from bson import ObjectId
+from core.database import db
 from ai.guardrails import validate_input_layers_a_b, validate_document_text
 from ai.evidence_extraction import extract_evidence
 from ai.llm_provider import generate_completion, get_or_create_gemini_cache
@@ -68,9 +70,16 @@ USER PROMPT:
 {custom_prompt}
 """
 
-async def extract_pdf_text(file_bytes: bytes) -> str:
+async def extract_pdf_text(file_bytes: bytes, allow_third_party: bool = False) -> str:
     """Extract text from PDF file bytes. Tier 0: arXiv LaTeX source (if detected).
-    Tier 1-3 fallback: LlamaParse -> PyMuPDF -> pypdf."""
+    Tier 1-3 fallback: LlamaParse -> PyMuPDF -> pypdf.
+
+    *allow_third_party* gates tier 1 only. LlamaParse means the uploaded file
+    leaves this system (1.16), so the caller has to have established that the
+    user agreed to that; the default is no, and tiers 2 and 3 run in-process on
+    the same bytes. Callers that cannot identify a user pass nothing and get
+    local parsing, which is the correct answer for an unattributed document.
+    """
     text = ""
 
     # Tier 0: cheap first-page peek for an arXiv ID, then try real LaTeX source
@@ -85,31 +94,35 @@ async def extract_pdf_text(file_bytes: bytes) -> str:
                 logger.info(f"Successfully extracted PDF text using arXiv LaTeX source ({arxiv_id}).")
     except Exception as e:
         logger.warning(f"arXiv ID peek/fetch failed, continuing to normal tiers: {e}")
-    
-    # Tier 1: LlamaParse
-    temp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-            tmp.write(file_bytes)
-            temp_path = tmp.name
-            
-        from services.api_telemetry import track_call
-        async with track_call("LlamaCloud", "parse") as rec:
-            parser = LlamaParse(result_type="markdown")
-            documents = await asyncio.wait_for(parser.aload_data(temp_path), timeout=30.0)
-            if documents:
-                text = "\n".join(doc.text for doc in documents)
-                rec.succeed(http_status=200, items=len(documents))
-                logger.info("Successfully extracted PDF text using LlamaParse.")
-            else:
-                rec.fail(error="empty parse result")
-    except asyncio.TimeoutError:
-        logger.warning("LlamaParse extraction timed out. Falling back to PyMuPDF.")
-    except Exception as e:
-        logger.warning(f"LlamaParse extraction failed: {e}. Falling back to PyMuPDF.")
-    finally:
-        if temp_path and os.path.exists(temp_path):
-            os.unlink(temp_path)
+
+    # Tier 1: LlamaParse (paid, and off-premises — skipped when LaTeX already
+    # produced text, and skipped entirely without the user's consent).
+    if not text and not allow_third_party:
+        logger.info("Third-party PDF parsing not consented; using local tiers only.")
+    if not text and allow_third_party:
+        temp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                tmp.write(file_bytes)
+                temp_path = tmp.name
+
+            from services.api_telemetry import track_call
+            async with track_call("LlamaCloud", "parse") as rec:
+                parser = LlamaParse(result_type="markdown")
+                documents = await asyncio.wait_for(parser.aload_data(temp_path), timeout=30.0)
+                if documents:
+                    text = "\n".join(doc.text for doc in documents)
+                    rec.succeed(http_status=200, items=len(documents))
+                    logger.info("Successfully extracted PDF text using LlamaParse.")
+                else:
+                    rec.fail(error="empty parse result")
+        except asyncio.TimeoutError:
+            logger.warning("LlamaParse extraction timed out. Falling back to PyMuPDF.")
+        except Exception as e:
+            logger.warning(f"LlamaParse extraction failed: {e}. Falling back to PyMuPDF.")
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                os.unlink(temp_path)
             
     # Tier 2: PyMuPDF
     if not text:
@@ -221,13 +234,51 @@ def _build_paper_context(structure: dict, text: str) -> str:
     return "\n\n".join(parts)
 
 
-_rolling_summaries = {}
+_rolling_summaries = {}  # process-local hint; pdf_chats is the source of truth (B5)
 
-async def analyze_uploaded_paper(text: str, custom_prompt: str = None, structure: dict = None, history: list = None, chat_id: str = None) -> dict:
+
+async def _load_rolling(cache_scope: str):
+    if not cache_scope or ":" not in cache_scope:
+        return _rolling_summaries.get(cache_scope)
+    chat_id = cache_scope.split(":", 1)[1]
+    try:
+        oid = ObjectId(chat_id)
+    except Exception:
+        return _rolling_summaries.get(cache_scope)
+    doc = await db["pdf_chats"].find_one(
+        {"_id": oid}, {"rolling_summary": 1, "covered_len": 1}
+    )
+    if doc and doc.get("rolling_summary"):
+        return (doc["rolling_summary"], int(doc.get("covered_len") or 0))
+    return _rolling_summaries.get(cache_scope)
+
+
+async def _store_rolling(cache_scope: str, summary: str, covered_len: int):
+    _rolling_summaries[cache_scope] = (summary, covered_len)
+    if not cache_scope or ":" not in cache_scope:
+        return
+    chat_id = cache_scope.split(":", 1)[1]
+    try:
+        oid = ObjectId(chat_id)
+    except Exception:
+        return
+    await db["pdf_chats"].update_one(
+        {"_id": oid},
+        {"$set": {"rolling_summary": summary, "covered_len": covered_len}},
+    )
+
+async def analyze_uploaded_paper(text: str, custom_prompt: str = None, structure: dict = None, history: list = None, cache_scope: str = None) -> dict:
     """
-    Run analysis on extracted PDF text. 
+    Run analysis on extracted PDF text.
     If custom_prompt is provided, answers the prompt.
     Otherwise, returns the structured gap analysis shape.
+
+    *cache_scope* names the server-side caches this conversation may touch: the
+    rolling summary below and the Gemini context cache. It must be built by the
+    caller from a **verified** user id plus a chat the same user owns — see
+    ``routers.pdf._load_owned_chat``. It was previously the client-supplied
+    ``chat_id`` on its own, so one guessed ObjectId read back another user's
+    cached paper context.
     """
     # Re-check extraction produced usable text (this entry point is also reached
     # with text replayed from a saved chat, not just fresh from extract_pdf_text).
@@ -263,12 +314,12 @@ async def analyze_uploaded_paper(text: str, custom_prompt: str = None, structure
         rolling_summary = ""
         recent_turns = ""
         
-        if history and chat_id:
+        if history and cache_scope:
             if len(history) > 3:
                 older_turns = history[:-3]
                 recent_history = history[-3:]
                 
-                cache_entry = _rolling_summaries.get(chat_id)
+                cache_entry = await _load_rolling(cache_scope)
                 if cache_entry:
                     cached_sum, covered_len = cache_entry
                     if len(older_turns) > covered_len:
@@ -282,7 +333,7 @@ async def analyze_uploaded_paper(text: str, custom_prompt: str = None, structure
                             temperature=0.3,
                             provider_override="groq"
                         )
-                        _rolling_summaries[chat_id] = (new_sum, len(older_turns))
+                        await _store_rolling(cache_scope, new_sum, len(older_turns))
                         rolling_summary = new_sum
                     else:
                         rolling_summary = cached_sum
@@ -296,7 +347,7 @@ async def analyze_uploaded_paper(text: str, custom_prompt: str = None, structure
                         temperature=0.3,
                         provider_override="groq"
                     )
-                    _rolling_summaries[chat_id] = (new_sum, len(older_turns))
+                    await _store_rolling(cache_scope, new_sum, len(older_turns))
                     rolling_summary = new_sum
             else:
                 recent_history = history
@@ -319,7 +370,7 @@ async def analyze_uploaded_paper(text: str, custom_prompt: str = None, structure
         system_prompt = "You are a helpful academic research assistant.\n\n" + _DOCUMENT_SAFETY_RULE + """
 CRITICAL FORMATTING RULES:
 1. You MUST format your response using Markdown (use bolding, bullet points, and headers to make the text scannable).
-2. For any mathematical equations, variables, or units with exponents (e.g. 10^3, Beff), you MUST wrap them in LaTeX syntax. Use single dollar signs ($x$) for inline math and double dollar signs ($$x$$) for block equations. Do NOT output raw unformatted math.
+2. For any mathematical equations, variables, or units with exponents (e.g. 10^3, Beff), you MUST wrap them in LaTeX syntax. Use single dollar signs ($x$) for inline math and double dollar signs ($$x$$) for block equations. Never use \\( \\) \\[ \\] — those print as raw source. Do NOT output raw unformatted math.
 3. When presenting workflows, architectures, or pipelines, you MAY use a fenced Mermaid block starting with ```mermaid. Do NOT invent quantitative charts. Do not emit `xychart-beta`, `pie`, or numeric `bar`/`line` arrays unless every number is taken from the document. If the document has no numbers, describe comparisons in prose.
 
 CHOOSE THE RIGHT DIAGRAM (schematics only, unless numbers are in the document):
@@ -353,13 +404,13 @@ flowchart TD
             history_context = f"\nMaintain continuity with the prior discussion. Here is the context of the conversation so far:{history_context}\n"
 
         cached_content = None
-        if chat_id:
+        if cache_scope:
             # The cached path skips _CUSTOM_PROMPT_TEMPLATE, so the delimiter has
             # to be baked into the cached content itself -- otherwise the paper
             # text would reach the model undelimited on exactly the requests
             # where caching works.
             cached_content = await get_or_create_gemini_cache(
-                cache_key=f"pdf:{chat_id}",
+                cache_key=f"pdf:{cache_scope}",
                 system_instruction=system_prompt,
                 shared_context=f"<document>\n{custom_context}\n</document>"
             )

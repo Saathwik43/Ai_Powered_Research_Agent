@@ -1,6 +1,7 @@
 import logging
 import re
 import httpx
+from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,10 @@ SECTION_ALIASES = {
 IGNORED_SECTIONS = {"acknowledgments", "acknowledgements", "references", "appendix"}
 
 _FETCH_TIMEOUT_SECONDS = 5.0
+
+# Generous for a paper, small enough that a mislabelled `oa_url` pointing at a
+# dataset dump cannot be buffered into the worker's memory.
+_MAX_PDF_BYTES = 30 * 1024 * 1024
 
 __all__ = [
     "EVIDENCE_FIELDS",
@@ -117,15 +122,34 @@ def _collapse_sections(bucket: dict[str, list[str]]) -> dict:
 
 
 async def _fetch_pdf_bytes(pdf_url: str) -> bytes | None:
+    """Download an open-access PDF, or None if it cannot be had safely.
+
+    `oa_url` comes from third-party metadata (Unpaywall, OpenAlex, Crossref),
+    not from us — a poisoned or simply wrong record pointed this straight at
+    whatever host it named, following redirects, with no size bound. It goes
+    through the same pinned-address fetch as a user-supplied URL, and stops at
+    `_MAX_PDF_BYTES` rather than buffering whatever the server sends.
+    """
+    from core.ssrf_guard import safe_fetch
+
     try:
-        async with httpx.AsyncClient(timeout=_FETCH_TIMEOUT_SECONDS, follow_redirects=True) as client:
-            response = await client.get(pdf_url)
-            response.raise_for_status()
-            content_type = response.headers.get("content-type", "").lower()
-            if "pdf" not in content_type and not pdf_url.lower().endswith(".pdf"):
-                logger.info("Skipping non-PDF OA URL: %s", pdf_url)
-                return None
-            return response.content
+        response = await safe_fetch(
+            pdf_url,
+            max_bytes=_MAX_PDF_BYTES,
+            timeout=_FETCH_TIMEOUT_SECONDS,
+            accept="application/pdf",
+        )
+        response.raise_for_status()
+        content_type = response.headers.get("content-type", "").lower()
+        if "pdf" not in content_type and not pdf_url.lower().endswith(".pdf"):
+            logger.info("Skipping non-PDF OA URL: %s", pdf_url)
+            return None
+        return response.content
+    except HTTPException as exc:
+        # Blocked target, non-web port, or over the size cap. A soft miss: the
+        # evidence ladder falls through to the next tier.
+        logger.info("Refused to fetch PDF from %s: %s", pdf_url, exc.detail)
+        return None
     except (httpx.TimeoutException, httpx.RequestError, httpx.HTTPStatusError) as exc:
         logger.info("Failed to fetch PDF from %s: %s", pdf_url, exc)
         return None
