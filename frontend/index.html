@@ -6,7 +6,8 @@
     <link rel="icon" type="image/webp" href="/9672704.webp" />
     <script src="https://unpkg.com/@lottiefiles/lottie-player@2.0.4/dist/lottie-player.js"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Research Agent</title>
+    <meta name="description" content="One workspace for academic research: discover topics, survey literature, draft manuscripts, and match journals and conferences without switching tools." />
+    <title>Research Agent — Discover topics, draft papers, and match venues</title>
     <script>
       (function () {
         try {
@@ -15,8 +16,10 @@
             path === '/' ||
             path === '/login' ||
             path === '/signup' ||
+            path === '/signup/complete' ||
             path === '/forgot-password' ||
-            path === '/reset-password';
+            path === '/reset-password' ||
+            path === '/verify-email';
           var theme = 'light';
           if (!publicPage) {
             theme = localStorage.getItem('ra_theme');

@@ -7,159 +7,217 @@ Here are the visual representations of how the Research Paper Guide system is st
 This diagram shows the major components: the React Frontend, the FastAPI Backend, the AI Engine with Multi-Provider Auto-Cascade, Knowledge Integrations, Database, and external AI services.
 
 ```mermaid
-graph TD
-    subgraph Frontend [Frontend - React + Vite]
-        UI[User Interface & Manuscript Builder]
-        SSE[SSE Stream Listener & Typewriter State]
-        ApiClient[One API client - lib/api.js + query cache]
+flowchart TD
+    subgraph Frontend["Frontend - React + Vite"]
+        UI["User interface + manuscript builder"]
+        ApiClient["One API client - lib/api.js + query cache"]
+        SSEr["SSE reader + typewriter state - ManuscriptBuilder"]
     end
 
-    subgraph Backend [Backend API - FastAPI]
-        subgraph Edge [Middleware - outermost first]
-            CORS[CORS - trimmed origin allowlist]
-            BodyCap[Body size cap - 16MB, pre-buffer]
-            RateLimit[Rate limiter - default on every route]
-            Headers[Security headers + CSP]
-        end
-        Router[API Routes / routers/*.py]
-        Auth[Authentication & Quotas - core/ + services/]
-        Refresh[Refresh rotation + reuse detection - 1.14]
-        Verify[Email verification + reset - separate signing keys]
-        SSRF[SSRF guard - pinned IP, ports 80/443]
-        Consent[Third-party processing consent - 1.16]
-
-        subgraph SelfHeal [API self-heal]
-            Registry[Source registry - one fan-out list]
-            Health[Rolling health window + circuit breaker]
-            Retry[One retry policy - Retry-After + jitter]
+    subgraph Backend["Backend API - FastAPI"]
+        subgraph Edge["Middleware - outermost first"]
+            CORS["CORS - trimmed origin allowlist"]
+            BodyCap["Body size cap - 16MB, pre-buffer"]
+            RateLimit["Rate limiter - default on every route"]
+            Headers["Security headers + CSP"]
         end
 
-        subgraph Caches [Cache tiers]
-            L1[In-process TTLCache / semantic cache]
-            L2[Shared store - Mongo, survives restart - 1.2]
-            Emb[(paper_embeddings - kept forever - 1.3)]
+        Router["API routes - routers/*.py"]
+        Auth["Authentication + quotas - core/auth.py"]
+        Refresh["Refresh rotation + reuse detection - 1.14"]
+        Verify["Email verification + reset - separate signing keys"]
+        SSRF["SSRF guard - pinned IP, ports 80/443"]
+        Consent["Third-party processing consent - 1.16"]
+
+        subgraph SelfHeal["API self-heal"]
+            Registry["Source registry - one fan-out list"]
+            Health["Rolling health window + circuit breaker"]
+            Retry["One retry policy - Retry-After + jitter"]
         end
 
-        subgraph Research [Background research - 1.5]
-            Jobs[research_jobs - persisted stages]
-            Corpus[prepare_corpus - search, screen, evidence]
-        end
-      
-        subgraph AI_Engine [AI Engine Modules]
-            TD_AI[Topic Discovery]
-            GA_AI[Gap Analysis]
-            MG_AI[Manuscript Generation & Stream]
-            LLM_P[LLM Provider & Auto-Cascade]
-            Cache[Gemini Prompt Caching]
-            VR_AI[Venue Recommendation]
-            GR_AI[Citation Grounding & Numerical Validator]
-        end
-      
-        subgraph Integrations [Knowledge Integrations]
-            Search[Unified Search Engine - 9 sources]
-            ArXiv[arXiv API]
-            Crossref[Crossref API]
-            SemanticScholar[Semantic Scholar API]
-            OpenAlex[OpenAlex API - key required]
-            PubMed[PubMed / NCBI API]
-            EuropePMC[Europe PMC API]
-            Springer[Springer Nature API]
-            DOAJ[DOAJ API]
-            GitHubKB[GitHub Knowledge Repos - local]
-            Unpaywall[Unpaywall - OA enrichment]
+        subgraph Caches["Cache tiers"]
+            L1["In-process TTLCache + semantic cache"]
+            L2["Shared store - Mongo, survives restart - 1.2"]
+            Emb[("paper_embeddings - kept forever - 1.3")]
         end
 
-        subgraph Extraction [Document and Evidence Extraction]
-            Ladder[Evidence Ladder - 5 tiers]
-            AxHTML[arXiv LaTeXML HTML / ar5iv]
-            AxTeX[arXiv LaTeX e-print]
-            PMCXML[Europe PMC fullTextXML - JATS]
-            PDFStruct[PyMuPDF Structure Parser - in-process]
+        subgraph Research["Background research - 1.5"]
+            Jobs["research_jobs - persisted stages"]
+            Corpus["prepare_corpus - search, screen, evidence"]
+        end
+
+        subgraph AI_Engine["AI engine modules"]
+            TD_AI["Topic discovery - TF-IDF, no LLM"]
+            GA_AI["Gap analysis"]
+            MG_AI["Manuscript generation + stream"]
+            VR_AI["Venue recommendation + guideline alignment"]
+            Rel["Relevance filter + backfill"]
+            GR_AI["Citation grounding + numerical validator"]
+            LLM_P["LLM provider - auto-cascade"]
+            GemCache["Gemini prompt caching"]
+            Embed["Embeddings - gemini-embedding-001"]
+        end
+
+        subgraph Integrations["Knowledge integrations - 9 sources, one pooled HTTP client"]
+            Search["Unified search engine - search_all"]
+            ArXiv["arXiv API"]
+            Crossref["Crossref API"]
+            SemanticScholar["Semantic Scholar API"]
+            OpenAlex["OpenAlex API - keyless, polite pool"]
+            PubMed["PubMed / NCBI API"]
+            EuropePMC["Europe PMC API"]
+            Springer["Springer Nature API - key required"]
+            DOAJ["DOAJ API"]
+            GitHubKB["GitHub knowledge repos - on disk"]
+            Unpaywall["Unpaywall - OA enrichment"]
+        end
+
+        subgraph Extraction["Document and evidence extraction"]
+            Ladder["Evidence ladder - 5 tiers"]
+            AxHTML["arXiv LaTeXML HTML / ar5iv"]
+            AxTeX["arXiv LaTeX e-print"]
+            PMCXML["Europe PMC fullTextXML - JATS"]
+            PDFStruct["PyMuPDF structure parser - in-process"]
         end
     end
 
-    subgraph Database [Database]
-        MongoDB[(MongoDB)]
-    end
-  
-    subgraph External_LLM [External AI Services - Cascade Fallback]
-        Gemini[Google Gemini API - Cached]
-        Groq[Groq API - Llama 3.3]
-        Mistral[Mistral API - Large 2407]
-        OpenRouter[OpenRouter API]
-        OpenAI[OpenAI API - GPT-4o]
-        NVIDIA[NVIDIA API]
-        HF[HuggingFace API]
+    subgraph Database["Database"]
+        MongoDB[("MongoDB")]
     end
 
+    subgraph External_LLM["External AI services - auto-cascade order"]
+        OpenAI["OpenAI API"]
+        Gemini["Google Gemini API - cached"]
+        Groq["Groq API"]
+        Cerebras["Cerebras API"]
+        Mistral["Mistral API"]
+        HF["HuggingFace API"]
+        OpenRouter["OpenRouter API"]
+        NVIDIA["NVIDIA NIM API"]
+    end
+
+    %% Frontend
     UI --> ApiClient
-    ApiClient <-->|REST & SSE Stream| CORS
+    ApiClient -->|"REST + SSE"| CORS
+    ApiClient -->|"Byte stream, fetch reader"| SSEr
+    SSEr -->|"Typewriter state"| UI
+
+    %% Middleware chain, outermost first
     CORS --> BodyCap
     BodyCap --> RateLimit
     RateLimit --> Headers
     Headers --> Router
+
+    %% Identity
     Router --> Auth
     Auth --> Verify
     Auth --> Refresh
-    Refresh <-->|Token families, reuse detection| MongoDB
-    Auth <-->|Verify Users & Usage Logs - 60s user cache| MongoDB
-    Router -->|User-supplied URLs & OA PDFs| SSRF
-    Router -->|PDF upload| Consent
-    Consent -.->|Only with explicit consent| Extraction
-  
-    Router <-->|Delegates Streaming & Tasks| AI_Engine
-    Router <-->|Delegates Literature Search| Integrations
-  
-    LLM_P <-->|1. Primary / Cached| Gemini
-    LLM_P <-->|2. Fallback 1| Groq
-    LLM_P <-->|3. Fallback 2| Mistral
-    LLM_P <-->|4. Fallback 3| OpenRouter
-    LLM_P <-->|5. Fallback 4| OpenAI
-    LLM_P -.->|Optional| NVIDIA
-    LLM_P -.->|Optional| HF
-  
-    AI_Engine <-->|Context Caching >32k tokens| Cache
-    AI_Engine <-->|Validates Claims & Citations| GR_AI
-  
-    Integrations -.->|Pooled HTTP, parallel fan-out| ArXiv
-    Integrations -.->|Pooled HTTP, parallel fan-out| Crossref
-    Integrations -.->|Pooled HTTP, parallel fan-out| SemanticScholar
-    Integrations -.->|Pooled HTTP, parallel fan-out| OpenAlex
-    Integrations -.->|Pooled HTTP, parallel fan-out| PubMed
-    Integrations -.->|Pooled HTTP, parallel fan-out| EuropePMC
-    Integrations -.->|Pooled HTTP, parallel fan-out| Springer
-    Integrations -.->|Pooled HTTP, parallel fan-out| DOAJ
-    Integrations -.->|Local corpus, cloned at deploy| GitHubKB
-    Integrations -.->|After dedupe| Unpaywall
+    Refresh <-->|"Token families, reuse detection"| MongoDB
+    Auth <-->|"Users + usage logs, 60s user cache"| MongoDB
 
-    Integrations --> Ladder
-    Ladder -->|1. cheapest, explicit sections| AxHTML
-    Ladder -->|2. LaTeX source| AxTeX
-    Ladder -->|3. open-access biomedical| PMCXML
-    Ladder -->|4. any PDF| PDFStruct
-    Ladder -.->|5. last resort| LLM_P
+    %% User-supplied bytes
+    Router -->|"User-supplied URLs + OA PDFs"| SSRF
+    Router -->|"PDF upload"| Consent
+    SSRF -->|"Fetched bytes"| PDFStruct
+    Consent -.->|"Only with explicit consent"| PDFStruct
 
-    Integrations --> Registry
-    Registry -->|Skip a source whose circuit is open| Health
-    Registry -->|Retry only what a retry can fix| Retry
-    Health -.->|Fed by every tracked call| Integrations
+    %% Routes into the AI engine
+    Router --> TD_AI
+    Router --> GA_AI
+    Router --> MG_AI
+    Router --> VR_AI
+    Router --> Rel
+    MG_AI -->|"SSE: status, sources_list, chunk, metadata, done"| Router
 
-    Integrations <--> L1
-    L1 -->|Miss| L2
+    %% AI engine internals
+    TD_AI --> Search
+    GA_AI --> Search
+    GA_AI --> Rel
+    GA_AI --> Ladder
+    GA_AI --> LLM_P
+    MG_AI --> Corpus
+    MG_AI --> Rel
+    MG_AI --> GR_AI
+    MG_AI --> LLM_P
+    VR_AI --> LLM_P
+    Rel --> LLM_P
+    GR_AI --> LLM_P
+    LLM_P <-->|"Context caching over 32k tokens"| GemCache
+    GemCache --> Gemini
+
+    %% Provider cascade, in the order llm_provider tries them
+    LLM_P -->|"1"| OpenAI
+    LLM_P -->|"2"| Gemini
+    LLM_P -->|"3"| Groq
+    LLM_P -->|"4"| Cerebras
+    LLM_P -->|"5"| Mistral
+    LLM_P -->|"6"| HF
+    LLM_P -.->|"Explicit selection only"| OpenRouter
+    LLM_P -.->|"Explicit selection only"| NVIDIA
+
+    %% Search fan-out
+    Search --> SemanticScholar
+    Search --> OpenAlex
+    Search --> Crossref
+    Search --> PubMed
+    Search --> ArXiv
+    Search -->|"On disk, run in a thread"| GitHubKB
+    Search --> Springer
+    Search --> EuropePMC
+    Search --> DOAJ
+    Search -.->|"After dedupe"| Unpaywall
+
+    %% Self-heal
+    Search -->|"One fan-out list, per-source timeout"| Registry
+    Search -->|"Skip a source whose circuit is open"| Health
+    Health -.->|"Fed by every tracked call"| Search
+    SemanticScholar -->|"Retry only what a retry can fix"| Retry
+
+    %% Caches
+    Search <--> L1
+    L1 -->|"Miss"| L2
     L2 <--> MongoDB
-    L2 <--> Emb
-    Emb <--> MongoDB
+    Search -->|"Query + paper vectors"| Embed
+    Embed --> Gemini
+    Embed --> Emb
+    Emb --> MongoDB
 
-    Router -->|Topic known: warm the corpus| Jobs
+    %% Background research
+    Router -->|"Topic known: warm the corpus"| Jobs
     Jobs --> Corpus
-    Corpus --> Integrations
-    Corpus -->|Prepared corpus| L2
-    Jobs <-->|Persisted stages, replayed on reconnect| MongoDB
-    MG_AI -->|Reads the prepared corpus| L2
+    Corpus --> Search
+    Corpus --> Rel
+    Corpus --> Ladder
+    Corpus -->|"Prepared corpus"| L2
+    Jobs <-->|"Persisted stages, replayed on reconnect"| MongoDB
+    MG_AI -->|"Reads the prepared corpus"| L2
 
-    Router <-->|Save / Load Drafts, Surveys & Manuscripts| MongoDB
-    Router <-->|Version history + restore - 1.10| MongoDB
+    %% Evidence ladder
+    Ladder -->|"1. cheapest, explicit sections"| AxHTML
+    Ladder -->|"2. LaTeX source"| AxTeX
+    Ladder -->|"3. open-access biomedical"| PMCXML
+    Ladder -->|"4. any PDF"| PDFStruct
+    Ladder -.->|"5. last resort"| LLM_P
+
+    %% Persistence
+    Router <-->|"Save / load drafts, surveys, manuscripts"| MongoDB
+    Router <-->|"Version history + restore - 1.10"| MongoDB
 ```
+
+> **Every arrow starts and ends at a real component.** Until Aug 2026 the search
+> fan-out, the ladder and the cache edges were drawn from the *subgraph boxes*
+> (`Integrations -.-> ArXiv`, `AI_Engine <--> GR_AI`) — a container pointing at
+> something already inside it. Mermaid routes those back through the cluster
+> border, so the boxes rendered as a hairball, and the nodes that do the actual
+> work (`Search`, `TD_AI`, `GA_AI`, `VR_AI`, the SSE reader) sat unconnected
+> beside it. The edges now name the module that makes the call.
+
+> **The cascade order is the one `llm_provider` actually uses.** OpenAI first,
+> then Gemini, Groq, Cerebras, Mistral, HuggingFace — a provider joins the chain
+> only when its key is set, so the effective order on a given deploy is that list
+> minus whatever is unconfigured. OpenRouter and NVIDIA are reachable only by
+> setting `LLM_PROVIDER` to them explicitly; they are never part of the auto
+> chain, which is why they hang off a dashed edge.
 
 > **No hosted document-parsing service.** The evidence ladder replaced a hosted
 > GROBID tier in Aug 2026: every free instance was down (the HF Space returns
@@ -227,7 +285,7 @@ sequenceDiagram
     A->>DB: Record jti₁ (family F, used=false)
     A-->>C: access (1h) + refresh jti₁
 
-    Note over C,A: Access token expires; authFetch rotates once and replays.
+    Note over C,A: Access token expires, so authFetch rotates once and replays.
     C->>A: POST /api/auth/refresh (jti₁)
     A->>DB: Write jti₂ first, then mark jti₁ used → jti₂
     A-->>C: new access + refresh jti₂
@@ -312,7 +370,7 @@ sequenceDiagram
     end
     Note over Sources: Evidence ladder per paper:<br/>arXiv HTML ➔ arXiv LaTeX ➔ Europe PMC JATS<br/>➔ PyMuPDF PDF structure ➔ LLM on title+abstract
     Sources-->>API: Reference mapping & evidence context
-    Note over API: Titles, abstracts, evidence, URLs and the user's own<br/>uploads go into the prompt inside &lt;sources&gt;, with any<br/>forged delimiter defused and a system rule saying the<br/>delimited regions are data, never instructions.
+    Note over API: Titles, abstracts, evidence, URLs and the user's own<br/>uploads go into the prompt inside sources tags, with any<br/>forged delimiter defused and a system rule saying the<br/>delimited regions are data, never instructions.
     API-->>Front: SSE Event: sources_list (emit references upfront)
   
     API->>Cascade: Stream completion (Gemini ➔ Groq ➔ Mistral ➔ OpenRouter ➔ OpenAI)

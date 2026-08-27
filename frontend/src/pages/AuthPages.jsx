@@ -1,11 +1,12 @@
 import React, { useState , useEffect } from 'react';
-import { useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { GoogleLogin } from '@react-oauth/google';
 import { AlertCircle, ArrowRight, CheckCircle2, Eye, EyeOff, Lock, Mail, User } from 'lucide-react';
 import './AuthPages.css';
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const PENDING_EMAIL_KEY = 'ra_pending_email';
 
 /**
  * FastAPI answers a schema failure with `detail` as an *array* of error
@@ -172,8 +173,6 @@ const Signup = () => {
   const [form, setForm] = useState({ name: '', email: '', password: '' });
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
-  const [pendingEmail, setPendingEmail] = useState('');
-  const [resent, setResent] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
@@ -195,24 +194,9 @@ const Signup = () => {
       // Signup no longer returns a session. The account is inert until the
       // address is confirmed, which is what stops someone registering with an
       // address they do not own and waiting for its owner to sign in.
-      setPendingEmail(data.email || form.email);
-    } catch {
-      setError('Could not connect to server.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleResend = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`${API}/api/auth/resend-verification`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: pendingEmail }),
-      });
-      const data = await res.json();
-      setResent(data.message || 'Verification link sent.');
+      const email = data.email || form.email;
+      sessionStorage.setItem(PENDING_EMAIL_KEY, email);
+      navigate('/signup/complete', { state: { email } });
     } catch {
       setError('Could not connect to server.');
     } finally {
@@ -232,31 +216,14 @@ const Signup = () => {
       const data = await res.json();
       if (!res.ok) { setError(detailText(data) || 'Google sign-up failed.'); return; }
       login(data.token, data.user, data.refresh_token);
-      navigate('/dashboard');
+      sessionStorage.removeItem(PENDING_EMAIL_KEY);
+      navigate('/signup/complete', { replace: true, state: { mode: 'in' } });
     } catch {
       setError('Could not connect to server.');
     } finally {
       setLoading(false);
     }
   };
-
-  if (pendingEmail) {
-    return (
-      <AuthLayout
-        eyebrow="One more step"
-        title="Check your email"
-        subtitle={`We sent a confirmation link to ${pendingEmail}. Open it to activate your account — the link expires in 24 hours.`}
-        footer={<>Already confirmed? <Link to="/login">Sign in</Link></>}
-      >
-        <div className="auth-form">
-          {resent && <SuccessBanner message={resent} />}
-          <button type="button" className="btn btn-secondary w-full" onClick={handleResend} disabled={loading}>
-            {loading ? <><Spin /> Sending</> : 'Resend the link'}
-          </button>
-        </div>
-      </AuthLayout>
-    );
-  }
 
   return (
     <AuthLayout
@@ -486,7 +453,7 @@ const VerifyEmail = () => {
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token') || '';
 
-  const [status, setStatus] = useState('checking'); // 'checking' | 'done' | 'invalid'
+  const [status, setStatus] = useState('checking'); // 'checking' | 'invalid'
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -506,8 +473,8 @@ const VerifyEmail = () => {
           return;
         }
         login(data.token, data.user, data.refresh_token);
-        setStatus('done');
-        setTimeout(() => navigate('/dashboard'), 1500);
+        sessionStorage.removeItem(PENDING_EMAIL_KEY);
+        navigate('/signup/complete', { replace: true, state: { mode: 'in' } });
       })
       .catch(() => {
         if (cancelled) return;
@@ -542,9 +509,95 @@ const VerifyEmail = () => {
   }
 
   return (
-    <AuthLayout eyebrow="All set" title="Email confirmed" subtitle="Taking you to your workspace.">
+    <AuthLayout eyebrow="Security" title="Confirming your email..." subtitle="One moment.">
+      <div />
+    </AuthLayout>
+  );
+};
+
+/**
+ * After-signup landing (LCH-14). Email signup lands here to check mail;
+ * Google signup and a successful verify land here as "you're in".
+ */
+const SignupComplete = () => {
+  const { user, loading: authLoading } = useAuth();
+  const location = useLocation();
+  const [email] = useState(
+    () => location.state?.email || sessionStorage.getItem(PENDING_EMAIL_KEY) || ''
+  );
+  const [resent, setResent] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const youreIn = Boolean(user) || location.state?.mode === 'in';
+
+  const handleResend = async () => {
+    if (!email) return;
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch(`${API}/api/auth/resend-verification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json();
+      setResent(data.message || 'Verification link sent.');
+    } catch {
+      setError('Could not connect to server.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (authLoading) {
+    return (
+      <AuthLayout eyebrow="One moment" title="Loading..." subtitle="Checking your account.">
+        <div />
+      </AuthLayout>
+    );
+  }
+
+  if (youreIn) {
+    return (
+      <AuthLayout
+        eyebrow="All set"
+        title="You're in"
+        subtitle="Your workspace is ready. Discover topics, survey literature, draft, and match venues from one account."
+      >
+        <div className="auth-form">
+          <SuccessBanner message="Your account is active." />
+          <Link to="/dashboard" className="btn btn-primary w-full auth-submit">
+            Open workspace <ArrowRight size={16} />
+          </Link>
+        </div>
+      </AuthLayout>
+    );
+  }
+
+  return (
+    <AuthLayout
+      eyebrow="One more step"
+      title="Check your email"
+      subtitle={
+        email
+          ? `We sent a confirmation link to ${email}. Open it to activate your account — the link expires in 24 hours.`
+          : 'We sent a confirmation link to the address you used. Open it to activate your account — the link expires in 24 hours.'
+      }
+      footer={<>Already confirmed? <Link to="/login">Sign in</Link></>}
+    >
       <div className="auth-form">
-        <SuccessBanner message="Your account is active." />
+        {error && <ErrorBanner message={error} />}
+        {resent && <SuccessBanner message={resent} />}
+        {email ? (
+          <button type="button" className="btn btn-secondary w-full" onClick={handleResend} disabled={loading}>
+            {loading ? <><Spin /> Sending</> : 'Resend the link'}
+          </button>
+        ) : (
+          <Link to="/signup" className="btn btn-primary w-full auth-submit">
+            Back to sign up <ArrowRight size={16} />
+          </Link>
+        )}
       </div>
     </AuthLayout>
   );
@@ -716,4 +769,4 @@ const SuccessBanner = ({ message }) => (
 
 const Spin = () => <span className="auth-spin" />;
 
-export { Login, Signup, ForgotPassword, ResetPassword, VerifyEmail };
+export { Login, Signup, ForgotPassword, ResetPassword, VerifyEmail, SignupComplete };

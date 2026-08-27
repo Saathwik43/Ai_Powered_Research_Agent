@@ -1,11 +1,12 @@
 import React, { useState, useEffect, Suspense, lazy } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { Menu } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppProvider } from './context/AppContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { MotionConfig } from 'motion/react';
 import Sidebar from './components/Sidebar';
+import PageMeta from './components/PageMeta';
 import './App.css';
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -26,6 +27,10 @@ const ResetPassword = lazy(() =>
 const VerifyEmail = lazy(() =>
   import('./pages/AuthPages').then((m) => ({ default: m.VerifyEmail }))
 );
+const SignupComplete = lazy(() =>
+  import('./pages/AuthPages').then((m) => ({ default: m.SignupComplete }))
+);
+const NotFound = lazy(() => import('./pages/NotFound'));
 
 const AppLoader = () => (
   <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
@@ -96,15 +101,7 @@ const ProtectedLayout = () => {
       />
       <main className={`main-content ${collapsed ? 'collapsed' : ''}`}>
         <Suspense fallback={<PageFallback />}>
-          <Routes>
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/literature-survey" element={<LiteratureSurvey />} />
-            <Route path="/pdf-analysis" element={<PdfAnalysis />} />
-            <Route path="/manuscript-builder" element={<ManuscriptBuilder />} />
-            <Route path="/venue-recommendations" element={<VenueRecommendations />} />
-            <Route path="/admin" element={<AdminDashboard />} />
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
-          </Routes>
+          <Outlet />
         </Suspense>
       </main>
     </>
@@ -121,6 +118,7 @@ const PublicRoute = ({ children }) => {
 function AppRoutes() {
   return (
     <div className="app-container">
+      <PageMeta />
       <Suspense fallback={<AppLoader />}>
         <Routes>
           <Route path="/" element={<PublicRoute><LandingPage /></PublicRoute>} />
@@ -131,7 +129,16 @@ function AppRoutes() {
           {/* Not wrapped in PublicRoute: the page signs the user in itself, and
               a redirect-if-authenticated guard would bounce them off it. */}
           <Route path="/verify-email" element={<VerifyEmail />} />
-          <Route path="/*" element={<ProtectedLayout />} />
+          <Route path="/signup/complete" element={<SignupComplete />} />
+          <Route element={<ProtectedLayout />}>
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/literature-survey" element={<LiteratureSurvey />} />
+            <Route path="/pdf-analysis" element={<PdfAnalysis />} />
+            <Route path="/manuscript-builder" element={<ManuscriptBuilder />} />
+            <Route path="/venue-recommendations" element={<VenueRecommendations />} />
+            <Route path="/admin" element={<AdminDashboard />} />
+          </Route>
+          <Route path="*" element={<NotFound />} />
         </Routes>
       </Suspense>
     </div>
