@@ -3,7 +3,7 @@
 An AI-assisted platform for academic research and publishing. It supports the workflow end to end: discovering a topic, running a literature survey across nine bibliographic databases, reading and questioning source papers, drafting a manuscript grounded in that literature, and selecting a publication venue.
 
 - **Live deployment:** [ai-powered-research-agent-live.onrender.com](https://ai-powered-research-agent-live.onrender.com)
-- **Architecture:** [`architecture_and_workflow.md`](architecture_and_workflow.md) — component diagram, end-to-end request sequence, search pipeline, and evidence ladder.
+- **Architecture:** `[architecture_and_workflow.md](architecture_and_workflow.md)` — component diagram, end-to-end request sequence, search pipeline, and evidence ladder.
 
 ## Capabilities
 
@@ -28,12 +28,14 @@ An AI-assisted platform for academic research and publishing. It supports the wo
 
 ## Technology stack
 
-| Layer | Components |
-| --- | --- |
-| Frontend | React 19, Vite, React Router, Tailwind CSS v4, `react-pdf` / `pdfjs-dist`, Mermaid, KaTeX, Recharts, Motion |
-| Backend | FastAPI on Python 3.11/3.12, MongoDB via Motor, `httpx` with a shared connection pool |
-| Models | Gemini, OpenAI, Groq, Cerebras, Mistral, HuggingFace (automatic cascade); Gemini embeddings back the semantic cache |
-| Email | Brevo, for address verification and password reset |
+
+| Layer    | Components                                                                                                          |
+| -------- | ------------------------------------------------------------------------------------------------------------------- |
+| Frontend | React 19, Vite, React Router, Tailwind CSS v4, `react-pdf` / `pdfjs-dist`, Mermaid, KaTeX, Recharts, Motion         |
+| Backend  | FastAPI on Python 3.11/3.12, MongoDB via Motor, `httpx` with a shared connection pool                               |
+| Models   | Gemini, OpenAI, Groq, Cerebras, Mistral, HuggingFace (automatic cascade); Gemini embeddings back the semantic cache |
+| Email    | Brevo, for address verification and password reset                                                                  |
+
 
 ## Getting started
 
@@ -83,11 +85,13 @@ npm run dev
 
 ### Required
 
-| Variable | Notes |
-| --- | --- |
-| `JWT_SECRET_KEY` | The application refuses to start without it |
-| `MONGO_URI` | Defaults to `mongodb://localhost:27017` |
+
+| Variable         | Notes                                                                                                                    |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `JWT_SECRET_KEY` | The application refuses to start without it                                                                              |
+| `MONGO_URI`      | Defaults to `mongodb://localhost:27017`                                                                                  |
 | One provider key | `GEMINI_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `CEREBRAS_API_KEY`, `MISTRAL_API_KEY`, or `HUGGINGFACEHUB_API_TOKEN` |
+
 
 ### Authentication and email
 
@@ -103,14 +107,16 @@ All source keys are optional; a source without its key is skipped rather than fa
 
 ### Sessions and caching
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `ACCESS_TOKEN_EXPIRE_HOURS` | `1` | Access token lifetime |
-| `REFRESH_TOKEN_EXPIRE_DAYS` | `14` | How long a signed-in tab keeps working |
-| `JWT_REFRESH_SECRET_KEY` | derived from `JWT_SECRET_KEY` | Set only for independent rotation |
-| `JWT_VERIFY_SECRET_KEY`, `JWT_RESET_SECRET_KEY` | derived | Verification and reset links are signed with their own keys |
-| `SHARED_CACHE_ENABLED` | on | Set to `0` to keep every cache in-process |
-| `SHARED_CACHE_TIMEOUT` | `2.5` | A cache read must never outlast the work it skips |
+
+| Variable                                        | Default                       | Purpose                                                     |
+| ----------------------------------------------- | ----------------------------- | ----------------------------------------------------------- |
+| `ACCESS_TOKEN_EXPIRE_HOURS`                     | `1`                           | Access token lifetime                                       |
+| `REFRESH_TOKEN_EXPIRE_DAYS`                     | `14`                          | How long a signed-in tab keeps working                      |
+| `JWT_REFRESH_SECRET_KEY`                        | derived from `JWT_SECRET_KEY` | Set only for independent rotation                           |
+| `JWT_VERIFY_SECRET_KEY`, `JWT_RESET_SECRET_KEY` | derived                       | Verification and reset links are signed with their own keys |
+| `SHARED_CACHE_ENABLED`                          | on                            | Set to `0` to keep every cache in-process                   |
+| `SHARED_CACHE_TIMEOUT`                          | `2.5`                         | A cache read must never outlast the work it skips           |
+
 
 ### Request limits
 
@@ -138,7 +144,7 @@ Tests marked `integration` make real API calls and are skipped unless `--run-int
 
 ## Repository layout
 
-```text
+```
 backend/
   ai/            model providers, generation, grounding, evidence extraction
   core/          auth, config, caching, retries, SSRF guard
@@ -152,3 +158,4 @@ frontend/
   src/lib/       single API client and query cache
 architecture_and_workflow.md
 ```
+

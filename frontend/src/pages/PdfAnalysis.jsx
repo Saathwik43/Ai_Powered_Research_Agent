@@ -218,10 +218,6 @@ export default function PdfAnalysis() {
   const [activeChatId, setActiveChatId] = useState(null);
   const [historyCollapsed, setHistoryCollapsed] = useState(true);
   const [loadingChats, setLoadingChats] = useState(false);
-  // 1.16 — uploaded PDFs used to be sent to LlamaCloud with nothing said about
-  // it. Consent is off until the user turns it on; local parsing is the default.
-  const [consent, setConsent] = useState(null);
-  const [consentSaving, setConsentSaving] = useState(false);
 
   const chatEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -426,28 +422,6 @@ export default function PdfAnalysis() {
       }
     } catch (e) {
       console.error('Failed to save chat', e);
-    }
-  };
-
-  useEffect(() => {
-    let cancelled = false;
-    api
-      .get('/api/user/processing-consent')
-      .then((state) => { if (!cancelled) setConsent(state); })
-      // A failed lookup leaves `consent` null, which hides the control. The
-      // server still defaults to local parsing, so nothing leaks either way.
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [api]);
-
-  const updateConsent = async (granted) => {
-    setConsentSaving(true);
-    try {
-      setConsent(await api.post('/api/user/processing-consent', { granted }));
-    } catch (e) {
-      setError(e?.message || 'Could not save that preference.');
-    } finally {
-      setConsentSaving(false);
     }
   };
 
@@ -766,32 +740,6 @@ export default function PdfAnalysis() {
                 <h3>Drop your PDF here</h3>
                 <p>or click to browse</p>
               </div>
-
-              {/* 1.16 — say what leaves this server, before anything is uploaded. */}
-              {consent?.available && (
-                <div className="pdf-consent-notice">
-                  <label style={{ display: 'flex', gap: '0.6rem', alignItems: 'flex-start', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={Boolean(consent.current)}
-                      disabled={consentSaving}
-                      onChange={(e) => updateConsent(e.target.checked)}
-                      style={{ marginTop: '0.2rem', width: 'auto' }}
-                    />
-                    <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                      {consent.disclosure}
-                      {consent.processors?.[0]?.url && (
-                        <>
-                          {' '}
-                          <a href={consent.processors[0].url} target="_blank" rel="noreferrer noopener">
-                            Their privacy policy
-                          </a>.
-                        </>
-                      )}
-                    </span>
-                  </label>
-                </div>
-              )}
             </div>
           ) : (
             <>
