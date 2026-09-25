@@ -104,8 +104,12 @@ def configure_logging() -> None:
 
     if not has_rotating:
         try:
+            # Keep the file out of the app directory. uvicorn --reload watches
+            # cwd, and writing backend.log there restart-loops the worker.
+            import tempfile
+            log_path = os.path.join(tempfile.gettempdir(), "research-agent-backend.log")
             file_handler = _SafeRotatingFileHandler(
-                "backend.log",
+                log_path,
                 maxBytes=5 * 1024 * 1024,
                 backupCount=3,
                 encoding="utf-8",

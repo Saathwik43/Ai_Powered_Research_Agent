@@ -15,7 +15,13 @@ from fastapi.responses import StreamingResponse
 
 from ai.gap_analysis import analyze_gaps
 from ai.guideline_alignment import align_guidelines
-from ai.latex_export import VENUES, export_manuscript, match_manuscript_refs_to_papers
+from ai.bibliography import to_csl_json, to_ris
+from ai.latex_export import (
+    VENUES,
+    export_manuscript,
+    match_manuscript_refs_to_papers,
+    resolve_export_references,
+)
 from ai.llm_provider import current_model, current_provider
 from ai.model_allowlist import bound_requested_model
 from ai.manuscript_generation import edit_section
@@ -668,7 +674,12 @@ async def export_manuscript_latex(
     readme = (
         f"LaTeX export for: {topic}\n"
         f"Venue: {venue.upper()}\n\n"
-        "This zip contains paper.tex + references.bib only. You still need:\n"
+        "Contents:\n"
+        "  paper.tex           the manuscript\n"
+        "  references.bib      BibTeX, cited from paper.tex\n"
+        "  references.ris      the same references for Zotero / Mendeley / EndNote\n"
+        "  references.csl.json the same references as CSL-JSON (Pandoc, Zotero)\n"
+        "\nYou still need:\n"
         f"  1. The official {venue.upper()} class file (not included -- get the current\n"
         "     version from the publisher's author center or Overleaf's official template\n"
         "     gallery, since redistributing a bundled copy here would go stale).\n"
@@ -697,10 +708,16 @@ async def export_manuscript_latex(
     if warnings:
         readme += "\nWarnings:\n" + "".join(f"  - {w}\n" for w in warnings)
 
+    # The list the .bib was actually built from, so the reference manager files
+    # below describe the same set rather than a separately-derived one (2.8).
+    resolved_refs = resolve_export_references(references, doc.get("manuscript_refs"), content)
+
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("paper.tex", tex)
         zf.writestr("references.bib", bib)
+        zf.writestr("references.ris", to_ris(resolved_refs))
+        zf.writestr("references.csl.json", to_csl_json(resolved_refs))
         zf.writestr("README.txt", readme)
     buf.seek(0)
 

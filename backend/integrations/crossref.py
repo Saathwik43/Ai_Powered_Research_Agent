@@ -26,6 +26,47 @@ CROSSREF_BASE_URL = "https://api.crossref.org/journals"
 
 logger = logging.getLogger(__name__)
 
+def _bibliographic_fields(item: dict) -> dict:
+    """Venue, entry type and page numbers for the bibliography (2.8).
+
+    Crossref is the richest source here — it is the registration agency, so its
+    `type` is authoritative rather than inferred, and it is the only one of our
+    sources that reliably reports publisher and page ranges. Keys with no real
+    value are omitted so the dedupe merge can fill them from another record.
+    """
+    out = {}
+
+    container = item.get("container-title") or []
+    venue = (container[0] if container else "").strip()
+    if venue:
+        out["venue"] = venue
+
+    # "journal-article", "proceedings-article", "book-chapter", "posted-content"...
+    work_type = (item.get("type") or "").strip()
+    if work_type:
+        out["type"] = work_type
+    # Distinguishes a preprint from any other `posted-content` record.
+    subtype = (item.get("subtype") or "").strip()
+    if subtype:
+        out["subtype"] = subtype
+
+    publisher = (item.get("publisher") or "").strip()
+    if publisher:
+        out["publisher"] = publisher
+    volume = str(item.get("volume") or "").strip()
+    if volume:
+        out["volume"] = volume
+    issue = str(item.get("issue") or "").strip()
+    if issue:
+        out["issue"] = issue
+    # Crossref writes ranges as "12-34"; BibTeX wants an en-dash range.
+    page = str(item.get("page") or "").strip()
+    if page:
+        out["pages"] = page.replace("-", "--") if "--" not in page else page
+
+    return out
+
+
 async def get_venue_metadata(issn: str):
     """
     Queries Crossref REST API for venue metadata (using polite pool).
@@ -101,7 +142,7 @@ async def search_works(query: str, limit: int = 8) -> list:
                     published = item.get("created", {}).get("date-parts", [[None]])[0][0]
 
                 doi = item.get("DOI", "")
-                papers.append({
+                paper = {
                     "id": doi,
                     "title": title,
                     "authors": author_str,
@@ -111,7 +152,9 @@ async def search_works(query: str, limit: int = 8) -> list:
                     "url": item.get("URL", ""),
                     "doi": doi,
                     "source": "Crossref"
-                })
+                }
+                paper.update(_bibliographic_fields(item))
+                papers.append(paper)
             rec.succeed(http_status=response.status_code, items=len(papers))
             return papers
     except Exception as e:

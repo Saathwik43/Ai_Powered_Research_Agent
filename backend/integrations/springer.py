@@ -54,7 +54,7 @@ async def search_papers(query: str, limit: int = 15) -> list:
                     year = pub_date[:4] if pub_date else "Unknown"
                     doi = _springer_doi(item)
                     
-                    papers.append({
+                    paper = {
                         "id": item.get("identifier", ""),
                         "title": item.get("title", ""),
                         "authors": author_str,
@@ -65,7 +65,36 @@ async def search_papers(query: str, limit: int = 15) -> list:
                         "doi": doi,
                         "citations": 0,
                         "source": "Springer"
-                    })
+                    }
+
+                    # Springer's metadata already distinguishes a journal
+                    # article from a book chapter; `publicationName` is the
+                    # venue rather than the search engine's name (2.8).
+                    venue = (item.get("publicationName") or "").strip()
+                    if venue:
+                        paper["venue"] = venue
+                    content_type = str(item.get("contentType") or "").strip().lower()
+                    if content_type == "article":
+                        paper["type"] = "journal-article"
+                    elif content_type == "chapter":
+                        paper["type"] = "book-chapter"
+                    elif content_type == "book":
+                        paper["type"] = "book"
+                    publisher = (item.get("publisher") or "").strip()
+                    if publisher:
+                        paper["publisher"] = publisher
+                    volume = str(item.get("volume") or "").strip()
+                    if volume:
+                        paper["volume"] = volume
+                    issue = str(item.get("number") or "").strip()
+                    if issue:
+                        paper["issue"] = issue
+                    start = str(item.get("startingPage") or "").strip()
+                    end = str(item.get("endingPage") or "").strip()
+                    if start:
+                        paper["pages"] = f"{start}--{end}" if end and end != start else start
+
+                    papers.append(paper)
                 rec.succeed(http_status=resp.status_code, items=len(papers))
                 return papers
         except Exception as e:

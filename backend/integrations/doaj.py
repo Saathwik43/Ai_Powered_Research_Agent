@@ -44,7 +44,7 @@ async def search_papers(query: str, limit: int = 15) -> list:
                         link_url = link.get("url", "")
                         break
 
-                papers.append({
+                paper = {
                     "id": item.get("id", ""),
                     "title": bibjson.get("title", ""),
                     "authors": author_str,
@@ -55,7 +55,30 @@ async def search_papers(query: str, limit: int = 15) -> list:
                     "doi": doi,
                     "citations": 0,
                     "source": "DOAJ",
-                })
+                }
+
+                # DOAJ indexes open-access *journals* only, so the entry type is
+                # known without inference, and bibjson.journal carries the venue
+                # and pagination the bibliography needs (2.8).
+                journal = bibjson.get("journal") or {}
+                venue = (journal.get("title") or "").strip()
+                if venue:
+                    paper["venue"] = venue
+                    paper["type"] = "journal-article"
+                publisher = (journal.get("publisher") or "").strip()
+                if publisher:
+                    paper["publisher"] = publisher
+                volume = str(journal.get("volume") or "").strip()
+                if volume:
+                    paper["volume"] = volume
+                issue = str(journal.get("number") or "").strip()
+                if issue:
+                    paper["issue"] = issue
+                start, end = str(journal.get("start_page") or "").strip(), str(journal.get("end_page") or "").strip()
+                if start:
+                    paper["pages"] = f"{start}--{end}" if end and end != start else start
+
+                papers.append(paper)
             papers = [p for p in papers if p["title"]]
             rec.succeed(http_status=resp.status_code, items=len(papers))
             return papers

@@ -28,6 +28,7 @@ import re
 from ai.llm_provider import generate_completion
 from core import shared_store
 from core.paper_identity import paper_identity
+from services.usage_tracker import tagged
 from core.query_key import canonical_key
 from core.ttl_cache import TTLCache
 
@@ -184,6 +185,7 @@ async def _classify_batch(topic: str, papers: list) -> list[bool] | None:
     return _parse_batch_verdicts(reply, len(papers))
 
 
+@tagged("literature")
 async def _filter_relevant_papers(topic: str, papers: list) -> list:
     """
     Filter *papers* by relevance to *topic*.

@@ -183,36 +183,68 @@
   }
 }
 
-/* Sidebar Usage Card */
+/* Daily AI wallet — tokens used against today's UTC quota.
+   Deliberately compact: three lines and a pill, no gauge and no legend. The
+   breakdown lives in the popover so the resting card stays this height. */
 .sidebar-usage-card {
+  position: relative;
   margin: 0.5rem 0.75rem;
-  padding: 0.85rem 1rem;
   background: var(--bg-elevated);
   border: var(--border-width) solid var(--border);
   border-radius: var(--radius-md);
   font-size: var(--fs-xs);
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
 }
 
-.sidebar-usage-row {
+.sidebar-usage-trigger {
+  width: 100%;
+  padding: 0.7rem 0.85rem;
+  background: none;
+  border: none;
+  border-radius: inherit;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font: inherit;
+  color: inherit;
+}
+
+.sidebar-usage-trigger:hover {
+  background: var(--bg-hover);
+}
+
+.sidebar-usage-trigger:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.sidebar-usage-title {
+  color: var(--text-muted);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.sidebar-usage-row,
+.sidebar-usage-pop-head {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.sidebar-usage-pct {
   color: var(--text);
   font-weight: 600;
 }
 
-.sidebar-usage-stat {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-}
-
-.sidebar-usage-reset {
-  color: var(--text-subtle);
+.sidebar-usage-tokens {
+  color: var(--text-muted);
   font-size: var(--fs-2xs);
+  /* Tabular figures so the number does not jitter sideways as it ticks up. */
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .sidebar-usage-track {
@@ -220,26 +252,91 @@
   background: var(--border);
   border-radius: 999px;
   overflow: hidden;
+  display: flex;
 }
 
-.sidebar-usage-fill {
+.sidebar-usage-seg {
   height: 100%;
-  background: var(--primary);
-  border-radius: 999px;
   transition: width 0.3s ease;
 }
 
-.sidebar-usage-messages {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  color: var(--text-muted);
-  font-size: var(--fs-xs);
+/* Four distinct hues rather than four tints of one, so a thin segment is still
+   identifiable against its neighbour. Fixed values, not theme tokens: these
+   have to stay the same colour as their popover swatches in both themes. */
+.sidebar-usage-seg.is-literature,
+.sidebar-usage-swatch.is-literature { background: #3b82f6; }
+
+.sidebar-usage-seg.is-pdf,
+.sidebar-usage-swatch.is-pdf { background: #f59e0b; }
+
+.sidebar-usage-seg.is-manuscript,
+.sidebar-usage-swatch.is-manuscript { background: #10b981; }
+
+.sidebar-usage-seg.is-other,
+.sidebar-usage-swatch.is-other { background: #8b8fa3; }
+
+.sidebar-usage-reset {
+  color: var(--text-subtle);
+  font-size: var(--fs-2xs);
 }
 
-.sidebar-usage-icon {
-  color: var(--primary);
+/* Opens upward: the card sits directly above the footer, so a downward
+   popover would be clipped by the sidebar's bottom edge. */
+.sidebar-usage-popover {
+  position: absolute;
+  bottom: calc(100% + 0.4rem);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  padding: 0.75rem 0.85rem;
+  background: var(--bg-elevated);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sidebar-usage-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.sidebar-usage-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.sidebar-usage-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
   flex-shrink: 0;
+}
+
+.sidebar-usage-list-label {
+  color: var(--text-muted);
+  flex: 1;
+  min-width: 0;
+}
+
+.sidebar-usage-list-value {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.sidebar-usage-empty,
+.sidebar-usage-hint {
+  margin: 0;
+  color: var(--text-subtle);
+  font-size: var(--fs-2xs);
+  line-height: 1.4;
 }
 
 .sidebar-footer {

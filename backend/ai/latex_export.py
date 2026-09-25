@@ -21,6 +21,8 @@ import os
 import re
 import logging
 
+from ai.bibliography import bibtex_key, to_bibtex, venue_of
+
 logger = logging.getLogger(__name__)
 
 # Characters that must be escaped in LaTeX text mode.
@@ -564,16 +566,28 @@ def match_manuscript_refs_to_papers(manuscript_refs, papers, citation_style: str
             })
             continue
         paper = unused.pop(found_i)
-        snapshot.append({
+        row = {
             "index": index,
             "title": paper.get("title") or "Unknown Title",
             "authors": paper.get("authors") or "",
             "year": paper.get("year") or "",
-            "journal": paper.get("journal") or paper.get("venue") or paper.get("source") or "",
+            # Was `... or paper.get("source")`, which put the *search engine*
+            # ("OpenAlex", "arXiv") in the journal field of every reference that
+            # had no venue. `venue_of` refuses those names (2.8).
+            "journal": venue_of(paper),
             "doi": paper.get("doi") or "",
             "url": paper.get("url") or "",
             "abstract": (paper.get("abstract") or "")[:600],
-        })
+        }
+        # The bibliographic fields the integrations now report. This dict is
+        # built by whitelist, so anything not named here is dropped before it
+        # ever reaches the .bib -- which is why adding them upstream was not
+        # enough on its own.
+        for key in ("type", "subtype", "venue_type", "publisher", "volume", "issue", "pages", "eprint"):
+            value = paper.get(key)
+            if value:
+                row[key] = value
+        snapshot.append(row)
     snapshot.sort(key=lambda p: int(p["index"]) if str(p.get("index", "")).isdigit() else 0)
     return snapshot
 
@@ -636,39 +650,28 @@ def _build_sections_latex(content: dict, cite_keys: dict = None,
     return "\n".join(parts)
 
 
-def _bibtex_key(paper: dict, index) -> str:
-    authors_raw = paper.get("authors", "") or ""
-    first_author = authors_raw.split(",")[0].strip() if authors_raw else ""
-    last_name = first_author.split()[-1] if first_author else "ref"
-    last_name = re.sub(r"[^a-zA-Z]", "", last_name) or "ref"
-    year = re.sub(r"[^0-9]", "", str(paper.get("year", "")) or "")
-    return f"{last_name}{year or index}{index}"
+# Entry types, DOI validation and the .bib/.ris/.csl emitters all live in
+# `ai/bibliography.py` now (2.8). The versions that used to be inline here
+# emitted `@article` for every reference and fell back to `paper["source"]` for
+# the journal name, so exports shipped `journal = {OpenAlex}`.
+_bibtex_key = bibtex_key
+_build_bibtex = to_bibtex
 
 
-def _build_bibtex(references: list) -> str:
-    entries = []
-    for i, paper in enumerate(references or [], 1):
-        # Key off the persisted index so the .bib and the \cite{} markers agree
-        # by construction rather than by both happening to enumerate the same way.
-        key = _bibtex_key(paper, str(paper.get("index") or i))
-        title = (paper.get("title", "Untitled") or "Untitled").replace("{", "").replace("}", "")
-        authors_raw = paper.get("authors", "") or "Unknown"
-        authors_bib = " and ".join(a.strip() for a in re.split(r",\s*(?:and\s+)?|\s+and\s+", authors_raw) if a.strip())
-        year = paper.get("year", "n.d.") or "n.d."
-        journal = paper.get("journal") or paper.get("venue") or paper.get("source") or ""
-        doi = paper.get("doi", "")
-        url = paper.get("url", "")
+def resolve_export_references(references: list, manuscript_refs, content: dict) -> list:
+    """The reference list an export actually ships, holes filled.
 
-        fields = [f'  title = {{{title}}}', f'  author = {{{authors_bib}}}', f'  year = {{{year}}}']
-        if journal:
-            fields.append(f'  journal = {{{journal}}}')
-        if doi:
-            fields.append(f'  doi = {{{doi}}}')
-        elif url:
-            fields.append(f'  url = {{{url}}}')
-
-        entries.append(f"@article{{{key},\n" + ",\n".join(fields) + "\n}")
-    return "\n\n".join(entries)
+    `export_manuscript` does this internally to build the .bib. The router
+    needs the *same* resolved list to write references.ris and
+    references.csl.json, and re-deriving it there by hand is how the three
+    files would drift apart. Pure and deterministic, so calling it twice on the
+    same inputs is free of surprises.
+    """
+    return fill_reference_holes(
+        references or [],
+        manuscript_refs,
+        used_indices=_cited_indices(content),
+    )
 
 
 def export_manuscript(
@@ -706,11 +709,10 @@ def export_manuscript(
         skeleton = f.read()
 
     warnings = []
-    references = fill_reference_holes(
-        references or [],
-        manuscript_refs,
-        used_indices=_cited_indices(content),
-    )
+    # Same call the router makes to build references.ris / references.csl.json,
+    # so all three files describe one reference list rather than three
+    # independently-derived ones.
+    references = resolve_export_references(references, manuscript_refs, content)
     stub_idx = sorted(
         (
             str(p.get("index") or i)

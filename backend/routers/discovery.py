@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from bson import ObjectId
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 
 from ai.guardrails import validate_input_layers_a_b
 from ai.relevance import _filter_relevant_papers
@@ -27,7 +27,19 @@ from integrations.paper_search import (
     search_all,
     search_all_with_meta,
 )
-from schemas import LiteratureSavePayload
+from ai.paper_brief import (
+    INLINE_BRIEF_COUNT,
+    WARM_BRIEF_COUNT,
+    brief_papers,
+    briefs_within,
+    deep_brief_paper,
+    warm_briefs,
+)
+from schemas import (
+    LiteratureBriefPayload,
+    LiteratureDeepBriefPayload,
+    LiteratureSavePayload,
+)
 from services.query_history import (
     _suggest_rank,
     normalize_suggest_input,
@@ -87,10 +99,37 @@ async def _collect_relevant(query: str, papers: list, wanted: int) -> tuple[list
     return relevant[:wanted], examined
 
 
+async def _attach_briefs(papers: list, background: BackgroundTasks) -> list:
+    """Card briefings for the first page, without making search wait on them.
+
+    The head of the page is briefed inline under a deadline, so those cards
+    arrive complete instead of showing the extractive split and then swapping
+    under the reader a second later. The tail of the same page is warmed into
+    the shared cache after the response is sent, so scrolling hits it warm.
+    Papers beyond the first page are briefed on demand, as before.
+
+    Papers are copied rather than mutated: these dicts are the cached search
+    results, and a `brief` written into them would be served as part of the
+    next cache hit for a different query.
+    """
+    if not papers:
+        return papers
+    head = papers[:INLINE_BRIEF_COUNT]
+    briefed = list(papers)
+    for index, bullets in enumerate(await briefs_within(head)):
+        if bullets:
+            briefed[index] = {**briefed[index], "brief": bullets}
+    tail = papers[INLINE_BRIEF_COUNT:WARM_BRIEF_COUNT]
+    if tail:
+        background.add_task(warm_briefs, tail)
+    return briefed
+
+
 @router.get("/api/literature")
 @limiter.limit("5/minute")
 async def get_literature(
     request: Request,
+    background: BackgroundTasks,
     query: str,
     limit: int = LITERATURE_DEFAULT_LIMIT,
     fresh: bool = False,
@@ -128,8 +167,9 @@ async def get_literature(
     )
     total = len(papers)
     filtered, examined = await _collect_relevant(query, papers, effective_limit)
+    briefed = await _attach_briefs(filtered, background)
     response = {
-        "data": filtered,
+        "data": briefed,
         "count": len(filtered),
         "total": total,
         # Unclassified papers remain, so another page is genuinely available.
@@ -321,6 +361,38 @@ async def search_github(request: Request, query: str, current_user: dict = Depen
 
 
 # ─── Save / Load Literature Survey (per user) ─────────────────────────────────
+
+@router.post("/api/literature/brief")
+@limiter.limit("20/minute")
+async def brief_literature(
+    request: Request,
+    payload: LiteratureBriefPayload,
+    current_user: dict = Depends(get_current_user),
+):
+    """Plain-language 4–5 bullets per paper, grounded in title + abstract only."""
+    papers = [p.model_dump() for p in (payload.papers or [])]
+    bullets_list = await brief_papers(papers)
+    return {"briefs": [{"bullets": bullets} for bullets in bullets_list]}
+
+
+@router.post("/api/literature/deep-brief")
+# One paper per call, and a call can fetch and parse a PDF — an order of
+# magnitude more expensive than the abstract briefing above.
+@limiter.limit("10/minute")
+async def deep_brief_literature(
+    request: Request,
+    payload: LiteratureDeepBriefPayload,
+    current_user: dict = Depends(get_current_user),
+):
+    """Briefing read from the paper's full text, for a card the reader opened.
+
+    Cheapest structured source first (arXiv HTML, arXiv LaTeX, Europe PMC JATS)
+    and the OA PDF only if none of those answer. Falls back to the abstract
+    briefing, reporting `source: "abstract"`, when there is no readable full
+    text — which is most closed-access papers.
+    """
+    return await deep_brief_paper(payload.paper.model_dump())
+
 
 @router.post("/api/literature/save")
 @limiter.limit("30/minute")

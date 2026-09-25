@@ -140,7 +140,7 @@ export default function UsersPanel({ users, api, onChanged }) {
                 <th>Status</th>
                 <th>Today</th>
                 <th>Lifetime</th>
-                <th>Msgs left</th>
+                <th>Tokens left</th>
                 <th>Quota</th>
                 <th>Actions</th>
               </tr>
@@ -184,7 +184,7 @@ export default function UsersPanel({ users, api, onChanged }) {
                       <span className="admin-mono muted">{u.tokens_total.toLocaleString()}</span>
                     </td>
                     <td>
-                      <span className="badge-messages">{u.messages_left}</span>
+                      <span className="badge-messages">{Number(u.remaining ?? 0).toLocaleString()}</span>
                     </td>
                     <td>
                       <div className="admin-quota-cell">

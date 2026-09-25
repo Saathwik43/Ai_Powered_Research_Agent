@@ -7,6 +7,7 @@ import './LiteratureSurvey.css';
 import { useAuth } from '../context/AuthContext';
 import { useAppContext } from '../context/AppContext';
 import { Spinner, SkeletonList } from '../components/Loader';
+import ScientificText from '../components/ScientificText';
 import {
   validateSearchQuery,
   normalizeSearchQuery,
@@ -42,6 +43,198 @@ function sourceLabel(name) {
   return SOURCE_LABELS[name] || name;
 }
 
+const BRIEF_LABELS = ['About', 'Method', 'Finding', 'Results', 'Limit'];
+const BRIEF_FILL = ['About', 'Finding', 'Method'];
+const NO_ABSTRACT = new Set([
+  '',
+  'No abstract available',
+  'No abstract available.',
+  'Abstract not available via PubMed summary API.',
+]);
+// `Next` only ever comes from the full-text path, where the authors state it.
+const BRIEF_LINE_RE = /^(About|Method|Finding|Results|Limit|Next):\s*([\s\S]*)$/i;
+const BRIEF_SOFT = 180;
+const BRIEF_HARD = 260;
+const BRIEF_MIN_CLIP = 80;
+const ELLIPSIS = '…';
+// A sentence end, ignoring the abbreviations that look like one.
+const SENTENCE_END_RE = /(?<!\be\.g)(?<!\bi\.e)(?<!\bet al)(?<!\bvs)(?<!\bFig)(?<!\bEq)(?<!\bRef)(?<!\bcf)(?<!\bapprox)[.!?]["'”)\]]?(?=\s|$)/g;
+
+// Keep whole sentences. A card that ends "using multiple." looks like a finished
+// claim when it is really a cut; an ellipsis says the sentence goes on.
+function clipBrief(text, soft = BRIEF_SOFT, hard = BRIEF_HARD) {
+  const t = String(text || '').replace(/\s+/g, ' ').trim();
+  if (t.length <= soft) return t;
+  const window = t.slice(0, hard);
+  let cut = 0;
+  for (const m of window.matchAll(SENTENCE_END_RE)) cut = m.index + m[0].length;
+  if (cut >= BRIEF_MIN_CLIP) return window.slice(0, cut).trim();
+  const slice = t.slice(0, soft);
+  const sp = slice.lastIndexOf(' ');
+  const stem = sp > BRIEF_MIN_CLIP ? slice.slice(0, sp) : slice;
+  return `${stem.replace(/[,;:.\s]+$/, '')}${ELLIPSIS}`;
+}
+
+function endsSentence(text) {
+  const stripped = String(text || '').trimEnd();
+  if (!stripped) return false;
+  if (stripped.endsWith(ELLIPSIS)) return true;
+  return new RegExp(SENTENCE_END_RE.source).test(stripped.slice(-3));
+}
+
+// Results needs a stated outcome, not an evaluation setup ("we evaluate on three
+// datasets") and not background prose carrying an outcome word ("increasingly
+// used"). Either a number, or a comparative verb owned by the work.
+const RESULTS_NUM_RE = /(\d+(\.\d+)?\s*%|\b\d+(\.\d+)?\s*x\b|\b(accuracy|auc|f1|bleu|rouge|precision|recall|error rate|mae|rmse)\b[^.]{0,40}\d)/i;
+const RESULTS_VERB_RE = /\b(outperform|surpass|achiev|attain|improv|reduc|boost|yield)\w*\b/i;
+const RESULTS_SUBJECT_RE = /\b(our|we|proposed|baseline|state[- ]of[- ]the[- ]art|sota|results?|experiments?|evaluation)\b/i;
+
+function isResultChunk(text) {
+  if (RESULTS_NUM_RE.test(text)) return true;
+  if (!RESULTS_VERB_RE.test(text)) return false;
+  return RESULTS_SUBJECT_RE.test(text) || /\d/.test(text);
+}
+
+function classifyBriefChunk(text) {
+  if (/\b(limit|however|cannot|do not|future work|only when|does not yet)\b/i.test(text)) return 'Limit';
+  if (isResultChunk(text)) return 'Results';
+  if (/\b(we (propose|present|introduce|develop|use|apply|focus|train|design|evaluate|benchmark|test)|method|approach|algorithm|framework|evaluat|experiment|benchmark|dataset|\busing\b)/i.test(text)) {
+    return 'Method';
+  }
+  if (/\b(we (show|find|demonstrate|observe|conclude|investigate|study)|this paper (shows|presents|argues)|contribution)\b/i.test(text)) {
+    return 'Finding';
+  }
+  return null;
+}
+
+// Make a clause split read as a sentence, not as a severed middle.
+function tidyChunk(raw) {
+  let text = String(raw || '').replace(/\s+/g, ' ').trim().replace(/^[\s,;:\-–—]+|[\s,;:\-–—]+$/g, '');
+  text = text.replace(/[\s,;:]*\b(and|or|but|which|that|while|whereas|as well as)\s*$/i, '').replace(/[\s,;:]+$/, '');
+  if (text && text[0] !== text[0].toUpperCase()) text = text[0].toUpperCase() + text.slice(1);
+  if (text && !endsSentence(text)) text += '.';
+  return text;
+}
+
+function explodeAbstract(raw) {
+  const text = String(raw || '').replace(/\s+/g, ' ').trim();
+  if (NO_ABSTRACT.has(text)) return [];
+  const coarse = text
+    .split(/(?<=[.!?])\s+|(?<=;)\s+|(?=\bWe\b)|(?=\bThis paper\b)|(?=\bOur\b)/i)
+    .map(tidyChunk)
+    .filter((part) => part.length > 20);
+  const parts = [];
+  coarse.forEach((part) => {
+    if (part.length > 180 && part.includes(':')) {
+      const idx = part.indexOf(':');
+      const left = tidyChunk(part.slice(0, idx));
+      const right = tidyChunk(part.slice(idx + 1));
+      if (left.length > 25) parts.push(left);
+      if (right.length > 25) parts.push(right);
+    } else {
+      parts.push(part);
+    }
+  });
+  // Source APIs often hand back an abstract that is itself cut short, so the
+  // last chunk is a fragment. Mark it rather than presenting it as finished.
+  if (parts.length && !endsSentence(text)) {
+    parts[parts.length - 1] = `${parts[parts.length - 1].replace(/[,;:.\s]+$/, '')}${ELLIPSIS}`;
+  }
+  return parts;
+}
+
+function extractiveBrief(paper) {
+  const leftover = explodeAbstract(paper?.abstract);
+  const byLabel = {};
+  const unused = [];
+  leftover.forEach((chunk) => {
+    const label = classifyBriefChunk(chunk);
+    if (label && !byLabel[label]) byLabel[label] = chunk;
+    else unused.push(chunk);
+  });
+  BRIEF_FILL.forEach((label) => {
+    if (!byLabel[label] && unused.length) byLabel[label] = unused.shift();
+  });
+  if (!byLabel.About) {
+    const title = String(paper?.title || '').replace(/\s+/g, ' ').trim();
+    if (title) byLabel.About = title;
+  }
+  return BRIEF_LABELS.filter((label) => byLabel[label]).map(
+    (label) => `${label}: ${clipBrief(byLabel[label])}`,
+  );
+}
+
+function parseBriefLine(line) {
+  const match = String(line || '').match(BRIEF_LINE_RE);
+  if (!match) return { label: '', text: String(line || '').trim() };
+  return { label: match[1], text: match[2].trim() };
+}
+
+// Three sources, best first: bullets fetched for this card, bullets the search
+// response already carried, and the abstract split we can do without the model.
+function briefBullets(paper, brief) {
+  if (brief?.bullets?.length) return { bullets: brief.bullets, fromModel: true };
+  if (paper?.brief?.length) return { bullets: paper.brief, fromModel: true };
+  return { bullets: extractiveBrief(paper), fromModel: false };
+}
+
+// Which of the evidence ladder's rungs answered, in the reader's words.
+const FULL_TEXT_SOURCES = {
+  'arxiv-html': 'the full text on arXiv',
+  'arxiv-latex': "the paper's LaTeX source",
+  'europepmc-fulltext': 'the full text on Europe PMC',
+  'pdf-structure': 'the open-access PDF',
+};
+
+function PaperBrief({ paper, brief, deep, onDeepen }) {
+  const shallow = briefBullets(paper, brief);
+  const deepBullets = deep?.bullets?.length ? deep.bullets : null;
+  const bullets = deepBullets || shallow.bullets;
+  const fullTextSource = deepBullets ? FULL_TEXT_SOURCES[deep.source] : null;
+  // The ladder ran and found nothing readable — closed access, most likely.
+  // Say so once rather than leaving a button that will never do anything.
+  const noFullText = Boolean(deep && !deep.loading && !deep.error && !fullTextSource);
+  if (!bullets.length) return null;
+
+  let note = 'Split from the abstract. A tighter briefing loads when the model is free.';
+  if (fullTextSource) note = `Read from ${fullTextSource}.`;
+  else if (noFullText) note = 'No readable full text — skimmed from the abstract.';
+  else if (shallow.fromModel) note = 'Skimmed from the abstract, not the full paper.';
+
+  return (
+    <div className="lit-result-brief-wrap">
+      <ul className="lit-result-brief">
+        {bullets.map((line) => {
+          const { label, text } = parseBriefLine(line);
+          return (
+            <li key={line}>
+              {label ? <span className="lit-brief-label">{label}</span> : null}
+              <ScientificText className="lit-brief-text" text={text || line} />
+            </li>
+          );
+        })}
+      </ul>
+      <div className="lit-result-brief-foot">
+        <p className="lit-result-brief-note">
+          {deep?.error ? 'Could not read the full text. Showing the abstract briefing.' : note}
+        </p>
+        {!deepBullets && !noFullText && (
+          <button
+            type="button"
+            className="lit-brief-deepen"
+            onClick={() => onDeepen(paper)}
+            disabled={deep?.loading}
+          >
+            {deep?.loading
+              ? <><Loader2 size={12} className="lit-brief-spin" /> Reading the paper…</>
+              : <><BookOpen size={12} /> Read the full text</>}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SourceOutcomes({ sources }) {
   if (!sources?.length) return null;
   const ok = sources.filter(s => s.status === 'ok').length;
@@ -75,6 +268,41 @@ function SourceOutcomes({ sources }) {
   );
 }
 
+const HTTP_RE = /^https?:\/\//i;
+
+// Where a reader can open the paper, and where its PDF actually is. Paper
+// dicts arrive straight from nine sources, so every locator field is present
+// on some of them and missing on others — hence the ladders rather than one
+// field. Only used by the PDF export; the cards render whichever links they
+// happen to have.
+function paperLink(p) {
+  if (HTTP_RE.test(p?.url || '')) return p.url;
+  if (p?.doi) return `https://doi.org/${String(p.doi).replace(/^https?:\/\/doi\.org\//i, '')}`;
+  if (HTTP_RE.test(p?.arxiv_url || '')) return p.arxiv_url;
+  if (p?.arxiv_id) return `https://arxiv.org/abs/${p.arxiv_id}`;
+  if (p?.pmcid) return `https://www.ncbi.nlm.nih.gov/pmc/articles/${p.pmcid}/`;
+  // OpenAlex and Semantic Scholar ids are URLs; GitHub's are not.
+  if (HTTP_RE.test(p?.id || '')) return p.id;
+  return '';
+}
+
+function paperPdfLink(p) {
+  if (HTTP_RE.test(p?.pdf_url || '')) return p.pdf_url;
+  // Not guaranteed to be a PDF — it is the best open-access pointer we hold,
+  // which is why the column is headed "PDF / open access".
+  if (HTTP_RE.test(p?.oa_url || '')) return p.oa_url;
+  if (p?.arxiv_id) return `https://arxiv.org/pdf/${p.arxiv_id}`;
+  if (HTTP_RE.test(p?.arxiv_url || '')) return p.arxiv_url.replace('/abs/', '/pdf/');
+  return '';
+}
+
+// Printed in the table cell. The scheme is dropped so the URL has a chance of
+// fitting the column, but the rest is left intact so it stays retypeable off
+// a paper copy — the hyperlink behind it carries the full address.
+function linkLabel(url) {
+  return url.replace(HTTP_RE, '').replace(/^www\./i, '');
+}
+
 export default function LiteratureSurvey() {
   const { api } = useAuth();
   const { literatureState } = useAppContext();
@@ -100,6 +328,11 @@ export default function LiteratureSurvey() {
   // Set when the server answered from a semantically similar query's cache.
   const [matchedQuery, setMatchedQuery] = useState('');
   const [sourceOutcomes, setSourceOutcomes] = useState([]);
+  const [briefs, setBriefs] = useState({});
+  // Full-text briefings, one per card the reader opened. Never prefetched:
+  // a fetch-and-parse is seconds of wall clock and megabytes of transfer.
+  const [deepBriefs, setDeepBriefs] = useState({});
+  const briefRequestedRef = useRef(new Set());
   const { run: runSearch, stop: stopRequest } = useSearchRequest();
 
   const PAGE_SIZE = 15;
@@ -179,6 +412,9 @@ export default function LiteratureSurvey() {
       setFetchedLimit(INITIAL_LIMIT);
       setMatchedQuery('');
       setSourceOutcomes([]);
+      setBriefs({});
+      setDeepBriefs({});
+      briefRequestedRef.current = new Set();
 
       try {
         const res = await api.raw(
@@ -312,6 +548,93 @@ export default function LiteratureSurvey() {
 
   const displayedPapers = filteredPapers.slice(0, visibleCount);
   const hasMoreFiltered = visibleCount < filteredPapers.length || serverHasMore;
+  const visibleIds = displayedPapers.map(paperKey).join('\n');
+
+  useEffect(() => {
+    const needed = displayedPapers.filter((p) => {
+      const key = paperKey(p);
+      if (!p.abstract || p.abstract === 'No abstract available') return false;
+      // /api/literature briefs the head of the first page inline — asking for
+      // those again would spend a call to replace bullets we already have.
+      if (p.brief?.length) return false;
+      if (briefRequestedRef.current.has(key)) return false;
+      return true;
+    });
+    if (!needed.length) return;
+
+    needed.forEach((p) => briefRequestedRef.current.add(paperKey(p)));
+
+    let cancelled = false;
+    const BATCH = 3;
+
+    const run = async () => {
+      for (let i = 0; i < needed.length; i += BATCH) {
+        if (cancelled) return;
+        const chunk = needed.slice(i, i + BATCH);
+        try {
+          const data = await api.post('/api/literature/brief', {
+            papers: chunk.map((p) => ({
+              title: p.title || '',
+              abstract: p.abstract || '',
+              doi: p.doi || undefined,
+              id: p.id || undefined,
+              url: p.url || undefined,
+              arxiv_id: p.arxiv_id || undefined,
+            })),
+          });
+          if (cancelled) return;
+          const list = data.briefs || [];
+          setBriefs((prev) => {
+            const next = { ...prev };
+            chunk.forEach((p, idx) => {
+              const bullets = list[idx]?.bullets || [];
+              if (bullets.length) next[paperKey(p)] = { bullets };
+            });
+            return next;
+          });
+        } catch {
+          chunk.forEach((p) => briefRequestedRef.current.delete(paperKey(p)));
+        }
+      }
+    };
+    run();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleIds, api]);
+
+  // One paper, because the reader asked for it. The server tries arXiv and
+  // Europe PMC before it downloads a PDF, but this is still seconds of work —
+  // it must never run for a page of cards, only for a card someone opened.
+  const deepenBrief = useCallback(async (paper) => {
+    const key = paperKey(paper);
+    setDeepBriefs((prev) => (prev[key]?.loading ? prev : { ...prev, [key]: { loading: true } }));
+    try {
+      const data = await api.post('/api/literature/deep-brief', {
+        paper: {
+          title: paper.title || '',
+          abstract: paper.abstract || '',
+          doi: paper.doi || undefined,
+          id: paper.id || undefined,
+          url: paper.url || undefined,
+          arxiv_id: paper.arxiv_id || undefined,
+          arxiv_url: paper.arxiv_url || undefined,
+          oa_url: paper.oa_url || undefined,
+          pdf_url: paper.pdf_url || undefined,
+          pmcid: paper.pmcid || undefined,
+        },
+      });
+      setDeepBriefs((prev) => ({
+        ...prev,
+        [key]: { bullets: data?.bullets || [], source: data?.source || '' },
+      }));
+    } catch (e) {
+      console.error(e);
+      setDeepBriefs((prev) => ({ ...prev, [key]: { error: true } }));
+    }
+  }, [api]);
 
   const exportSurveyToPDF = async (papersToExport, queryName) => {
     if (!papersToExport || !papersToExport.length) return;
@@ -326,31 +649,59 @@ export default function LiteratureSurvey() {
     doc.setFontSize(10);
     doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 14, 30);
     
-    const tableColumn = ["Title", "Authors", "Year", "Citations"];
+    const tableColumn = ["Title", "Authors", "Year", "Cites", "Paper link", "PDF / open access"];
     const tableRows = [];
+    // The URLs the cells hyperlink to, parallel to tableRows. The printed text
+    // is shortened for width, so the full address has to be carried here.
+    const rowLinks = [];
 
     papersToExport.forEach(p => {
-      const rowData = [
+      const link = paperLink(p);
+      const pdf = paperPdfLink(p);
+      rowLinks.push({ paper: link, pdf });
+      tableRows.push([
         p.title || 'N/A',
         p.authors || 'N/A',
         p.year === 'Unknown' ? (p.published || 'N/A') : (p.year || 'N/A'),
-        p.citations || 0
-      ];
-      tableRows.push(rowData);
+        p.citations || 0,
+        link ? linkLabel(link) : '—',
+        pdf ? linkLabel(pdf) : '—',
+      ]);
     });
+
+    // Which body columns carry a clickable address, and which side of
+    // rowLinks each one reads.
+    const LINK_COLUMNS = { 4: 'paper', 5: 'pdf' };
+    const LINK_BLUE = [21, 101, 192];
 
     autoTable(doc, {
       startY: 35,
+      // Aligns the table with the heading above it, and makes the body exactly
+      // 182mm wide — the column widths below add up to that, and autoTable
+      // shrinks columns silently if they do not fit.
+      margin: { left: 14, right: 14 },
       head: [tableColumn],
       body: tableRows,
-      styles: { fontSize: 8, cellPadding: 3 },
+      styles: { fontSize: 8, cellPadding: 2, overflow: 'linebreak' },
       headStyles: { fillColor: [41, 128, 185] },
       columnStyles: {
-        0: { cellWidth: 80 },
-        1: { cellWidth: 50 },
-        2: { cellWidth: 20 },
-        3: { cellWidth: 20 }
-      }
+        0: { cellWidth: 48 },
+        1: { cellWidth: 32 },
+        2: { cellWidth: 13 },
+        3: { cellWidth: 13 },
+        4: { cellWidth: 38, fontSize: 6.5, textColor: LINK_BLUE },
+        5: { cellWidth: 38, fontSize: 6.5, textColor: LINK_BLUE },
+      },
+      // autoTable draws text, not links. The annotation has to be laid over
+      // the cell after the fact, once its final box is known.
+      didDrawCell: (data) => {
+        if (data.section !== 'body') return;
+        const kind = LINK_COLUMNS[data.column.index];
+        if (!kind) return;
+        const url = rowLinks[data.row.index]?.[kind];
+        if (!url) return;
+        doc.link(data.cell.x, data.cell.y, data.cell.width, data.cell.height, { url });
+      },
     });
 
     doc.save(`survey-${queryName.replace(/\s+/g, '-')}.pdf`);
@@ -618,7 +969,7 @@ export default function LiteratureSurvey() {
             }}
           >
             <div className="lit-result-head">
-              <h3 className="lit-result-title">{p.title}</h3>
+              <ScientificText as="h3" className="lit-result-title" text={p.title} />
               <div className="lit-result-actions">
                 {p.oa_url && (
                   <a href={p.oa_url} target="_blank" rel="noreferrer" className="lit-badge lit-badge-oa"
@@ -641,11 +992,12 @@ export default function LiteratureSurvey() {
               {p.published && p.year === 'Unknown' && <span> · {p.published}</span>}
             </p>
 
-            {p.abstract && p.abstract !== 'No abstract available' && (
-              <p className="lit-result-abstract">
-                {p.abstract.substring(0, 240)}{p.abstract.length > 240 ? '...' : ''}
-              </p>
-            )}
+            <PaperBrief
+              paper={p}
+              brief={briefs[paperKey(p)]}
+              deep={deepBriefs[paperKey(p)]}
+              onDeepen={deepenBrief}
+            />
 
             <div className="lit-result-links">
               {p.url && (

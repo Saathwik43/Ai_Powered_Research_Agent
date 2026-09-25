@@ -3,7 +3,7 @@ import {
   UploadCloud, FileText, Send, AlertCircle,
   ChevronLeft, ChevronRight, Bot, User, Paperclip, X,
   CheckCircle, AlertTriangle, ArrowRight, History,
-  Minus, Plus, BookOpen, MessageSquare, Layers, Search
+  Minus, Plus, BookOpen, MessageSquare, Layers, Search, Image as ImageIcon
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Spinner, TypingDots } from '../components/Loader';
@@ -12,21 +12,32 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import CodeHighlight from '../components/CodeHighlight';
-import Mermaid from '../components/Mermaid';
+import PaperFigure, {
+  PaperFiguresProvider,
+  canonicalFigureLabel,
+  useHasFigure,
+} from '../components/PaperFigure';
 import {
-  isMermaidBlock,
-  extractMermaidCharts,
   parseCodeLanguage,
   codeChildrenToText,
 } from '../utils/mermaidChart';
 import { normalizeLatexDelimiters, KATEX_REHYPE_OPTIONS } from '../utils/latexMath';
+import RequestContextChip from '../components/RequestContextChip';
 import 'katex/dist/katex.min.css';
 import './PdfAnalysis.css';
 import { Document, Page, pdfjs } from 'react-pdf';
+// Bundled, not fetched. The worker used to come from unpkg over a
+// protocol-relative URL, which resolves to http:// on an http origin --
+// and the CSP allows only https://unpkg.com, so it was blocked outright.
+// pdf.js then fell back to a 'fake worker' that dynamically imports the
+// same blocked URL, so that failed too: no worker, no PDF, and Read mode
+// showed 'Failed to load PDF file.' Serving it from 'self' needs no CSP
+// allowance, no network, and cannot drift from react-pdf's pdfjs version.
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 const REMARK_PLUGINS = [remarkGfm, remarkMath];
 const REHYPE_PLUGINS = [[rehypeKatex, KATEX_REHYPE_OPTIONS]];
@@ -36,6 +47,23 @@ const REHYPE_PLUGINS = [[rehypeKatex, KATEX_REHYPE_OPTIONS]];
 // else is free-text chat. Asking for gaps in prose returns a normal `custom`
 // message, which the Findings tab filters out -- so this needs its own trigger.
 const GAP_ANALYSIS_LABEL = 'Analyse research gaps in this paper';
+
+// `[Figure 3]`, `[Table 2]`, `[Fig. 4]` -- the citation contract the backend
+// system prompt asks for. Rewritten to links so the markdown renderer can hand
+// them to <PaperFigure/>, the same trick `[Page 3]` already uses.
+const FIGURE_CITATION_RE =
+  /\[\s*(Fig(?:ure)?\.?|Table|Chart|Scheme)\s*([0-9]+|[IVXLC]+)\s*\]/gi;
+
+function linkFigureCitations(text, hasFigure) {
+  return text.replace(FIGURE_CITATION_RE, (match, word, number) => {
+    const label = canonicalFigureLabel(word, number);
+    // A label this paper does not have stays literal text. The model is told
+    // only listed labels exist; when it invents one anyway, a citation that
+    // quietly does nothing beats a card for a figure that is not there.
+    if (!label || !hasFigure(label)) return match;
+    return `[${label}](#fig-${encodeURIComponent(label)})`;
+  });
+}
 
 const SUGGESTIONS = [
   { label: 'Main contribution', prompt: "What's the main contribution of this paper?" },
@@ -150,6 +178,7 @@ function GapPanel({ data }) {
 
 function MessageBubble({ msg, markdownComponents }) {
   const isUser = msg.role === 'user';
+  const hasFigure = useHasFigure();
 
   const renderContent = () => {
     if (msg.isLoading) return <TypingIndicator />;
@@ -171,7 +200,10 @@ function MessageBubble({ msg, markdownComponents }) {
           rehypePlugins={REHYPE_PLUGINS}
           components={markdownComponents}
         >
-          {normalizeLatexDelimiters((msg.content || '').replace(/\[?(?:Page|Pg\.?)\s*(\d+)\]?/gi, '[Page $1](#page-$1)'))}
+          {normalizeLatexDelimiters(
+            linkFigureCitations(msg.content || '', hasFigure)
+              .replace(/\[?(?:Page|Pg\.?)\s*(\d+)\]?/gi, '[Page $1](#page-$1)')
+          )}
         </ReactMarkdown>
       </div>
     );
@@ -218,6 +250,10 @@ export default function PdfAnalysis() {
   const [activeChatId, setActiveChatId] = useState(null);
   const [historyCollapsed, setHistoryCollapsed] = useState(true);
   const [loadingChats, setLoadingChats] = useState(false);
+  // What the last analysis actually sent to the model. Not persisted with the
+  // chat: it describes one request, and replaying a saved conversation would
+  // show the sizes of a call that is not the one about to be made.
+  const [requestContext, setRequestContext] = useState(null);
 
   const chatEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -226,18 +262,15 @@ export default function PdfAnalysis() {
 
   const hasPaper = Boolean(file || extractedText);
 
-  const findings = useMemo(() => {
-    const gaps = messages.filter(isGapMessage);
-    const diagrams = [];
-    messages.forEach((m) => {
-      if (m.role === 'assistant' && m.content && !m.isLoading) {
-        extractMermaidCharts(m.content).forEach((chart, i) => {
-          diagrams.push({ id: `${m.id}-${i}`, chart, fromMessageId: m.id });
-        });
-      }
-    });
-    return { gaps, diagrams };
-  }, [messages]);
+  // Gap analyses only. Generated diagrams used to land here too, but the model
+  // is no longer allowed to draw any (RP-12): the paper's own figures are the
+  // pictures in this studio now.
+  const findings = useMemo(() => messages.filter(isGapMessage), [messages]);
+
+  const paperFigures = useMemo(
+    () => (Array.isArray(structure?.figures) ? structure.figures : []),
+    [structure],
+  );
 
   useEffect(() => {
     let currentBlobUrl = null;
@@ -284,6 +317,9 @@ export default function PdfAnalysis() {
 
   const markdownComponents = useMemo(() => ({
     a: ({ href, children, ...props }) => {
+      if (href?.startsWith('#fig-')) {
+        return <PaperFigure label={decodeURIComponent(href.slice('#fig-'.length))} />;
+      }
       if (href?.startsWith('#page-')) {
         const pageNum = Number(href.replace('#page-', ''));
         return (
@@ -311,13 +347,6 @@ export default function PdfAnalysis() {
       const contentStr = codeChildrenToText(children);
       const isBlock = Boolean(className) || contentStr.includes('\n');
 
-      if (isBlock && isMermaidBlock(language, contentStr)) {
-        return (
-          <div className="pdf-figure-block">
-            <Mermaid chart={contentStr} />
-          </div>
-        );
-      }
       return isBlock && language ? (
         <CodeHighlight language={language} {...props}>
           {contentStr}
@@ -360,6 +389,8 @@ export default function PdfAnalysis() {
         setError('');
         setMode('ask');
         setHistoryCollapsed(true);
+        // Belongs to the turn that produced it, not to the conversation.
+        setRequestContext(null);
 
         if (chat.file_id) {
           try {
@@ -442,6 +473,7 @@ export default function PdfAnalysis() {
     setCustomPrompt('');
     setIsExtracting(true);
     setActiveChatId(null);
+    setRequestContext(null);
     setMode('ask');
 
     const formData = new FormData();
@@ -527,6 +559,9 @@ export default function PdfAnalysis() {
       }
       const data = await res.json();
       const nextType = data.type === 'structured' ? 'structured' : data.type;
+      // Absent when the question was answered from the paper's metadata without
+      // a model call — clear rather than leave the previous turn's sizes up.
+      setRequestContext(data.context || null);
 
       setMessages((prev) => {
         const updated = prev.map((m) =>
@@ -646,6 +681,12 @@ export default function PdfAnalysis() {
         )}
       </aside>
 
+      <PaperFiguresProvider
+        file={file}
+        blobUrl={pdfBlobUrl}
+        figures={paperFigures}
+        onJumpToPage={jumpToPage}
+      >
       <div className="pdf-studio">
         <header className="pdf-studio-bar">
           <div className="pdf-studio-bar-left">
@@ -674,8 +715,8 @@ export default function PdfAnalysis() {
                 >
                   <Icon size={14} />
                   {label}
-                  {id === 'findings' && (findings.gaps.length > 0 || findings.diagrams.length > 0) && (
-                    <span className="pdf-mode-count">{findings.gaps.length + findings.diagrams.length}</span>
+                  {id === 'findings' && findings.length > 0 && (
+                    <span className="pdf-mode-count">{findings.length}</span>
                   )}
                 </button>
               ))}
@@ -850,6 +891,8 @@ export default function PdfAnalysis() {
               {/* ASK */}
               {mode === 'ask' && (
                 <section className="pdf-mode-panel pdf-ask-panel">
+                 <div className="pdf-ask-grid">
+                  <div className="pdf-ask-main">
                   <div className="pdf-messages-area">
                     {messages.map((msg) => (
                       <MemoMessageBubble key={msg.id} msg={msg} markdownComponents={markdownComponents} />
@@ -884,6 +927,7 @@ export default function PdfAnalysis() {
                         <Layers size={13} />
                         Analyse gaps
                       </button>
+                      <RequestContextChip context={requestContext} />
                     </div>
                     <div className="pdf-input-wrapper">
                       <textarea
@@ -906,17 +950,42 @@ export default function PdfAnalysis() {
                       </button>
                     </div>
                   </div>
+                  </div>
+
+                  {paperFigures.length > 0 && (
+                    <aside className="pdf-figure-rail">
+                      <h3>Figures in this paper</h3>
+                      <ul>
+                        {paperFigures.map((figure) => (
+                          <li key={figure.label}>
+                            <button
+                              type="button"
+                              onClick={() => jumpToPage(Number(figure.page))}
+                              title={figure.caption || figure.label}
+                            >
+                              <span>
+                                <ImageIcon size={12} />
+                                {figure.label}
+                              </span>
+                              <em>p.{figure.page}</em>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </aside>
+                  )}
+                 </div>
                 </section>
               )}
 
               {/* FINDINGS */}
               {mode === 'findings' && (
                 <section className="pdf-mode-panel pdf-findings-panel">
-                  {findings.gaps.length === 0 && findings.diagrams.length === 0 ? (
+                  {findings.length === 0 ? (
                     <div className="pdf-empty-stage compact">
                       <Layers size={28} />
                       <h2>No findings yet</h2>
-                      <p>Run a gap analysis, or ask for a diagram in Ask — results land here.</p>
+                      <p>Run a gap analysis — results land here.</p>
                       <div className="pdf-empty-actions">
                         <button
                           type="button"
@@ -933,24 +1002,13 @@ export default function PdfAnalysis() {
                     </div>
                   ) : (
                     <div className="pdf-findings-stack">
-                      {findings.gaps.map((msg) => (
+                      {findings.map((msg) => (
                         <article key={msg.id} className="pdf-finding-card">
                           <header>
                             <AlertTriangle size={15} />
                             Gap analysis
                           </header>
                           <GapPanel data={msg.data} />
-                        </article>
-                      ))}
-                      {findings.diagrams.map((d) => (
-                        <article key={d.id} className="pdf-finding-card">
-                          <header>
-                            <Layers size={15} />
-                            Diagram
-                          </header>
-                          <div className="pdf-figure-block">
-                            <Mermaid chart={d.chart} />
-                          </div>
                         </article>
                       ))}
                     </div>
@@ -961,6 +1019,7 @@ export default function PdfAnalysis() {
           )}
         </div>
       </div>
+      </PaperFiguresProvider>
     </div>
   );
 }

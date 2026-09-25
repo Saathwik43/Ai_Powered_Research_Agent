@@ -72,7 +72,7 @@ export default function UsagePanel({ usage }) {
                   <th>User</th>
                   <th>Used</th>
                   <th>Quota</th>
-                  <th>Left</th>
+                  <th>Tokens left</th>
                 </tr>
               </thead>
               <tbody>
@@ -84,7 +84,7 @@ export default function UsagePanel({ usage }) {
                     </td>
                     <td className="admin-mono">{Number(u.used || 0).toLocaleString()}</td>
                     <td className="admin-mono muted">{Number(u.quota || 0).toLocaleString()}</td>
-                    <td><span className="badge-messages">{u.messages_left}</span></td>
+                    <td><span className="badge-messages">{Number(u.remaining ?? 0).toLocaleString()}</span></td>
                   </tr>
                 ))}
                 {topUsers.length === 0 && (

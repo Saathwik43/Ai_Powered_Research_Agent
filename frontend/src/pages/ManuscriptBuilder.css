@@ -13,22 +13,24 @@
 
 .manuscript-masthead .text-muted {
   margin: 0;
-  font-family: 'Caveat', cursive;
-  font-size: clamp(1.15rem, 1.7vw, 1.35rem);
+  font-family: 'Inter', system-ui, sans-serif;
+  font-style: normal;
+  font-size: 0.98rem;
   font-weight: 500;
-  letter-spacing: 0.01em;
-  color: var(--accent-strong);
-  line-height: 1.4;
+  letter-spacing: -0.01em;
+  color: var(--text-muted);
+  line-height: 1.55;
 }
 
 .manuscript-ai-note {
   margin: 0.65rem 0 0;
-  font-family: 'Caveat', cursive;
-  font-size: 1.15rem;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-style: normal;
+  font-size: 0.92rem;
   font-weight: 500;
-  letter-spacing: 0.01em;
-  color: var(--accent-strong);
-  line-height: 1.35;
+  letter-spacing: -0.01em;
+  color: var(--text-muted);
+  line-height: 1.5;
 }
 
 .manuscript-ai-note strong {
@@ -137,6 +139,20 @@
   align-items: start;
 }
 
+@media (min-width: 1440px) {
+  .manuscript-layout {
+    grid-template-columns: 280px minmax(0, 1fr);
+    gap: 1.35rem;
+  }
+}
+
+@media (min-width: 1800px) {
+  .manuscript-layout {
+    grid-template-columns: 300px minmax(0, 1fr);
+    gap: 1.5rem;
+  }
+}
+
 .manuscript-sidebar-column {
   display: flex;
   flex-direction: column;
@@ -186,7 +202,7 @@
 }
 
 .manuscript-editor-surface {
-  max-width: 720px;
+  max-width: var(--content-reading);
   margin: 0 auto;
   font-size: var(--fs-md);
   line-height: 1.7;

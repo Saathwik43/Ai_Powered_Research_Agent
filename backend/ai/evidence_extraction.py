@@ -15,6 +15,7 @@ from ai.pdf_extraction import (
 )
 from ai.pdf_structure import extract_structure
 from core.paper_identity import identity_keys, paper_identity
+from services.usage_tracker import tagged
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +154,7 @@ async def _extract_evidence_via_llm(paper: dict) -> dict:
         return default_empty
 
 
+@tagged("literature")
 async def extract_evidence(paper: dict) -> dict:
     """
     Legacy LLM-only evidence extraction entry point.
@@ -202,6 +204,7 @@ def _map_structure_to_evidence(structure_res: dict) -> dict:
     return evidence
 
 
+@tagged("literature")
 async def extract_evidence_for_paper(paper: dict) -> tuple[dict, str]:
     """
     Layered extraction with cache and explicit source tracking.

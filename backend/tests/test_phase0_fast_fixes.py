@@ -104,11 +104,16 @@ class TestPromptsDoNotInventCharts:
         assert "Do NOT invent quantitative charts" not in prompt
         assert "xychart-beta" not in prompt
 
-    def test_pdf_chat_prompt_has_no_invented_bar_chart(self):
+    def test_pdf_chat_prompt_generates_no_charts_at_all(self):
+        """PDF analysis used to be allowed schematic Mermaid, and was merely
+        told not to invent *quantitative* charts. RP-12 settled the question
+        the other way: the paper's own figures are the only pictures in this
+        studio, so nothing generated is permitted here at all."""
         source = inspect.getsource(pdf_analysis.analyze_uploaded_paper)
         assert "bar [62.1, 74.5, 88.0, 91.3]" not in source
-        assert "Do NOT invent quantitative charts" in source
-        assert 'C{"Quality OK?"}' in source
+        assert "Do NOT generate diagrams of your own" in source
+        assert "xychart-beta" not in source
+        assert "flowchart TD" not in source
 
 
 def _index_collection(existing=None):

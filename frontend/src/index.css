@@ -1,26 +1,28 @@
-@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Caveat:wght@500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;0,8..60,600;0,8..60,700;1,8..60,400;1,8..60,500;1,8..60,600&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
 @import "tailwindcss";
 @source "../src";
 
-.serif, .manuscript-title, .paper-title { font-family: 'Source Serif 4', Georgia, serif; }
+.serif, .manuscript-title, .paper-title { font-family: 'Source Serif 4', Georgia, 'Times New Roman', serif; }
 .mono, .citation-id, .page-ref, .score-value { font-family: 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; }
 .margin-note,
 .hand-note {
-  font-family: 'Caveat', cursive;
-  font-size: 1.15rem;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-style: normal;
+  font-size: 0.95rem;
   font-weight: 500;
-  letter-spacing: 0.01em;
+  letter-spacing: -0.01em;
   color: var(--accent-strong);
-  line-height: 1.35;
+  line-height: 1.5;
 }
 .page-lede {
-  font-family: 'Caveat', cursive;
-  font-size: clamp(1.15rem, 1.7vw, 1.35rem);
+  font-family: 'Inter', system-ui, sans-serif;
+  font-style: normal;
+  font-size: 0.98rem;
   font-weight: 500;
-  letter-spacing: 0.01em;
+  letter-spacing: -0.01em;
   color: var(--text-muted);
-  line-height: 1.4;
+  line-height: 1.55;
 }
 
 @theme {
@@ -115,11 +117,65 @@
   --space-6: 32px;
   --space-7: 48px;
 
+  /* Page shells — grow on large monitors via the min-width queries below */
+  --content-reading: 42rem;   /* manuscript / long prose column */
+  --content-narrow: 58rem;    /* lit survey, pdf chat column */
+  --content-max: 72rem;       /* dashboard / default app pages */
+  --content-wide: 90rem;      /* admin, landing */
+  --main-pad-x: 2.25rem;
+  --main-pad-y: 2.25rem;
+
   --sidebar-width: 272px;
   --mobile-header-height: 0px;
   --transition: 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
   --duration-fast: 100ms;
   --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* Large desktop — use the extra monitor width instead of a fixed narrow column */
+@media (min-width: 1280px) {
+  :root {
+    --content-reading: 46rem;
+    --content-narrow: 64rem;
+    --content-max: 80rem;
+    --content-wide: 96rem;
+    --main-pad-x: 2.5rem;
+    --main-pad-y: 2.5rem;
+  }
+}
+
+@media (min-width: 1440px) {
+  :root {
+    --fs-2xs: 0.7rem;
+    --fs-xs: 0.8rem;
+    --fs-sm: 0.9rem;
+    --fs-base: 1rem;
+    --fs-md: 1.1rem;
+    --fs-lg: 1.35rem;
+    --fs-xl: 1.65rem;
+    --fs-2xl: 2.15rem;
+    --fs-3xl: 2.75rem;
+
+    --content-reading: 50rem;
+    --content-narrow: 70rem;
+    --content-max: 88rem;
+    --content-wide: 108rem;
+    --main-pad-x: 3rem;
+    --main-pad-y: 2.75rem;
+    --sidebar-width: 288px;
+  }
+}
+
+@media (min-width: 1800px) {
+  :root {
+    --content-reading: 54rem;
+    --content-narrow: 76rem;
+    --content-max: 100rem;
+    --content-wide: 120rem;
+    --main-pad-x: 3.5rem;
+    --main-pad-y: 3rem;
+    --sidebar-width: 300px;
+  }
 }
 
 [data-theme="dark"] {
@@ -267,7 +323,7 @@ select:focus-visible {
 
 .main-content {
   flex: 1;
-  padding: 2.25rem;
+  padding: var(--main-pad-y) var(--main-pad-x);
   margin-left: var(--sidebar-width);
   max-width: calc(100% - var(--sidebar-width));
   width: 100%;

@@ -146,3 +146,27 @@ class LiteratureSavePayload(BaseModel):
     papers: List[Any]
     screened: Optional[int] = None
     sources: Optional[List[Any]] = None
+
+
+class LiteratureBriefPaper(BaseModel):
+    title: str = ""
+    abstract: str = ""
+    doi: Optional[str] = None
+    id: Optional[str] = None
+    url: Optional[str] = None
+    arxiv_id: Optional[str] = None
+    # Where the full text might be. Unused by the abstract briefing; the
+    # full-text path needs them to find an arXiv id, a PMC id, or an OA PDF.
+    arxiv_url: Optional[str] = None
+    oa_url: Optional[str] = None
+    pdf_url: Optional[str] = None
+    pmcid: Optional[str] = None
+
+
+class LiteratureBriefPayload(BaseModel):
+    papers: List[LiteratureBriefPaper]
+
+
+class LiteratureDeepBriefPayload(BaseModel):
+    """One paper. The full-text path is per-card and on demand, never a page."""
+    paper: LiteratureBriefPaper

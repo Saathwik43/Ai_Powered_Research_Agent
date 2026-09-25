@@ -2,8 +2,10 @@ import io
 import os
 import json
 import logging
+import re
 import asyncio
 import tempfile
+import anyio
 import fitz
 from integrations.arxiv import detect_arxiv_id_from_text, fetch_latex_source
 from llama_parse import LlamaParse
@@ -16,6 +18,7 @@ from ai.evidence_extraction import extract_evidence
 from ai.llm_provider import generate_completion, get_or_create_gemini_cache
 from ai.gap_analysis import _GAP_SYSTEM_PROMPT
 from ai.pdf_structure import extract_structure
+from services.usage_tracker import tagged
 
 _LIGATURE_MAP = {
     "\ufb00": "ff", "\ufb01": "fi", "\ufb02": "fl",
@@ -175,18 +178,24 @@ async def extract_pdf_structure(file_bytes: bytes) -> dict:
     does not fit the deploy target -- so the local pass is now the only tier.
     It runs in-process, so there is no network failure mode left to handle here.
     """
-    structure = {"title": "", "authors": [], "abstract": "", "sections": {}}
+    structure = {"title": "", "authors": [], "abstract": "", "sections": {}, "figures": []}
     if not file_bytes:
         return structure
 
-    structure = extract_structure(file_bytes)
+    # Off-thread because this is CPU-bound and no longer cheap: the figure pass
+    # (RP-12) walks every drawing operator on every page with a caption, which
+    # is ~4s for a 48-page paper. Run inline it would stall the event loop for
+    # every other request for that whole time. `evidence_extraction` already
+    # hands `extract_structure` to a worker thread for the same reason.
+    structure = await anyio.to_thread.run_sync(extract_structure, file_bytes)
 
     logger.info(
-        "Extracted PDF structure: title_len=%s authors=%s abstract_len=%s sections=%s",
+        "Extracted PDF structure: title_len=%s authors=%s abstract_len=%s sections=%s figures=%s",
         len(structure.get("title") or ""),
         len(structure.get("authors") or []),
         len(structure.get("abstract") or ""),
         len(structure.get("sections") or {}),
+        len(structure.get("figures") or []),
     )
     return structure
 
@@ -195,6 +204,72 @@ async def extract_pdf_structure(file_bytes: bytes) -> dict:
 # has not given us enough to answer arbitrary questions about the paper and the
 # raw extracted text is the better context.
 _MIN_USEFUL_STRUCTURE_CHARS = 200
+
+# The figure list is an index, not content. A caption is trimmed harder here
+# than it is for display because the model only needs enough to know which
+# figure is which -- and 60 captions at full length would be 36k characters
+# against a 40k budget, which is the paper's own text crowded out by its
+# captions.
+_FIGURE_PROMPT_CAPTION_CHARS = 240
+_FIGURES_BLOCK_CHARS = 4_000
+
+
+def _figures_block(structure: dict) -> str:
+    """``## Figures`` index for the prompt: what exists, and on which page.
+
+    This is the whole of what grounds a ``[Figure 3]`` citation. The model never
+    sees the figure -- there is no vision call anywhere in this path -- it sees
+    that Figure 3 exists, what its caption says and where it sits, and the
+    reader renders the real crop from the PDF it already has.
+    """
+    figures = structure.get("figures") or []
+    if not isinstance(figures, list):
+        return ""
+
+    usable = [
+        f for f in figures
+        if isinstance(f, dict) and str(f.get("label") or "").strip()
+    ]
+    if not usable:
+        return ""
+
+    # The budget is shared, not spent first-come-first-served. Stopping once 4k
+    # is used dropped the tail of the list, and on CLIP that left 17 of 42
+    # figures unlisted -- which is worse than a short caption, because the model
+    # is told that only listed labels exist, so an unlisted figure is one it has
+    # been instructed not to cite. Naming every figure briefly beats describing
+    # half of them fully.
+    overhead = sum(len(_figure_line(f, "")) + 1 for f in usable)
+    share = (_FIGURES_BLOCK_CHARS - overhead) // max(1, len(usable))
+    budget = max(0, min(_FIGURE_PROMPT_CAPTION_CHARS, share))
+
+    lines = [_figure_line(figure, _trim_caption(figure, budget)) for figure in usable]
+    return "## Figures\n" + "\n".join(lines)
+
+
+def _trim_caption(figure: dict, budget: int) -> str:
+    caption = re.sub(r"\s+", " ", str(figure.get("caption") or "")).strip()
+    if not caption or budget <= 0:
+        return ""
+    label = str(figure.get("label") or "").strip()
+    # The caption as printed opens with its own label ("Figure 1: The
+    # Transformer..."), which the line already carries. Kept for display,
+    # dropped here -- repeating it costs tokens on every figure and gives the
+    # model a second, subtly different spelling of the label to cite.
+    caption = re.sub(
+        r"^" + re.escape(label) + r"\s*[.:\-\u2013\u2014]?\s*",
+        "", caption, count=1, flags=re.IGNORECASE,
+    ).strip()
+    if len(caption) <= budget:
+        return caption
+    return caption[:budget].rstrip() + "\u2026"
+
+
+def _figure_line(figure: dict, caption: str) -> str:
+    label = str(figure.get("label") or "").strip()
+    page = figure.get("page")
+    where = f" (page {page})" if isinstance(page, int) and page > 0 else ""
+    return f"{label}{where}: {caption}" if caption else f"{label}{where}"
 
 
 def _build_paper_context(structure: dict, text: str) -> str:
@@ -215,12 +290,21 @@ def _build_paper_context(structure: dict, text: str) -> str:
     """
     abstract = (structure.get("abstract") or "").strip()
     sections = structure.get("sections") or {}
+    figures = _figures_block(structure)
 
     parts = []
     content_chars = 0
     if abstract:
         parts.append(f"## Abstract\n{abstract}")
         content_chars += len(abstract)
+    # Before the sections, not after them. The whole context is truncated to
+    # _CUSTOM_CONTEXT_CHARS further down, and a real paper overruns that -- even
+    # the Transformer paper renders to 44k, CLIP to 238k. Appended last, the
+    # figure index was the first thing cut on every paper long enough to matter:
+    # the model never learned the figures existed, never cited one, and the
+    # reader never saw a crop. It is a small index, so it leads.
+    if figures:
+        parts.append(figures)
     for name, body in sections.items():
         body = (body or "").strip() if isinstance(body, str) else ""
         if body:
@@ -228,10 +312,59 @@ def _build_paper_context(structure: dict, text: str) -> str:
             content_chars += len(body)
 
     # Measured on the prose only -- counting the "## Heading" scaffolding would
-    # let a structure with a couple of empty-ish fields clear the floor.
+    # let a structure with a couple of empty-ish fields clear the floor. The
+    # figure index is excluded from the count for the same reason, but it is
+    # still appended to whichever context wins: a scanned paper can yield
+    # captions and no sections at all, and those captions are the only handle
+    # the model has on its figures.
     if content_chars < _MIN_USEFUL_STRUCTURE_CHARS:
-        return text
+        # Same reasoning on the fallback path: the index leads, so a long raw
+        # extraction cannot push it out of the window.
+        return f"{figures}\n\n{text}" if figures else text
     return "\n\n".join(parts)
+
+
+# How much of one request's context each part is allowed. Named because the
+# panel the reader sees quotes them: a cap written twice is a panel that stops
+# matching the prompt the moment one of them is tuned.
+_CUSTOM_CONTEXT_CHARS = 40_000
+_GAP_CONTEXT_CHARS = 30_000
+_CUSTOM_MAX_OUTPUT = 2200
+_GAP_MAX_OUTPUT = 1200
+# Rough, and labelled as rough wherever it is shown. A real tokenizer would be
+# per-provider, would have to be loaded, and would still be an estimate for a
+# prompt that four different models might serve.
+_CHARS_PER_TOKEN = 4
+
+
+def _context_report(
+    *,
+    instructions: str,
+    paper: str,
+    paper_cap: int,
+    paper_truncated: bool,
+    conversation: str = "",
+    question: str = "",
+    max_output_tokens: int,
+    cached: bool = False,
+) -> dict:
+    """What this one request is about to send, for the reader's context panel.
+
+    Characters, not tokens: the split is exact, and turning it into tokens is
+    the estimate. Reporting the raw sizes and the divisor separately keeps the
+    approximation in one place instead of baking it into five numbers.
+    """
+    return {
+        "instructions_chars": len(instructions or ""),
+        "paper_chars": len(paper or ""),
+        "paper_truncated": bool(paper_truncated),
+        "paper_char_cap": paper_cap,
+        "conversation_chars": len(conversation or ""),
+        "question_chars": len(question or ""),
+        "max_output_tokens": max_output_tokens,
+        "cached": bool(cached),
+        "chars_per_token": _CHARS_PER_TOKEN,
+    }
 
 
 _rolling_summaries = {}  # process-local hint; pdf_chats is the source of truth (B5)
@@ -267,6 +400,7 @@ async def _store_rolling(cache_scope: str, summary: str, covered_len: int):
         {"$set": {"rolling_summary": summary, "covered_len": covered_len}},
     )
 
+@tagged("pdf_analysis")
 async def analyze_uploaded_paper(text: str, custom_prompt: str = None, structure: dict = None, history: list = None, cache_scope: str = None) -> dict:
     """
     Run analysis on extracted PDF text.
@@ -357,42 +491,30 @@ async def analyze_uploaded_paper(text: str, custom_prompt: str = None, structure
         # For custom prompts, the LLM needs the full paper text (or structure) to answer arbitrary questions,
         # not just the 6-field evidence JSON.
         custom_context = metadata_prefix + _build_paper_context(structure, text)
-        # Cap at ~40000 chars to avoid blowing up context window, but favor the end if asking for references
-        if "reference" in lower_prompt and len(custom_context) > 40000:
+        # Whether the paper had to be cut is the one thing the reader most needs
+        # told — an answer drawn from 40k of a 90k-character paper can be wrong
+        # by omission, and nothing on screen used to say so.
+        paper_was_truncated = len(custom_context) > _CUSTOM_CONTEXT_CHARS
+        # Cap to avoid blowing up context window, but favor the end if asking for references
+        if "reference" in lower_prompt and paper_was_truncated:
             # If asking for references, keep the start (metadata) and the end (where references are)
             custom_context = custom_context[:5000] + "\n...[truncated]...\n" + custom_context[-35000:]
         else:
-            custom_context = custom_context[:40000]
+            custom_context = custom_context[:_CUSTOM_CONTEXT_CHARS]
 
         # Fall back to LLM cascade.
-        # NOTE: plain string, not an f-string -- the Mermaid examples below contain
-        # literal braces (C{"Quality OK?"}) that f-string interpolation would eat.
+        # NOTE: plain string, not an f-string -- the rules below contain literal
+        # braces and dollar signs that interpolation would eat.
         system_prompt = "You are a helpful academic research assistant.\n\n" + _DOCUMENT_SAFETY_RULE + """
 CRITICAL FORMATTING RULES:
 1. You MUST format your response using Markdown (use bolding, bullet points, and headers to make the text scannable).
 2. For any mathematical equations, variables, or units with exponents (e.g. 10^3, Beff), you MUST wrap them in LaTeX syntax. Use single dollar signs ($x$) for inline math and double dollar signs ($$x$$) for block equations. Never use \\( \\) \\[ \\] — those print as raw source. Do NOT output raw unformatted math.
-3. When presenting workflows, architectures, or pipelines, you MAY use a fenced Mermaid block starting with ```mermaid. Do NOT invent quantitative charts. Do not emit `xychart-beta`, `pie`, or numeric `bar`/`line` arrays unless every number is taken from the document. If the document has no numbers, describe comparisons in prose.
-
-CHOOSE THE RIGHT DIAGRAM (schematics only, unless numbers are in the document):
-- Flowchart — methodology / pipelines → `flowchart TD` (vertical — NEVER LR for complex flows)
-- Sequence — component interactions → `sequenceDiagram`
-
-DIAGRAM QUALITY RULES (STRICT — diagrams must stay readable):
-- Prefer `flowchart TD` (top-down). Do NOT use `flowchart LR` / `graph LR` for methodologies with more than 4 nodes.
-- Keep each diagram focused: ideally 5–10 nodes. Split large ideas into 2 small diagrams rather than one huge wide one.
-- Node labels with spaces, %, commas, colons, or parentheses MUST be double-quoted, e.g. A["Data prep"].
-- Do NOT put LaTeX ($...$) or Markdown bold inside Mermaid blocks.
-- One clear pathway per flowchart — avoid many disconnected mini-trees side by side.
-Example flowchart:
-```mermaid
-flowchart TD
-    A["Input PDF"] --> B["Extract text"]
-    B --> C{"Quality OK?"}
-    C -->|Yes| D["Analyze"]
-    C -->|No| E["Retry"]
-    D --> F["Report"]
-```
-4. If providing code, use standard Markdown code blocks with a language tag.
+3. Explain this paper with THE PAPER'S OWN FIGURES. If a "## Figures" list appears in the document, cite an entry from it by writing its label in square brackets — [Figure 3], [Table 2] — at the point it supports. The reader sees the real figure from the PDF rendered inline wherever you do this, so cite the figure instead of describing what it probably looks like.
+- ONLY the labels in that list exist. Never cite a label that is not listed, and never renumber one.
+- Cite a figure when it carries the answer, not after every sentence. If no listed figure is relevant, cite none.
+- If there is no "## Figures" list, this paper has no usable figures — say so if asked, and do not invent any.
+4. Do NOT generate diagrams of your own. No Mermaid blocks, no flowcharts, no ASCII diagrams, no charts — none, under any circumstances, even if asked. This paper's own figures are the only pictures available here; where they do not cover something, explain it in prose or a Markdown table.
+5. If providing code, use standard Markdown code blocks with a language tag.
 """
         history_context = ""
         if rolling_summary or recent_turns:
@@ -423,15 +545,28 @@ flowchart TD
             if history_context:
                 prompt = history_context + "\n" + prompt
 
+        context = _context_report(
+            instructions=system_prompt,
+            paper=custom_context,
+            paper_cap=_CUSTOM_CONTEXT_CHARS,
+            paper_truncated=paper_was_truncated,
+            conversation=history_context,
+            question=custom_prompt,
+            max_output_tokens=_CUSTOM_MAX_OUTPUT,
+            # Cached content still occupies the window — it is only the *billing*
+            # that changes — so it stays in the panel, marked.
+            cached=bool(cached_content),
+        )
+
         try:
             raw = await generate_completion(
                 system_prompt=system_prompt,
                 user_prompt=prompt,
-                max_tokens=2200,
+                max_tokens=_CUSTOM_MAX_OUTPUT,
                 temperature=0.3,
                 cached_content=cached_content
             )
-            return {"type": "custom", "content": raw.strip()}
+            return {"type": "custom", "content": raw.strip(), "context": context}
         except Exception as e:
             logger.error(f"Failed custom PDF analysis: {e}")
             raise HTTPException(status_code=500, detail="Analysis failed.")
@@ -462,25 +597,38 @@ flowchart TD
     has_evidence = any((v or "").strip() for v in evidence.values())
 
     # Gap analysis uses just the evidence JSON to save tokens and stay focused
-    gap_context_text = metadata_prefix + (json.dumps(evidence, indent=2) if has_evidence else text[:30000])
+    gap_context_text = metadata_prefix + (
+        json.dumps(evidence, indent=2) if has_evidence else text[:_GAP_CONTEXT_CHARS]
+    )
+
+    gap_instructions = _GAP_SYSTEM_PROMPT + "\n\n" + _DOCUMENT_SAFETY_RULE
+    context = _context_report(
+        instructions=gap_instructions,
+        paper=gap_context_text,
+        paper_cap=_GAP_CONTEXT_CHARS,
+        # The evidence path is a summary of the paper by design, not a cut of
+        # it; only the raw-text fallback can be truncated.
+        paper_truncated=not has_evidence and len(text) > _GAP_CONTEXT_CHARS,
+        max_output_tokens=_GAP_MAX_OUTPUT,
+    )
 
     prompt = _PDF_ANALYSIS_USER_TEMPLATE.replace("{text}", gap_context_text)
     try:
         raw = await generate_completion(
-            system_prompt=_GAP_SYSTEM_PROMPT + "\n\n" + _DOCUMENT_SAFETY_RULE,
+            system_prompt=gap_instructions,
             user_prompt=prompt,
-            max_tokens=1200,
+            max_tokens=_GAP_MAX_OUTPUT,
             temperature=0.3
         )
-        
+
         content = raw.strip()
         start = content.find("{")
         end = content.rfind("}") + 1
         if start == -1 or end == 0:
             raise ValueError("No JSON object found")
-            
+
         parsed = json.loads(content[start:end])
-        return {"type": "structured", "data": parsed}
+        return {"type": "structured", "data": parsed, "context": context}
     except Exception as e:
         logger.error(f"Failed structured PDF analysis: {e}")
         raise HTTPException(status_code=500, detail="Analysis failed.")

@@ -20,8 +20,9 @@ from ai.source_ingestion import extract_source_text
 from core.auth import get_current_user
 from core.config import MAX_UPLOAD_BYTES, MAX_URL_FETCH_BYTES
 from core.limiter import limiter
-from core.database import db, get_pdf_bucket
+from core.database import db
 from core.file_validation import read_upload_capped, verify_pdf_signature, verify_upload_signature
+from core.object_store import PdfNotFound, open_pdf, owner_of, store_pdf
 from core.processing_consent import consent_state, record_consent, user_allows_third_party
 from schemas import PdfChatSavePayload, ProcessingConsentPayload
 from core.ssrf_guard import safe_fetch
@@ -92,16 +93,15 @@ async def extract_pdf_endpoint(request: Request, file: UploadFile = File(...), c
         extract_pdf_structure(contents)
     )
 
-    file_id = await get_pdf_bucket().upload_from_stream(
-        file.filename,
-        contents,
-        metadata={"user_id": str(current_user["user_id"]), "content_type": "application/pdf"}
-    )
+    # S3 when S3_BUCKET is set, GridFS otherwise (AWS-6). The id shape differs
+    # between the two, which is why nothing downstream may parse it — it is
+    # handed back to `open_pdf` exactly as stored.
+    file_id = await store_pdf(str(current_user["user_id"]), file.filename, contents)
 
     return {
         "text": text,
         "structure": structure,
-        "file_id": str(file_id),
+        "file_id": file_id,
         # Told, not implied: the client shows which parser handled the file.
         "parsed_by": "third_party" if allow_third_party else "local",
     }
@@ -210,32 +210,29 @@ async def delete_source(request: Request, source_id: str, current_user: dict = D
 @router.get("/api/manuscript/pdf/{file_id}")
 @limiter.limit("30/minute")
 async def get_pdf(request: Request, file_id: str, current_user: dict = Depends(get_current_user)):
-    try:
-        oid = ObjectId(file_id)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid file_id")
+    user_id = str(current_user["user_id"])
 
-    try:
-        grid_out = await get_pdf_bucket().open_download_stream(oid)
-    except Exception:
-        raise HTTPException(status_code=404, detail="File not found")
-
-    # A GridFS file written without metadata (or by an older code path) has
-    # `metadata is None`, and `None.get` was a 500 that leaked a traceback into
-    # the logs on what is really just "this file has no owner recorded".
-    # No recorded owner means nobody can claim it.
-    metadata = grid_out.metadata or {}
-    if metadata.get("user_id") != str(current_user["user_id"]):
+    # An S3 key carries its owner, so a request for somebody else's file is
+    # refused here without spending a read on it. GridFS ids carry nothing, so
+    # they fall through to the check below.
+    claimed_owner = owner_of(file_id)
+    if claimed_owner is not None and claimed_owner != user_id:
         raise HTTPException(status_code=403, detail="Not your file")
 
-    async def stream():
-        while True:
-            chunk = await grid_out.readchunk()
-            if not chunk:
-                break
-            yield chunk
+    try:
+        owner, chunks = await open_pdf(file_id)
+    except PdfNotFound:
+        # Malformed and missing are one answer on purpose: distinguishing them
+        # tells an enumerator which ids are real.
+        raise HTTPException(status_code=404, detail="File not found")
 
-    return StreamingResponse(stream(), media_type="application/pdf")
+    # A GridFS file written without metadata (or by an older code path) reports
+    # `None` for its owner. No recorded owner means nobody can claim it, so this
+    # comparison has to fail closed rather than raise.
+    if owner != user_id:
+        raise HTTPException(status_code=403, detail="Not your file")
+
+    return StreamingResponse(chunks, media_type="application/pdf")
 
 
 @router.post("/api/manuscript/analyze-pdf")

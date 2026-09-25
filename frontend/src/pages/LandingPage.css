@@ -178,7 +178,7 @@
 
 /* ── Hero Section ── */
 .landing-hero {
-  max-width: 1280px;
+  max-width: var(--content-wide);
   margin: 0 auto;
   padding: clamp(3rem, 6vw, 5.5rem) clamp(1.5rem, 5vw, 6rem);
   display: grid;
@@ -229,7 +229,7 @@
   color: var(--text-muted);
   line-height: 1.6;
   margin-bottom: 1.75rem;
-  max-width: 540px;
+  max-width: min(36rem, 100%);
 }
 
 :root {
@@ -619,7 +619,7 @@
 
 /* ── Features ── */
 .feature-section {
-  max-width: 1280px;
+  max-width: var(--content-wide);
   margin: 4rem auto;
   padding: 0 clamp(1.5rem, 5vw, 6rem);
 }

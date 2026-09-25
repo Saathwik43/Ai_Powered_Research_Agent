@@ -27,6 +27,7 @@ from ai.edit_target import (
 )
 from core import shared_store
 from core.database import db
+from services.usage_tracker import tagged
 
 logger = logging.getLogger(__name__)
 
@@ -469,6 +470,7 @@ async def _report(progress, stage: str, status: str, detail: str = "", **extra) 
         logger.debug("Progress callback failed at stage %s: %s", stage, e)
 
 
+@tagged("manuscript")
 async def prepare_corpus(topic: str, progress=None, force: bool = False) -> list:
     """The screened, evidence-extracted literature for *topic*.
 
@@ -692,6 +694,7 @@ async def _prepare_generation(topic: str, section: str, context: str, citation_s
     )
 
 
+@tagged("manuscript")
 async def generate_section(topic: str, section: str, context: str, citation_style: str = "ieee"):
     provider_override = None
     max_tokens_limit = 2200
@@ -734,6 +737,7 @@ async def generate_section(topic: str, section: str, context: str, citation_styl
 
 from ai.llm_provider import stream_completion, stream_completion_auto
 
+@tagged("manuscript")
 async def generate_section_stream(topic: str, section: str, context: str, citation_style: str, mode: str = "manual", provider: str = None, model: str = None):
     # Preparation used to run silently: on a cold topic the user watched a blank
     # screen through an 8-source fan-out, a classifier pass and up to fifteen
@@ -993,6 +997,7 @@ def _edit_token_budget(current_content: str) -> int:
     return max(_EDIT_MIN_TOKENS, min(needed, _EDIT_MAX_TOKENS))
 
 
+@tagged("manuscript")
 async def edit_section(topic: str, section: str, current_content: str, instructions: str,
                        citation_style: str = "ieee", target_text: str = None,
                        target_start: int = None, target_end: int = None,
@@ -1084,6 +1089,7 @@ async def edit_section(topic: str, section: str, current_content: str, instructi
     return result, flags
 
 
+@tagged("manuscript")
 async def edit_section_stream(topic: str, section: str, current_content: str, instructions: str,
                               citation_style: str = "ieee", target_text: str = None,
                               target_start: int = None, target_end: int = None,

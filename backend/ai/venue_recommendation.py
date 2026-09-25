@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from langchain_core.prompts import PromptTemplate
 from ai.llm_provider import generate_completion
 from ai.guardrails import validate_input_layers_a_b
+from services.usage_tracker import tagged
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ def _fallback_venues(abstract: str, domain: str):
         {"id": 3, "name": "Springer Nature", "type": "Journal", "impact": "High", "scope": "General Science", "match": 75},
     ]
 
+@tagged("venue")
 async def recommend_venues(abstract: str, domain: str):
     combined = f"{abstract} {domain}"
     if not validate_input_layers_a_b(combined):

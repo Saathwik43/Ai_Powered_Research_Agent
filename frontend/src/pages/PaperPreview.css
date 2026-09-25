@@ -281,7 +281,7 @@
   font-family: 'Times New Roman', 'Noto Serif', Georgia, serif;
   font-size: 12pt;
   line-height: 2;
-  max-width: 680px;
+  max-width: min(680px, var(--content-reading));
   margin: 0 auto;
 }
 
@@ -328,7 +328,7 @@
   font-family: 'Georgia', 'Times New Roman', serif;
   font-size: 11pt;
   line-height: 1.8;
-  max-width: 720px;
+  max-width: var(--content-reading);
   margin: 0 auto;
 }
 

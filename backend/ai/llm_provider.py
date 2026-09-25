@@ -502,6 +502,133 @@ _TELEMETRY_NAMES = {
 }
 
 
+# How much prompt each provider will actually accept, in characters. The
+# cascade is handed one finished prompt sized for the caller, not for whichever
+# provider ends up serving it -- so a small-window provider returned 413 and was
+# skipped over on every long paper, rather than being given a request it could
+# answer. Roughly 4 chars per token, leaving room for the reply.
+#
+# Only providers that need a ceiling appear here; the rest are unbounded.
+# Override per deploy with LLM_INPUT_CHARS_GROQ, LLM_INPUT_CHARS_CEREBRAS, etc.
+_PROVIDER_INPUT_CHARS = {
+    "groq": 20_000,
+    "cerebras": 24_000,
+    "huggingface": 12_000,
+    "mistral": 60_000,
+}
+
+_DOC_OPEN = "<document>"
+_DOC_CLOSE = "</document>"
+_TRIM_NOTE = "\n...[trimmed to fit this provider's input limit]...\n"
+# Below this there is not enough of the paper left for an answer to mean
+# anything, so the whole-prompt fallback is used instead.
+_MIN_DOC_CHARS = 500
+
+
+def _input_cap(provider_name: str) -> int | None:
+    name = provider_name.lower()
+    override = os.getenv(f"LLM_INPUT_CHARS_{name.upper()}")
+    if override:
+        try:
+            value = int(override)
+        except ValueError:
+            logger.warning(
+                "Ignoring non-numeric LLM_INPUT_CHARS_%s=%r", name.upper(), override
+            )
+        else:
+            # Zero or negative is the documented way to switch trimming off for
+            # one provider -- an escape hatch for a deploy on a paid tier whose
+            # window is far larger than the default assumes.
+            return value if value > 0 else None
+    return _PROVIDER_INPUT_CHARS.get(name)
+
+
+def _fit_to_provider(user_prompt: str, provider_name: str) -> str:
+    """Shrink a prompt to what this provider accepts, cutting the right part.
+
+    Naively truncating is wrong in both directions: the instructions are at the
+    top and **the user's question is at the bottom**, so cutting the tail would
+    send a paper with no question attached. What is expendable is the paper
+    inside the <document> block, so that is what gets cut, leaving the framing
+    and the question intact.
+    """
+    cap = _input_cap(provider_name)
+    if not cap or len(user_prompt) <= cap:
+        return user_prompt
+
+    start = user_prompt.find(_DOC_OPEN)
+    end = user_prompt.find(_DOC_CLOSE, start + 1) if start != -1 else -1
+    if start != -1 and end != -1:
+        head = user_prompt[: start + len(_DOC_OPEN)]
+        document = user_prompt[start + len(_DOC_OPEN):end]
+        tail = user_prompt[end:]
+        room = cap - len(head) - len(tail) - len(_TRIM_NOTE)
+        if room >= _MIN_DOC_CHARS:
+            return head + document[:room] + _TRIM_NOTE + tail
+
+    # No document block to cut (or no usable room inside it): keep the opening
+    # instructions and the closing question, drop the middle.
+    keep = (cap - len(_TRIM_NOTE)) // 2
+    if keep <= 0:
+        return user_prompt[:cap]
+    return user_prompt[:keep] + _TRIM_NOTE + user_prompt[-keep:]
+
+
+def _describe_error(exc: BaseException) -> str:
+    """The provider's own words, not just the status line.
+
+    `Client error '413 Payload Too Large'` does not say *which* limit was hit or
+    by how much -- the provider puts that in the response body, and that number
+    is the only sound basis for setting a budget. Without it the log left
+    nothing to tune against.
+    """
+    response = getattr(exc, "response", None)
+    if response is None:
+        return str(exc)
+    try:
+        body = " ".join((response.text or "").split())
+    except Exception:
+        body = ""
+    if not body:
+        return str(exc)
+    if len(body) > 400:
+        body = body[:400] + "…"
+    return f"{exc} | {body}"
+
+
+def _health_key(provider_name: str) -> str:
+    """The name this provider's calls are already recorded under.
+
+    `track_call` feeds `api_health.record(canonical_name(...))` from every
+    provider call, so the breaker has been watching the LLM cascade all along --
+    it was only never consulted. The key has to be derived the same way or the
+    gate would read a different provider's history.
+    """
+    from services.api_telemetry import canonical_name
+
+    return canonical_name(_TELEMETRY_NAMES.get(provider_name.lower(), provider_name))
+
+
+def _provider_is_blocked(provider_name: str) -> tuple[bool, str | None]:
+    """Whether to skip this provider now, and why.
+
+    `api_health.allow` is not side-effect free: for an open breaker past its
+    cooldown it *claims* the half-open probe, and a claim that is never followed
+    by a recorded outcome leaves that provider blocked for good. So it is asked
+    only about a provider already known to be blocked, and only immediately
+    before that provider would be called -- exactly how `paper_search` uses it.
+    """
+    from services import api_health
+
+    reason = api_health.blocked_reason(_health_key(provider_name))
+    if reason is None:
+        return False, None
+    if api_health.allow(_health_key(provider_name)):
+        # the probe: this one request tests whether it has recovered
+        return False, None
+    return True, reason
+
+
 def _http_status(exc: BaseException) -> int | None:
     resp = getattr(exc, "response", None)
     return getattr(resp, "status_code", None) if resp is not None else None
@@ -561,19 +688,28 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
                 user_id = usage_tracker.current_user_id.get()
                 if user_id:
                     await usage_tracker.check_quota(user_id)
+                sized = _fit_to_provider(user_prompt, effective_provider)
+                if sized is not user_prompt:
+                    logger.info(
+                        "Trimmed prompt for %s: %d -> %d chars",
+                        effective_provider, len(user_prompt), len(sized),
+                    )
                 async with _provider_sem(effective_provider):
                     async with track_call(tel_name, "generate") as rec:
                         if effective_provider == "gemini":
-                            result, tokens = await asyncio.wait_for(provider_fn(system_prompt, user_prompt, max_tokens, temperature, effective_model, cached_content), timeout=60)
+                            result, tokens = await asyncio.wait_for(provider_fn(system_prompt, sized, max_tokens, temperature, effective_model, cached_content), timeout=60)
                         else:
-                            result, tokens = await asyncio.wait_for(provider_fn(system_prompt, user_prompt, max_tokens, temperature), timeout=60)
+                            result, tokens = await asyncio.wait_for(provider_fn(system_prompt, sized, max_tokens, temperature), timeout=60)
                         rec.succeed(http_status=200, items=tokens)
                 if user_id:
                     await usage_tracker.log_usage(user_id, tokens, effective_provider.title())
                 return result
             except Exception as e:
                 status = _http_status(e)
-                logger.error(f"{effective_provider.title()} generation failed (attempt {attempt + 1}): {e}")
+                logger.error(
+                    f"{effective_provider.title()} generation failed "
+                    f"(attempt {attempt + 1}): {_describe_error(e)}"
+                )
                 if not _should_retry_llm(e) or attempt > 0:
                     break
                 await asyncio.sleep(2)
@@ -596,8 +732,29 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
         providers.append(("HuggingFace", _generate_huggingface))
 
 
+    # A dead key is dead for every request, not just this one. OpenAI 401,
+    # Mistral 403, a retired HuggingFace model -- each was being tried, and
+    # failing, on every single call, ahead of a provider that works. The breaker
+    # already knows; this is where it finally gets asked.
+    #
+    # Unless it knows *everything* is failing, in which case the gate stands
+    # down: a global blip must not leave the app refusing to try at all, and
+    # degrading to the old behaviour is better than answering nothing.
+    from services import api_health
+
+    any_live = any(
+        api_health.blocked_reason(_health_key(name)) is None
+        for name, _fn in providers
+    )
+
     from services.api_telemetry import track_call
+    skipped = []
     for provider_name, provider_func in providers:
+        if any_live:
+            blocked, reason = _provider_is_blocked(provider_name)
+            if blocked:
+                skipped.append(f"{provider_name} ({reason})")
+                continue
         for attempt in range(2):
             try:
                 user_id = usage_tracker.current_user_id.get()
@@ -605,12 +762,18 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
                     await usage_tracker.check_quota(user_id)
                 sem = _provider_sem(provider_name)
                 tel_name = _TELEMETRY_NAMES.get(provider_name.lower(), provider_name)
+                sized = _fit_to_provider(user_prompt, provider_name)
+                if sized is not user_prompt:
+                    logger.info(
+                        "Trimmed prompt for %s: %d -> %d chars",
+                        provider_name, len(user_prompt), len(sized),
+                    )
                 async with sem:
                     async with track_call(tel_name, "generate") as rec:
                         if provider_name== "Gemini":
-                            result,tokens = await asyncio.wait_for(provider_func(system_prompt, user_prompt , max_tokens , temperature, effective_model, cached_content),timeout=60)
+                            result,tokens = await asyncio.wait_for(provider_func(system_prompt, sized , max_tokens , temperature, effective_model, cached_content),timeout=60)
                         else:
-                            result,tokens = await asyncio.wait_for(provider_func(system_prompt, user_prompt , max_tokens , temperature),timeout=60)
+                            result,tokens = await asyncio.wait_for(provider_func(system_prompt, sized , max_tokens , temperature),timeout=60)
                         rec.succeed(http_status=200, items=tokens)
                 if user_id:
                     await usage_tracker.log_usage(user_id, tokens, provider_name)
@@ -624,14 +787,25 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
                 if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 429:
                     logger.info(f"{provider_name} skipped: rate limited(429), moving to nextt provider.")
                     break
-                logger.error(f"{provider_name} generation failed (attempt {attempt + 1}): {e}")
+                logger.error(
+                    f"{provider_name} generation failed "
+                    f"(attempt {attempt + 1}): {_describe_error(e)}"
+                )
                 if not _should_retry_llm(e) or attempt > 0:
                     break
                 await asyncio.sleep(2)
         if LLM_PROVIDER != "auto":
             break
             
-    raise RuntimeError("All configured AI providers failed to generate a completion.")
+    # Name the providers that were never tried. Without this the message reads
+    # as though the whole roster was attempted, and a shortened cascade would be
+    # indistinguishable from a total outage in the logs.
+    if skipped:
+        logger.warning("Cascade skipped unhealthy providers: %s", ", ".join(skipped))
+    raise RuntimeError(
+        "All configured AI providers failed to generate a completion."
+        + (f" Skipped as unhealthy: {'; '.join(skipped)}." if skipped else "")
+    )
 
 
 import json

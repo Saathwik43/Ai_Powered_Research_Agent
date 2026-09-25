@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from langchain_core.prompts import PromptTemplate
 from langchain_huggingface import HuggingFaceEndpoint
 from dotenv import load_dotenv
+from services.usage_tracker import tagged
 
 load_dotenv()
 
@@ -59,6 +60,7 @@ def _run_chain(venue_name: str, venue_type: str, domain: str, abstract: str) -> 
         raise RuntimeError(f"LangChain StopIteration: {e}") from e
 
 
+@tagged("venue")
 async def align_guidelines(manuscript: dict, venue_guidelines: dict):
     venue_name = venue_guidelines.get("name", "Unknown Venue")
     venue_type = venue_guidelines.get("type", "Journal")

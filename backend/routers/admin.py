@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from core.auth import get_current_user, invalidate_user_cache
 from core.database import db
 from core.limiter import limiter
+from core.object_store import purge_user_objects
 from services.usage_tracker import DAILY_TOKEN_QUOTA, TOKENS_PER_MESSAGE, get_user_usage
 
 logger = logging.getLogger(__name__)
@@ -92,14 +93,16 @@ async def admin_usage_endpoint(current_user: dict = Depends(get_current_user)):
         custom_q = user_doc.get("custom_quota") if user_doc else None
         effective_quota = int(custom_q) if custom_q is not None else DAILY_TOKEN_QUOTA
         total_tokens = int(row.get("total_tokens") or 0)
-        messages_left = max(0.0, (effective_quota - total_tokens) / TOKENS_PER_MESSAGE)
+        remaining = max(0, effective_quota - total_tokens)
         by_user.append({
             "user_id": user_id,
             "name": name,
             "email": email,
             "used": total_tokens,
             "calls": int(row.get("calls") or 0),
-            "messages_left": round(messages_left, 1),
+            "remaining": remaining,
+            # Deprecated alongside the user-facing card: tokens are the unit.
+            "messages_left": round(remaining / TOKENS_PER_MESSAGE, 1),
             "quota": effective_quota,
         })
 
@@ -146,7 +149,7 @@ async def admin_get_all_users(current_user: dict = Depends(get_current_user)):
 
         custom_q = u.get("custom_quota")
         effective_quota = int(custom_q) if custom_q is not None else DAILY_TOKEN_QUOTA
-        messages_left = max(0.0, (effective_quota - tokens_today) / TOKENS_PER_MESSAGE)
+        remaining = max(0, effective_quota - tokens_today)
 
         created = u.get("created_at")
         created_str = created.strftime('%Y-%m-%d %H:%M') if isinstance(created, datetime) else "N/A"
@@ -161,7 +164,8 @@ async def admin_get_all_users(current_user: dict = Depends(get_current_user)):
             "quota": effective_quota,
             "tokens_today": tokens_today,
             "tokens_total": tokens_total,
-            "messages_left": round(messages_left, 1),
+            "remaining": remaining,
+            "messages_left": round(remaining / TOKENS_PER_MESSAGE, 1),
             "created_at": created_str
         })
 
@@ -283,6 +287,10 @@ async def purge_user_data(user_id: str) -> dict:
             deleted[name] = -1
 
     deleted["pdfs"] = await _purge_user_pdfs(user_id)
+    # Both stores, unconditionally. Someone who uploaded before AWS-6 has bytes
+    # in GridFS and someone who uploaded after has them in S3 — and a user who
+    # spans the switch has them in both. "Delete this user" has to mean it.
+    deleted["pdfs_s3"] = await purge_user_objects(user_id)
     return deleted
 
 

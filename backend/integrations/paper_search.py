@@ -170,6 +170,9 @@ _identity_keys = identity_keys
 _PLACEHOLDERS = {
     "", "unknown", "unknown authors", "untitled",
     "no abstract available", "no abstract available.",
+    # PubMed's own wording. Long enough to beat a real abstract on length, so
+    # it has to be named here rather than left to look like content.
+    "abstract not available via pubmed summary api.",
 }
 
 
@@ -180,6 +183,21 @@ def _is_present(value) -> bool:
     if isinstance(value, str):
         return value.strip().lower() not in _PLACEHOLDERS
     return True
+
+
+def _longest_abstract(*papers: dict) -> str:
+    """The fullest abstract among duplicate records of one paper.
+
+    A truncated abstract is indistinguishable from a short one, so length is
+    the only signal available — and it is the right one: no source returns a
+    *longer* abstract than the real thing.
+    """
+    best = ""
+    for paper in papers:
+        value = paper.get("abstract")
+        if isinstance(value, str) and _is_present(value) and len(value.strip()) > len(best):
+            best = value.strip()
+    return best
 
 
 def _citation_count(paper: dict) -> int:
@@ -197,6 +215,14 @@ def _merge_into(kept: dict, other: dict) -> None:
     published version, which carries better metadata than the preprint. The
     loser still fills in anything the winner is missing (typically the
     preprint's free ``pdf_url``), so merging strictly adds information.
+
+    ``abstract`` is the exception: it is taken by *length*, not by citation
+    count. Crossref and PubMed routinely return a one-line stub for a paper
+    whose arXiv record carries the full abstract, and the stub usually has the
+    higher citation count — so the rule above was discarding the complete
+    abstract we had already paid to fetch and leaving the card with a sentence
+    to summarise. Every downstream reader of a paper (card briefings, relevance
+    classification, evidence extraction) sees only this one merged record.
     """
     kept_citations = _citation_count(kept)
     other_citations = _citation_count(other)
@@ -212,6 +238,10 @@ def _merge_into(kept: dict, other: dict) -> None:
         if key.startswith("_"):
             merged[key] = value
     merged["citations"] = max(kept_citations, other_citations)
+
+    abstract = _longest_abstract(kept, other)
+    if abstract:
+        merged["abstract"] = abstract
 
     kept.clear()
     kept.update(merged)

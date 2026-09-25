@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, BookOpen, PenTool, LayoutList, LogOut, X, ChevronLeft, ChevronRight, FileText, Shield, Clock, MessageSquare, Moon, Sun } from 'lucide-react';
+import { LayoutDashboard, BookOpen, PenTool, LayoutList, LogOut, X, ChevronLeft, ChevronRight, FileText, Shield, Moon, Sun } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import DailyUsageCard from './DailyUsageCard';
 import './Sidebar.css';
 
 const Sidebar = ({ open, onClose, collapsed, onToggleCollapse }) => {
@@ -30,25 +31,6 @@ const Sidebar = ({ open, onClose, collapsed, onToggleCollapse }) => {
   const initials = user?.name
     ? user.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
     : 'U';
-
-  const [usage, setUsage] = useState(null);
-  const { api } = useAuth();
-  
-  useEffect(() => {
-    if (!user) return;
-    const fetchUsage = async () => {
-      try {
-        const res = await api.raw(`/api/user/usage`);
-        if (res.ok) {
-          const data = await res.json();
-          setUsage(data);
-        }
-      } catch (err) {
-        console.error("Failed to fetch usage:", err);
-      }
-    };
-    fetchUsage();
-  }, [user, api]);
 
   return (
     <>
@@ -90,22 +72,7 @@ const Sidebar = ({ open, onClose, collapsed, onToggleCollapse }) => {
           ))}
         </nav>
 
-        {usage && !collapsed && (
-          <div className="sidebar-usage-card">
-            <div className="sidebar-usage-row">
-              <span className="sidebar-usage-stat">
-                <Clock size={13} className="sidebar-usage-icon" /> Session: {Math.min(100, (usage.used / usage.quota) * 100).toFixed(0)}%
-              </span>
-              <span className="sidebar-usage-reset">Reset in {usage.reset_in}</span>
-            </div>
-            <div className="sidebar-usage-track">
-              <div className="sidebar-usage-fill" style={{ width: `${Math.min(100, (usage.used / usage.quota) * 100)}%` }} />
-            </div>
-            <div className="sidebar-usage-messages">
-              <MessageSquare size={13} className="sidebar-usage-icon" /> Messages left: <strong>{usage.messages_left}</strong>
-            </div>
-          </div>
-        )}
+        {!collapsed && <DailyUsageCard />}
 
         <div className="sidebar-footer">
           {user && (

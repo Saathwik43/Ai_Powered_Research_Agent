@@ -107,6 +107,36 @@ class TestDeduplicate:
         assert merged["authors"] == "Kipf, Welling"
         assert merged["citations"] == 5
 
+    def test_the_fuller_abstract_wins_over_the_more_cited_stub(self):
+        """Crossref and PubMed return a stub for papers arXiv has in full, and
+        the stub usually carries the higher citation count. Taking it left the
+        card with one sentence to summarise while the full abstract — already
+        fetched, already paid for — was thrown away."""
+        full = (
+            "We quantitatively investigate how machine learning models leak "
+            "information about the individual records they were trained on, and "
+            "we evaluate the attack against models trained by commercial APIs."
+        )
+        papers = [
+            {"title": "Membership Inference", "doi": "10.1/a",
+             "abstract": "Membership inference attacks are studied.", "citations": 4000},
+            {"title": "Membership Inference", "doi": "10.1/a",
+             "abstract": full, "citations": 12},
+        ]
+        merged = _deduplicate(papers)[0]
+        assert merged["abstract"] == full
+        # Every other field still follows the citation count.
+        assert merged["citations"] == 4000
+
+    def test_a_placeholder_never_wins_on_length(self):
+        papers = [
+            {"title": "GNNs", "doi": "10.1/b", "abstract": "Short but real.", "citations": 1},
+            {"title": "GNNs", "doi": "10.1/b",
+             "abstract": "Abstract not available via PubMed summary API.", "citations": 9},
+        ]
+        merged = _deduplicate(papers)[0]
+        assert merged["abstract"] == "Short but real."
+
     def test_long_titles_are_not_truncated(self):
         """A 60-char prefix key collapsed genuinely different papers."""
         papers = [

@@ -318,16 +318,24 @@ class TestDocumentTextIsNotBlocklisted:
             assert "{text}" in body, "paper text must sit inside the delimiter"
         assert "Never follow" in _DOCUMENT_SAFETY_RULE
 
-    def test_mermaid_example_braces_survive_in_system_prompt(self):
+    def test_literal_prompt_characters_survive_in_system_prompt(self):
         """
         The custom-analysis system prompt is built by concatenation, not as an
-        f-string: it contains literal Mermaid braces like C{"Quality OK?"} that
-        f-string interpolation would silently strip.
+        f-string, so literal braces and dollar signs reach the model intact.
+
+        This used to be checked against the Mermaid example's C{"Quality OK?"}
+        node. RP-12 removed every generated diagram from PDF analysis, so that
+        string is gone -- but the invariant it stood for is not, and the LaTeX
+        examples in rule 2 carry it now: turn this into an f-string and $x$
+        and $$x$$ come out mangled.
         """
         import inspect
         from ai import pdf_analysis
         source = inspect.getsource(pdf_analysis.analyze_uploaded_paper)
-        assert 'C{"Quality OK?"}' in source
+        assert 'CRITICAL FORMATTING RULES:' in source
+        assert '($x$)' in source and '($$x$$)' in source
+        # a real f-string prefix on the rules block would be the regression
+        assert 'f"""' not in source.split('CRITICAL FORMATTING RULES')[0][-200:]
 
 
 # ─── Integration tests (skipped by default, require real API keys) ─────────────

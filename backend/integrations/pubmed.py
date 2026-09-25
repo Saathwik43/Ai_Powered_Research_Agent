@@ -140,7 +140,7 @@ async def _esummary(client: "BoundClient", pmids: list[str]) -> list[dict]:
         # Source journal (bonus metadata)
         source_journal: str = item.get("source", "")
 
-        papers.append({
+        paper = {
             "id": f"pmid:{uid}",
             "title": title,
             "authors": author_str,
@@ -150,7 +150,38 @@ async def _esummary(client: "BoundClient", pmids: list[str]) -> list[dict]:
             "url": url,
             "source": "PubMed",
             "journal": source_journal,
-        })
+        }
+
+        # esummary has carried the DOI in `articleids` all along and nothing
+        # read it, so every PubMed hit reached the bibliography with an empty
+        # DOI field and no way for dedupe to match it against Crossref (2.8).
+        for article_id in item.get("articleids") or []:
+            if str(article_id.get("idtype", "")).lower() == "doi":
+                doi = str(article_id.get("value") or "").strip()
+                if doi:
+                    paper["doi"] = doi
+                break
+
+        # PubMed's own pubtype vocabulary, mapped to the Crossref terms the
+        # entry-type mapper speaks. "Journal Article" is the overwhelming
+        # majority; the rest matter because they must NOT become @article.
+        pubtypes = {str(t).strip().lower() for t in (item.get("pubtype") or [])}
+        if "review" in pubtypes or "journal article" in pubtypes:
+            paper["type"] = "journal-article"
+        elif "books and documents" in pubtypes:
+            paper["type"] = "book"
+
+        volume = str(item.get("volume") or "").strip()
+        if volume:
+            paper["volume"] = volume
+        issue = str(item.get("issue") or "").strip()
+        if issue:
+            paper["issue"] = issue
+        pages = str(item.get("pages") or "").strip()
+        if pages:
+            paper["pages"] = pages.replace("-", "--") if "--" not in pages else pages
+
+        papers.append(paper)
 
     return papers
 

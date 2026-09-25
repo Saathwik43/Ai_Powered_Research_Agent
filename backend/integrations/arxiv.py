@@ -80,7 +80,15 @@ def _parse_entry(entry) -> dict:
         m = re.search(r"arxiv\.org/abs/([\w.\-]+)", arxiv_url)
         arxiv_id = m.group(1) if m else None
 
-    return {
+    # Set once the preprint is published: the venue it appeared in, and the
+    # publisher's DOI. Both are better bibliography data than anything derivable
+    # from the arXiv record alone (2.8).
+    journal_ref_el = tag("journal_ref", ns="arxiv")
+    journal_ref = journal_ref_el.text.strip().replace("\n", " ") if journal_ref_el is not None else ""
+    published_doi_el = tag("doi", ns="arxiv")
+    published_doi = published_doi_el.text.strip() if published_doi_el is not None else ""
+
+    paper = {
         "id": arxiv_url,
         "title": title,
         "authors": author_str,
@@ -90,10 +98,24 @@ def _parse_entry(entry) -> dict:
         "abstract": abstract,
         "url": arxiv_url,
         "pdf_url": pdf_url,
-        "doi": f"10.48550/arXiv.{arxiv_id}" if arxiv_id else "",
+        # The publisher's DOI when the preprint has been published, the arXiv
+        # one otherwise. 10.48550 identifies the *preprint*; a bibliography
+        # should point at the version of record, and matching on it also lets
+        # dedupe fold this record into the Crossref/OpenAlex one for the same
+        # paper instead of listing both.
+        "doi": published_doi or (f"10.48550/arXiv.{arxiv_id}" if arxiv_id else ""),
         "categories": categories,
         "source": "arXiv",
     }
+    if arxiv_id:
+        paper["eprint"] = arxiv_id
+    if journal_ref:
+        paper["venue"] = journal_ref
+        paper["type"] = "journal-article"
+    else:
+        paper["type"] = "posted-content"
+        paper["subtype"] = "preprint"
+    return paper
 
 
 async def search_papers(query: str, limit: int = 8) -> list:

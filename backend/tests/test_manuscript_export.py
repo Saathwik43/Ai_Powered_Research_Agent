@@ -121,6 +121,30 @@ class TestExportWithASnapshot:
         assert "2 entries" in readme
         assert "\\cite{}" in readme
         assert "citation map is included" in readme
+        # Every file the README names must actually be in the zip. The L10
+        # failure was a README describing an artefact the export did not ship.
+        for named in ("paper.tex", "references.bib", "references.ris", "references.csl.json"):
+            assert named in readme
+            assert named in members
+
+    def test_the_reference_manager_files_describe_the_same_set(self):
+        """2.8 — .bib, .ris and .csl.json are three views of one list.
+
+        They are built from a shared `resolve_export_references` call precisely
+        so they cannot drift; this pins that they agree on the record count.
+        """
+        import json
+
+        members = self._members()
+        assert members["references.ris"].count("TY  - ") == 2
+        assert members["references.ris"].count("ER  - ") == 2
+        assert len(json.loads(members["references.csl.json"])) == 2
+
+    def test_the_bib_never_names_the_search_service_as_a_venue(self):
+        """2.8 — the shipped regression: `journal = {OpenAlex}`."""
+        members = self._members()
+        for service in ("OpenAlex", "Semantic Scholar", "Crossref", "PubMed"):
+            assert service not in members["references.bib"]
 
 
 class TestExportWithNoReferenceSet:

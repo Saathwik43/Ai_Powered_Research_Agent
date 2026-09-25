@@ -67,6 +67,25 @@ def _disable_circuit_breaker():
 
 
 @pytest.fixture(autouse=True, scope="session")
+def _disable_search_time_briefs():
+    """
+    Keep card briefing out of every other endpoint's tests.
+
+    `/api/literature` now briefs the head of its first page inline. That path
+    calls a real provider, so with a key in the developer's `.env` every
+    literature-endpoint test in the suite would make live LLM calls — slow,
+    billed, and non-deterministic. Off, the endpoint returns exactly what it
+    returned before: papers with no `brief` field. The tests that are *about*
+    briefing turn it back on for themselves.
+    """
+    from ai import paper_brief
+
+    paper_brief.set_enabled(False)
+    yield
+    paper_brief.set_enabled(True)
+
+
+@pytest.fixture(autouse=True, scope="session")
 def _disable_rate_limiter():
     """
     Turn the rate limiter off for the whole suite.

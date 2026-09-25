@@ -16,6 +16,8 @@
 
 .venue-page {
   width: 100%;
+  max-width: var(--content-max);
+  margin: 0 auto;
   min-width: 0;
 }
 
@@ -29,13 +31,14 @@
 
 .venue-masthead p {
   margin: 0;
-  font-family: 'Caveat', cursive;
-  font-size: clamp(1.15rem, 1.7vw, 1.35rem);
+  font-family: 'Inter', system-ui, sans-serif;
+  font-style: normal;
+  font-size: 0.98rem;
   font-weight: 500;
-  letter-spacing: 0.01em;
-  color: var(--accent-strong);
-  line-height: 1.4;
-  max-width: 36rem;
+  letter-spacing: -0.01em;
+  color: var(--text-muted);
+  line-height: 1.55;
+  max-width: min(42rem, 100%);
 }
 
 .venue-form {
@@ -133,6 +136,13 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
   gap: 1rem;
+}
+
+@media (min-width: 1440px) {
+  .venue-results-grid {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+    gap: 1.15rem;
+  }
 }
 
 .venue-empty {

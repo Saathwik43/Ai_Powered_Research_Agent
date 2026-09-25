@@ -25,6 +25,7 @@ from fastapi import HTTPException
 import asyncio
 from ai.evidence_extraction import extract_evidence_for_paper
 from ai.pdf_extraction import _has_usable_evidence
+from services.usage_tracker import tagged
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,7 @@ Based on ONLY the papers listed above, produce a JSON object with exactly four f
 Output ONLY valid JSON with these four fields. No markdown, no explanation, no preamble."""
 
 
+@tagged("literature")
 async def analyze_gaps(topic: str, papers: list = None) -> dict:
     """
     Run structured gap analysis for *topic*.

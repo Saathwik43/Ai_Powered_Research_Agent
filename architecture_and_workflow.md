@@ -24,6 +24,7 @@ flowchart TD
 
         Router["API routes - routers/*.py"]
         Auth["Authentication + quotas - core/auth.py"]
+        Wallet["Daily token wallet - services/usage_tracker.py<br/>quota, check_quota, log_usage tagged by feature"]
         Refresh["Refresh rotation + reuse detection - 1.14"]
         Verify["Email verification + reset - separate signing keys"]
         SSRF["SSRF guard - pinned IP, ports 80/443"]
@@ -81,8 +82,9 @@ flowchart TD
         end
     end
 
-    subgraph Database["Database"]
+    subgraph Database["Storage"]
         MongoDB[("MongoDB")]
+        S3[("AWS S3 - PDF bytes<br/>only when S3_BUCKET is set")]
     end
 
     subgraph External_LLM["External AI services - auto-cascade order"]
@@ -170,7 +172,9 @@ flowchart TD
     %% Self-heal
     Search -->|"One fan-out list, per-source timeout"| Registry
     Search -->|"Skip a source whose circuit is open"| Health
+    LLM_P -->|"Skip a provider whose circuit is open"| Health
     Health -.->|"Fed by every tracked call"| Search
+    Health -.->|"Fed by every tracked call"| LLM_P
     SemanticScholar -->|"Retry only what a retry can fix"| Retry
 
     %% Caches
@@ -202,7 +206,13 @@ flowchart TD
     %% Persistence
     Router <-->|"Save / load drafts, surveys, manuscripts"| MongoDB
     Router <-->|"Version history + restore - 1.10"| MongoDB
+    Store["core/object_store.py - AWS-6"]
+    Router <-->|"Upload / stream a PDF"| Store
+    Store <-->|"S3_BUCKET set"| S3
+    Store <-->|"otherwise GridFS"| MongoDB
 ```
+
+
 
 > **Every arrow starts and ends at a real component.** Until Aug 2026 the search
 > fan-out, the ladder and the cache edges were drawn from the *subgraph boxes*
@@ -212,18 +222,68 @@ flowchart TD
 > work (`Search`, `TD_AI`, `GA_AI`, `VR_AI`, the SSE reader) sat unconnected
 > beside it. The edges now name the module that makes the call.
 
-> **The cascade order is the one `llm_provider` actually uses.** OpenAI first,
+> **The cascade order is the one** `llm_provider` **actually uses.** OpenAI first,
 > then Gemini, Groq, Cerebras, Mistral, HuggingFace — a provider joins the chain
 > only when its key is set, so the effective order on a given deploy is that list
 > minus whatever is unconfigured. OpenRouter and NVIDIA are reachable only by
 > setting `LLM_PROVIDER` to them explicitly; they are never part of the auto
 > chain, which is why they hang off a dashed edge.
 
+> **A provider whose circuit is open is skipped.** Every provider call already
+> went through `track_call`, which feeds `api_health.record(...)`, so the breaker
+> had been watching the cascade all along and was simply never consulted — a
+> revoked OpenAI key was re-tried, and re-failed, ahead of a working provider on
+> every single request. `generate_completion` now asks it, exactly as
+> `paper_search` does. Two details carry the design:
+>
+> - **`api_health.allow` is not side-effect free.** For an open breaker past its
+> cooldown it *claims* the half-open probe, and a claim never followed by a
+> recorded outcome would leave that provider blocked for good. So it is asked
+> only about a provider already known to be blocked, and only immediately before
+> that provider would be called — every claim is paired with a `track_call`.
+> - **The gate stands down when nothing is healthy.** If every circuit is open,
+> the cascade tries the full roster anyway. A global blip must not leave the app
+> refusing to attempt anything: degrading to the old behaviour beats answering
+> nothing, and the failure message names what was skipped so a shortened cascade
+> is not mistaken for a total outage.
+>
+> **Each provider is given a request it can accept.** The prompt is built once,
+> sized for the caller rather than for whichever provider ends up serving it, so
+> a small-window provider used to answer `413 Payload Too Large` and be skipped
+> over — on a day when it was the only one still alive. `_fit_to_provider` now
+> trims to a per-provider ceiling (`_PROVIDER_INPUT_CHARS`, overridable with
+> `LLM_INPUT_CHARS_<PROVIDER>`; zero switches trimming off).
+>
+> *What* it cuts is the point. The instructions sit at the top of the prompt and
+> **the user's question sits at the bottom**, so a plain truncation would send a
+> paper with no question attached. Only the text inside the `<document>` block
+> is shortened; a prompt with no document block keeps both ends and loses its
+> middle. Because the figure index leads the paper context, it survives the trim
+> on every provider.
+>
+> Order is still fixed rather than health-ranked — the breaker decides who is
+> *skipped*, not who goes first. One caveat: the request-context panel reports
+> the cap the caller applied, so when a fallback provider trims further, the
+> panel understates how much of the paper was actually dropped.
+
 > **No hosted document-parsing service.** The evidence ladder replaced a hosted
 > GROBID tier in Aug 2026: every free instance was down (the HF Space returns
 > 503) and GROBID is a JVM service needing several GB, which does not fit the
 > deploy target. Tiers 1–4 are keyless, and tier 4 runs in-process, so an
 > uploaded PDF no longer depends on any third party.
+
+> **PDF bytes have two homes, chosen by one variable (AWS-6).** With `S3_BUCKET`
+> set, `core/object_store.py` writes uploads to S3; with it unset it writes to
+> GridFS, which is the default and needs no AWS account. GridFS put the bytes in
+> Mongo, where on Atlas M0 they compete for 512MB with the documents the app
+> actually queries. Reads dispatch on the *shape* of the stored id — a 24-hex
+> ObjectId is GridFS, anything else is an S3 key — so turning the bucket on does
+> not strand a single file uploaded before it, and turning it off again still
+> serves everything written while it was on. Ownership moved with the bytes: it
+> used to live in GridFS `metadata.user_id`, and it is now the second segment of
+> the key (`uploads/<user_id>/<uuid>.pdf`), which cannot be omitted the way
+> metadata could. Deletes enumerate *versions*, not keys — the bucket is
+> versioned, so a plain delete writes a marker and leaves the PDF behind.
 
 > **Nothing clones on a request.** The GitHub knowledge repos are checked out
 > into `backend/data/` by `python -m scripts.sync_github_repos` at build time.
@@ -238,12 +298,14 @@ Every request crosses four middleware layers before a route sees it, ordered so
 that a rejection still carries CORS headers — a 429 or 413 without them reaches
 the browser as an unexplained network failure rather than a reason.
 
-| Layer | Rejects | Configured by |
-|---|---|---|
-| CORS | Unknown origin | `CORS_ORIGINS` |
-| Body cap | `Content-Length` over the ceiling, and a chunked body that exceeds it mid-stream | `MAX_REQUEST_BODY_BYTES` (16MB) |
-| Rate limit | Over-budget caller, keyed on user id then client address | `DEFAULT_RATE_LIMIT`, `TRUSTED_PROXY_HOPS` |
-| Security headers | — (adds CSP, HSTS, nosniff, frame-deny) | `core/config.SECURITY_HEADERS` |
+
+| Layer            | Rejects                                                                          | Configured by                              |
+| ---------------- | -------------------------------------------------------------------------------- | ------------------------------------------ |
+| CORS             | Unknown origin                                                                   | `CORS_ORIGINS`                             |
+| Body cap         | `Content-Length` over the ceiling, and a chunked body that exceeds it mid-stream | `MAX_REQUEST_BODY_BYTES` (16MB)            |
+| Rate limit       | Over-budget caller, keyed on user id then client address                         | `DEFAULT_RATE_LIMIT`, `TRUSTED_PROXY_HOPS` |
+| Security headers | — (adds CSP, HSTS, nosniff, frame-deny)                                          | `core/config.SECURITY_HEADERS`             |
+
 
 `TRUSTED_PROXY_HOPS` **must** be set to the number of proxies in front of the
 app (1 on Render). At the default of 0 the header is ignored and every
@@ -259,12 +321,14 @@ claim. A reset link used to be signed with the session key and `purpose` was
 never checked on decode, so pasting the token from a reset email into an
 `Authorization` header was a full login.
 
-| Token | Key | Audience | Lifetime |
-|---|---|---|---|
-| Session (access) | `JWT_SECRET_KEY` | `research-agent:access` | 1h (`ACCESS_TOKEN_EXPIRE_HOURS`) |
-| Refresh | `JWT_REFRESH_SECRET_KEY`, else derived | `research-agent:refresh` | 14d (`REFRESH_TOKEN_EXPIRE_DAYS`) |
-| Password reset | `JWT_RESET_SECRET_KEY`, else derived by HMAC from the session key | `research-agent:password-reset` | 30 min |
-| Email verification | `JWT_VERIFY_SECRET_KEY`, else derived | `research-agent:email-verify` | 24h |
+
+| Token              | Key                                                               | Audience                        | Lifetime                          |
+| ------------------ | ----------------------------------------------------------------- | ------------------------------- | --------------------------------- |
+| Session (access)   | `JWT_SECRET_KEY`                                                  | `research-agent:access`         | 1h (`ACCESS_TOKEN_EXPIRE_HOURS`)  |
+| Refresh            | `JWT_REFRESH_SECRET_KEY`, else derived                            | `research-agent:refresh`        | 14d (`REFRESH_TOKEN_EXPIRE_DAYS`) |
+| Password reset     | `JWT_RESET_SECRET_KEY`, else derived by HMAC from the session key | `research-agent:password-reset` | 30 min                            |
+| Email verification | `JWT_VERIFY_SECRET_KEY`, else derived                             | `research-agent:email-verify`   | 24h                               |
+
 
 The derived keys mean no new environment variable is needed to deploy, while
 each can still be pinned for independent rotation.
@@ -298,6 +362,8 @@ sequenceDiagram
         A-->>C: 401 — both holders must sign in again
     end
 ```
+
+
 
 A spent refresh token being presented again means two parties hold it, and
 there is no way to tell which one is asking. Revoking the family is the OAuth
@@ -352,6 +418,9 @@ sequenceDiagram
     User->>Front: Save relevant papers
     Front->>API: POST /api/literature/save
     API->>DB: Store saved survey
+    User->>Front: Download PDF (live results or a saved survey)
+    Front->>Front: jsPDF table, built in the browser — no API call
+    Note over Front: Each row carries the paper link and the PDF /<br/>open-access link, printed as text and hyperlinked,<br/>so the export is usable away from the app.
   
     Note over Front,API: As soon as the topic settles, the corpus is built in the<br/>background (1.5) — so by the time Generate is pressed the<br/>fan-out, screening and full-text fetches are already done.
     Front->>API: POST /api/manuscript/research/prepare (topic)
@@ -407,7 +476,56 @@ sequenceDiagram
     API->>Cascade: Recommend matching journals & align formatting checklist
     Cascade-->>API: Venues & alignment checklist
     API-->>Front: Display venue recommendations & guidelines
+
+    User->>Front: 5. Export for submission
+    Front->>API: POST /api/manuscript/export-latex (topic, venue)
+    API->>DB: Read manuscript_references — the [N] map the writer was given
+    API->>API: Resolve reference holes once, then render .tex + 3 bibliography formats
+    API-->>Front: zip — paper.tex, references.bib / .ris / .csl.json, README
 ```
+
+
+
+---
+
+### The export bundle and its bibliography (2.8)
+
+`/api/manuscript/export-latex` resolves the reference list **once**
+(`resolve_export_references`) and hands that one list to every emitter, so the
+three reference files cannot describe different sets. `ai/bibliography.py` is
+the only module that decides what a reference *is*: its entry type, whether its
+DOI is real, and which of its fields is the venue.
+
+Two things it exists to prevent, both of which shipped before it:
+
+* every entry exported as `@article`, whatever it actually was;
+* the venue falling back to `paper["source"]` — the **search service** — so
+  `.bib` files carried `journal = {OpenAlex}`.
+
+```mermaid
+flowchart TD
+    Sources["Search integrations<br/>OpenAlex · Crossref · S2 · arXiv<br/>PubMed · DOAJ · Springer"]
+    Sources -->|"type, venue, publisher,<br/>volume, issue, pages, eprint"| Dedupe["paper_search._merge_into<br/>higher-cited record wins,<br/>loser fills the gaps"]
+    Dedupe --> Snapshot["manuscript_references<br/>the [N] map, with bibliographic fields"]
+    Snapshot --> Resolve["resolve_export_references<br/>fill holes from the display list"]
+
+    Resolve --> Biblio["ai/bibliography.py"]
+    Biblio --> ET["entry_type<br/>reported type ➔ host kind ➔ venue name<br/>preprint always @misc"]
+    Biblio --> DOI["normalize_doi<br/>strip doi.org, validate 10.x/y<br/>junk becomes an omitted field"]
+    Biblio --> VEN["venue_of<br/>refuses search-service names"]
+
+    ET --> Emit
+    DOI --> Emit
+    VEN --> Emit
+    Emit["Three views of one list"]
+    Emit --> Bib["references.bib<br/>@article / @inproceedings / @incollection<br/>@phdthesis / @techreport / @misc"]
+    Emit --> Ris["references.ris<br/>Zotero · Mendeley · EndNote"]
+    Emit --> Csl["references.csl.json<br/>Pandoc · Zotero native"]
+```
+
+`paper.tex` cites with `\cite{}` keys generated by the same `bibtex_key` the
+`.bib` uses, so the markers and the bibliography agree by construction rather
+than by both happening to enumerate the same way.
 
 ---
 
@@ -446,15 +564,19 @@ flowchart TD
     U -->|manuscript, gap| W[Head 15, relevance filter]
 ```
 
+
+
 ### Cache tiers
 
 Three, and only the first is per-worker:
 
-| Tier | Where | Holds | Lifetime |
-|---|---|---|---|
-| L1 | `TTLCache` / `semantic_cache` in process | Search results, semantic entries, relevance verdicts | Minutes; dies with the worker |
-| L2 | `cache_entries` in Mongo (`core/shared_store.py`) | The same, shared across workers and across deploys | 10 min (search) to 6h (relevance verdicts) |
-| Embeddings | `paper_embeddings` in Mongo | Vectors keyed by DOI → arXiv id → title, and by canonical query | **No expiry** — a paper's embedding does not go stale |
+
+| Tier       | Where                                             | Holds                                                           | Lifetime                                              |
+| ---------- | ------------------------------------------------- | --------------------------------------------------------------- | ----------------------------------------------------- |
+| L1         | `TTLCache` / `semantic_cache` in process          | Search results, semantic entries, relevance verdicts            | Minutes; dies with the worker                         |
+| L2         | `cache_entries` in Mongo (`core/shared_store.py`) | The same, shared across workers and across deploys              | 10 min (search) to 6h (relevance verdicts)            |
+| Embeddings | `paper_embeddings` in Mongo                       | Vectors keyed by DOI → arXiv id → title, and by canonical query | **No expiry** — a paper's embedding does not go stale |
+
 
 L2 never raises and never blocks for long: on failure every call degrades to a
 miss and the caller does the real work, and consecutive failures trip a breaker
@@ -469,27 +591,31 @@ two cannot drift. Yield comes back on `SearchMeta.sources`, so a source that
 timed out is distinguishable from one that returned nothing and from one that was
 skipped because its circuit is open.
 
-| Source | Key | Notes |
-|---|---|---|
-| Semantic Scholar | optional | Highest ranking weight |
-| OpenAlex | **required since Feb 2026** | `OPENALEX_API_KEY`; ~$1/day free allowance |
-| Crossref | no (polite `mailto`) | Also carries Retraction Watch data |
-| PubMed / NCBI | optional | 5s budget |
-| arXiv | no | Also the LaTeX/HTML source for extraction |
-| Europe PMC | no | Also serves JATS full text |
-| Springer Nature | yes | |
-| DOAJ | no | Dropped for topic discovery — broad-OA noise skews keywords |
-| GitHub Knowledge Repos | no | Local corpus, no network call |
+
+| Source                 | Key                         | Notes                                                       |
+| ---------------------- | --------------------------- | ----------------------------------------------------------- |
+| Semantic Scholar       | optional                    | Highest ranking weight                                      |
+| OpenAlex               | **required since Feb 2026** | `OPENALEX_API_KEY`; ~$1/day free allowance                  |
+| Crossref               | no (polite `mailto`)        | Also carries Retraction Watch data                          |
+| PubMed / NCBI          | optional                    | 5s budget                                                   |
+| arXiv                  | no                          | Also the LaTeX/HTML source for extraction                   |
+| Europe PMC             | no                          | Also serves JATS full text                                  |
+| Springer Nature        | yes                         |                                                             |
+| DOAJ                   | no                          | Dropped for topic discovery — broad-OA noise skews keywords |
+| GitHub Knowledge Repos | no                          | Local corpus, no network call                               |
+
 
 Unpaywall runs *after* dedupe as OA enrichment, not as a search source.
 
 **Two sources were removed rather than left to time out**, because each cost a
 full per-source timeout and contributed zero papers:
 
-| Removed | Why |
-|---|---|
-| BASE | Returns `<error>Access denied for IP address …</error>` — it allow-lists registered egress IPs, which a PaaS dyno does not have and cannot keep stable |
-| CORE | Its own index returns HTTP 500: `not enough resources were available to cover 100% of the index` |
+
+| Removed | Why                                                                                                                                                    |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| BASE    | Returns `<error>Access denied for IP address …</error>` — it allow-lists registered egress IPs, which a PaaS dyno does not have and cannot keep stable |
+| CORE    | Its own index returns HTTP 500: `not enough resources were available to cover 100% of the index`                                                       |
+
 
 ### Query identity
 
@@ -506,8 +632,7 @@ server cache agree; `ai/keyword_extractor.py` imports `GRAMMAR_STOPS` and
 
 ### Semantic cache
 
-Canonical keys collapse wording; they cannot collapse synonyms. `"CNN
-classification"` and `"convolutional neural network classification"` are one
+Canonical keys collapse wording; they cannot collapse synonyms. `"CNN classification"` and `"convolutional neural network classification"` are one
 search to a researcher and two full fan-outs to the canonical key.
 `services/semantic_cache.py` closes that gap by keying on the query
 *embedding* — which the rerank step needs anyway, so a true miss pays nothing
@@ -515,11 +640,13 @@ extra for the lookup.
 
 Two tiers, both conservative:
 
-| Cosine | Behaviour |
-|---|---|
-| >= 0.97 (`VERBATIM_THRESHOLD`) | Serve the stored ranking untouched |
-| >= 0.92 (`RERANK_THRESHOLD`) | Reuse the stored *papers*, re-rank them against the query actually typed |
-| below | Miss — run the real search |
+
+| Cosine                         | Behaviour                                                                |
+| ------------------------------ | ------------------------------------------------------------------------ |
+| >= 0.97 (`VERBATIM_THRESHOLD`) | Serve the stored ranking untouched                                       |
+| >= 0.92 (`RERANK_THRESHOLD`)   | Reuse the stored *papers*, re-rank them against the query actually typed |
+| below                          | Miss — run the real search                                               |
+
 
 The middle tier carries most of the value: re-ranking costs no network call
 (paper embeddings are already cached by content digest) and guarantees the
@@ -542,12 +669,14 @@ healthy there. Every tracked call feeds a rolling window; the decision is made
 on the most recent 20 outcomes inside it, so a long history of success does not
 delay noticing an outage.
 
-| | |
-|---|---|
-| Window | 300s, most recent 20 calls judged |
-| Opens at | ≥ 5 calls and ≥ 60% failed |
-| Cooldown | 60s, doubling to a 900s ceiling on each failed probe |
+
+|          |                                                                             |
+| -------- | --------------------------------------------------------------------------- |
+| Window   | 300s, most recent 20 calls judged                                           |
+| Opens at | ≥ 5 calls and ≥ 60% failed                                                  |
+| Cooldown | 60s, doubling to a 900s ceiling on each failed probe                        |
 | Recovery | One half-open probe call; success closes it, failure re-opens it for longer |
+
 
 An open circuit means the source is skipped for that search and reported as
 `skipped` with the reason, rather than being called and costing the full
@@ -595,6 +724,16 @@ known only by arXiv id joins its published version through their shared title.
 Records with no DOI, no arXiv id and no title are dropped — they cannot be
 deduplicated, cited or opened.
 
+**`abstract` is the one field taken by length rather than by citation count.**
+Crossref and PubMed routinely return a one-line stub for a paper whose arXiv
+record carries the full abstract, and the stub is usually the more-cited record
+— so the rule above was discarding a complete abstract that had already been
+fetched. Everything downstream (card briefings, relevance classification,
+evidence extraction) reads only the merged record, so a stub there starves all
+three. Placeholder wordings are named in `_PLACEHOLDERS` precisely so they
+cannot win on length; PubMed's *"Abstract not available via PubMed summary
+API."* is longer than many real abstracts.
+
 ### Ranking
 
 Lexical scoring runs over every deduplicated paper. Semantic reranking then
@@ -623,23 +762,137 @@ Classifier failures fail **open** — the paper is included — and the failure 
 cached briefly, so a rate-limited provider is not re-hammered once per paper on
 every retry.
 
+### Card briefing
+
+A survey card carries **title and abstract only** — the evidence ladder that
+reads full text runs at manuscript time and is far too expensive per card. So a
+briefing is a re-presentation of the abstract, never a summary of a section the
+pipeline has not read, and the card says so in its footnote.
+
+```mermaid
+flowchart TD
+    S["GET /api/literature<br/>50 papers, relevance-filtered"] --> H[Head of page 1: 8 papers<br/>briefed inline]
+    H --> D{Ready within 2.5s?}
+    D -->|yes| R["Ships as paper.brief<br/>card arrives complete"]
+    D -->|no| M[Field omitted]
+    S --> T["Tail of page 1: 7 papers<br/>background.add_task(warm_briefs)"]
+    T --> K[(Shared cache<br/>NS_BRIEF, 6h)]
+    M --> B["POST /api/literature/brief<br/>client asks, batches of 3"]
+    B --> K
+    K --> G[Groq, title + abstract only<br/>one call per paper, 500 tokens]
+    G -->|JSON bullets| C[Card]
+    G -->|failure, or nothing yet| E[extractive_brief<br/>abstract split, no model]
+    E --> C
+    R --> C
+```
+
+**Why the work is split three ways.** All LLM calls share `global_llm_sem`,
+which is **3 wide** — the same gate relevance classification and manuscript
+generation queue on. Briefing all 50 returned papers inline would be ~17 waves,
+adding 15–25s to every search while starving the rest of the app. So the head
+of the first page is briefed under a **2.5s deadline** (whatever is ready ships,
+the rest is simply absent — a partial result is never sent), the tail of that
+page is warmed *after* the response through `BackgroundTasks`, and anything past
+page 1 is briefed on demand exactly as before.
+
+Bullets live in two tiers: the per-process dict (10 min) and `NS_BRIEF` in the
+shared store (**6h**, like relevance verdicts). **Only model output is stored** —
+caching the extractive fallback would freeze a degraded briefing in place for
+hours. The durable tier is what makes the warm pass pay: by the time the reader
+scrolls, the client's POST is a cache hit, and a repeat query — from any worker,
+for any user — costs nothing and yields the *same* bullets instead of re-rolling
+them.
+
+`_attach_briefs` copies each paper before adding `brief`. The dicts it is handed
+are the cached search results; writing into them would serve one query's
+briefings as part of the next query's cache hit.
+
+#### Reading the full text — `POST /api/literature/deep-brief`
+
+Everything above works from the abstract. When the abstract genuinely never
+states an outcome, the only fix is the paper itself — but that is **one card,
+on demand**, never a page:
+
+```mermaid
+flowchart LR
+    R["Reader clicks<br/>Read the full text"] --> L{evidence ladder}
+    L -->|1| A[arXiv LaTeXML HTML]
+    L -->|2| X[arXiv LaTeX source]
+    L -->|3| P[Europe PMC JATS]
+    L -->|4| F["OA PDF → PyMuPDF<br/>off-thread"]
+    L -->|none readable| AB["abstract briefing<br/>source: abstract"]
+    A & X & P & F --> S["Sections, capped at 900 chars each<br/>≈1.5k tokens, not the 8–20k a paper costs"]
+    S --> G[Groq → plain-language bullets]
+    G --> C["Card + 'Read from the full text on arXiv'"]
+    G -->|model down| SL["Section text under its own label<br/>still the paper's own Results"]
+```
+
+The ladder is `extract_evidence_for_paper` in `ai/evidence_extraction.py` — the
+same one manuscript generation uses, reused rather than reimplemented. Its
+ordering *is* the efficiency argument: arXiv HTML and PMC JATS are structured
+text and keyless, so a PDF is downloaded only when nothing else answers.
+
+Per-paper cost, measured against the abstract path:
+
+| Path | Bytes moved | Latency | LLM input |
+| --- | --- | --- | --- |
+| Abstract briefing | ~2 KB | 0.6–1.5s | ~250 tok |
+| Full-text briefing | 0.2–10 MB | 1–8s fetch + up to 3s parse | ~1.5k tok |
+
+Which is why it is bound to a click, rate-limited to **10/minute**, and cached
+under a `deep:` key in `NS_BRIEF` for 6h. **Only the bullets are stored** —
+about 500 bytes. The PDF is dropped after parsing and the extracted text is
+never cached: a parsed paper is 50–150 KB, and 50 of those per search is the
+kind of thing that moved uploaded PDFs off Mongo in the first place (AWS-6).
+
+Three outcomes reach the card, and it says which: bullets from the full text
+(`source: arxiv-html`, `europepmc-fulltext`, …), the section text labelled
+as-is when the model is down, or the abstract briefing with `source: abstract`
+when nothing was readable — which is most closed-access papers, and the card
+then stops offering the button rather than leaving a control that can only
+fail.
+
+Both halves — `backend/ai/paper_brief.py` and the mirror in
+`frontend/src/pages/LiteratureSurvey.jsx` — share three rules, and the pair is
+kept byte-identical on the same input:
+
+- **A bullet ends on a sentence boundary.** Text under 180 characters is left
+  alone; past that we keep the longest run of whole sentences fitting in 260, so
+  a 200-character sentence survives intact. Only a sentence longer than 260 is
+  cut, and then it ends in `…`. Cutting at 180 and appending a full stop — what
+  it did before — turned *"…evaluated using multiple datasets and metrics"* into
+  the finished-looking claim *"…evaluated using multiple."*
+- **`Results` needs a stated outcome**: a number, or a comparative verb
+  (`outperform`, `improv`, `reduc`…) owned by the work. A sentence that only
+  describes the evaluation setup — *"we evaluate on three datasets"* — is
+  `Method`, and background prose carrying an outcome word (*"increasingly
+  used"*) is neither. `Results` is never filled from leftovers; an abstract that
+  reports no outcome simply gets no `Results` bullet.
+- **A truncated abstract is marked, not dressed up.** Source APIs often return
+  an abstract that stops mid-sentence; the final clause then ends in `…`. Clause
+  splits at `We` / `Our` are repaired first — dangling `and`/`which` dropped,
+  first letter capitalised — so a fragment reads as a sentence.
+
 ### Caches
 
-| Cache | Key | TTL | Scope |
-|---|---|---|---|
-| `search_all` results | canonical query + fan-out params | 10 min | process **+ shared** |
-| In-flight searches | same key | request | process |
-| Paper embeddings | paper identity: DOI → arXiv id → title | 10 min in process, **never** in the store | process **+ shared** |
-| Query embeddings | canonical query | 10 min in process, **never** in the store | process **+ shared** |
-| Semantic query results | query embedding, cosine-matched | 10 min | process **+ shared** |
-| Relevance verdicts | canonical topic + paper identity | 10 min in process, 6h shared | process **+ shared** |
-| Suggestion history | lowercase query | 7 days | process **+ shared** |
-| Prepared research corpus | canonical topic | 1 hour | process **+ shared** |
-| Classifier failures | same key | 1 min | process |
-| Extracted evidence | `core.paper_identity` | 10 min | process |
-| arXiv category feed | category + limit | 15 min | process |
-| Cached user document | user id | 60s, invalidated on role/status/delete | process |
-| Gemini context cache | prompt cache key | 30 min | provider |
+
+| Cache                    | Key                                    | TTL                                       | Scope                |
+| ------------------------ | -------------------------------------- | ----------------------------------------- | -------------------- |
+| `search_all` results     | canonical query + fan-out params       | 10 min                                    | process **+ shared** |
+| In-flight searches       | same key                               | request                                   | process              |
+| Paper embeddings         | paper identity: DOI → arXiv id → title | 10 min in process, **never** in the store | process **+ shared** |
+| Query embeddings         | canonical query                        | 10 min in process, **never** in the store | process **+ shared** |
+| Semantic query results   | query embedding, cosine-matched        | 10 min                                    | process **+ shared** |
+| Relevance verdicts       | canonical topic + paper identity       | 10 min in process, 6h shared              | process **+ shared** |
+| Card briefings           | paper identity (no query in the key)   | 10 min in process, 6h shared              | process **+ shared** |
+| Suggestion history       | lowercase query                        | 7 days                                    | process **+ shared** |
+| Prepared research corpus | canonical topic                        | 1 hour                                    | process **+ shared** |
+| Classifier failures      | same key                               | 1 min                                     | process              |
+| Extracted evidence       | `core.paper_identity`                  | 10 min                                    | process              |
+| arXiv category feed      | category + limit                       | 15 min                                    | process              |
+| Cached user document     | user id                                | 60s, invalidated on role/status/delete    | process              |
+| Gemini context cache     | prompt cache key                       | 30 min                                    | provider             |
+
 
 Every cache is a `core.ttl_cache.TTLCache`: expiry on read *and* an LRU
 capacity ceiling. They were plain dicts that grew for the lifetime of the
@@ -738,6 +991,8 @@ flowchart TD
     STORE --> DONE
 ```
 
+
+
 The `source` label returned alongside the evidence (`arxiv-html`,
 `arxiv-latex`, `europepmc-fulltext`, `pdf-structure`, `llm-fallback`, `none`) is
 what makes the tier visible in logs and in the admin view — a corpus silently
@@ -748,13 +1003,15 @@ answered entirely from tier 5 looks identical to a well-grounded one otherwise.
 Cost and fidelity move together here, which is unusual and worth stating: the
 cheapest rungs are also the most accurate.
 
-| Tier | Network | Structure quality |
-|---|---|---|
-| arXiv HTML | one GET | Explicit `<section>` tree — nothing inferred |
-| arXiv LaTeX | one GET + untar | Sections from `\section{}`, macros unresolved |
-| Europe PMC JATS | one GET | Explicit `<body><sec><title>` tree |
-| PDF structure | GET + parse | Headings *inferred* from font size and layout |
-| LLM | provider call | Title + abstract only; no full text at all |
+
+| Tier            | Network         | Structure quality                             |
+| --------------- | --------------- | --------------------------------------------- |
+| arXiv HTML      | one GET         | Explicit `<section>` tree — nothing inferred  |
+| arXiv LaTeX     | one GET + untar | Sections from `\section{}`, macros unresolved |
+| Europe PMC JATS | one GET         | Explicit `<body><sec><title>` tree            |
+| PDF structure   | GET + parse     | Headings *inferred* from font size and layout |
+| LLM             | provider call   | Title + abstract only; no full text at all    |
+
 
 ### PDF structure parsing
 
@@ -764,14 +1021,14 @@ larger-or-bold lines as headings. Three corrections make that usable rather than
 merely plausible:
 
 - **Rotated spans are dropped.** The arXiv sidebar stamp is the largest text on
-  page 1 and would otherwise be selected as the title.
+page 1 and would otherwise be selected as the title.
 - **Running headers are removed** by tallying blocks whose *digit-stripped* text
-  recurs on three or more pages. Matching on exact text fails because the header
-  carries the page number, which is why one paper previously reported 111
-  "sections".
+recurs on three or more pages. Matching on exact text fails because the header
+carries the page number, which is why one paper previously reported 111
+"sections".
 - **Numbering is stripped and subsections folded into their parent**, so
-  `3.1 Encoder and Decoder Stacks` joins `method` instead of becoming a
-  top-level key no alias could ever match.
+`3.1 Encoder and Decoder Stacks` joins `method` instead of becoming a
+top-level key no alias could ever match.
 
 Authors are recovered from the blocks between the title and the abstract
 heading, cut at the first affiliation or email token, then split greedily (two
@@ -781,12 +1038,94 @@ and truncates three-token given names.
 
 Measured on four papers with distinct layouts:
 
-| Paper | Sections | Authors |
-|---|---|---|
-| Attention Is All You Need | 9 | 8 / 8 |
-| GPT-3 | 20 | 15 / 15 |
-| BERT | 11 | 4 / 4 |
-| CLIP (two-column) | 30 | 11 / 12 |
+
+| Paper                     | Sections | Authors |
+| ------------------------- | -------- | ------- |
+| Attention Is All You Need | 9        | 8 / 8   |
+| GPT-3                     | 20       | 15 / 15 |
+| BERT                      | 11       | 4 / 4   |
+| CLIP (two-column)         | 30       | 11 / 12 |
+
+
+### Figure grounding — the paper's own figures in the chat (RP-12)
+
+The same layout pass that finds headings also builds a **figure inventory**, so
+PDF analysis can answer with the paper's real figures instead of a diagram the
+model invented. `extract_figures` emits one record per caption onto
+`structure["figures"]`:
+
+```
+{label: "Figure 3", kind: "figure"|"table", caption, page,
+ bbox: [x0, y0, x1, y1] | null, page_size: {width, height}}
+```
+
+**No pixels are ever shipped, stored or fetched.** The browser already holds the
+PDF in pdf.js for Read mode, so a figure is a clip of a page it has parsed
+already — the backend sends a few hundred bytes of coordinates on the
+`structure` object that upload, `pdf_chats` and reload already carry. There is
+no image endpoint, no `object_store` write, and no vision call anywhere on this
+path, which is also why it needs no consent gate.
+
+```mermaid
+flowchart TD
+    U["Upload → extract_pdf_structure<br/>off-thread: the drawing scan is ~4s on a 48-page paper"] --> T["_text_rects per page<br/>+ _running_furniture across pages"]
+    T --> C{"Caption block?<br/>^(Fig|Figure|Table|Chart|Scheme) N"}
+    C -->|no| SKIP[Page contributes nothing]
+    C -->|yes| SCAN{"Page is one full-page image?"}
+    SCAN -->|yes, a scan| NOBOX["bbox = null<br/>caption listed, never a guessed rectangle"]
+    SCAN -->|no| G["_graphic_rects<br/>get_image_rects + get_drawings"]
+
+    G --> FIG["Figures first - content is above the caption<br/>_graphic_cluster walks up, stops at the first gap<br/>_with_plot_text grows over axis labels and panel headings"]
+    FIG --> CLAIM[(claimed regions<br/>for this page)]
+    CLAIM --> TAB["Then tables - either side of the caption<br/>_table_candidates costs both<br/>a candidate already claimed by a figure is rejected"]
+    TAB --> VOTE{"Which side does this paper use?"}
+    VOTE --> OUT["Captions with only one valid side vote;<br/>the majority settles the ambiguous ones"]
+    OUT --> SIZE{"≥24pt on the short side<br/>and ≥0.8% of the page?"}
+    SIZE -->|no| NOBOX
+    SIZE -->|yes| BOX["bbox on structure.figures"]
+
+    BOX --> PROMPT["_figures_block → '## Figures' index in the prompt<br/>label, page, caption - capped at 4k chars"]
+    NOBOX --> PROMPT
+    PROMPT --> MODEL["Model cites [Figure 3]<br/>generated diagrams banned outright"]
+    MODEL --> FE["PdfAnalysis rewrites the citation to #fig-<label><br/>the same trick [Page N] already uses"]
+    FE --> RENDER["PaperFigure: pdf.js page.render with<br/>transform [1,0,0,1,-x0·s,-y0·s] = a crop"]
+    FE --> PLAIN["Unknown label → left as plain text"]
+```
+
+**Why `get_drawings()` is the load-bearing half.** matplotlib and TikZ plots are
+vector operators, not embedded bitmaps. ResNet contains **0 raster images and
+1364 drawings**, and every figure in it is a real plot — `get_images()` alone
+finds the journal logo and nothing else.
+
+Three rules do the actual discriminating, and each replaced an obvious one that
+failed on a real paper:
+
+- **Prose is measured in words per line, not words.** A figure band runs from
+its caption up to the preceding *paragraph*, but every tick label and legend
+entry inside a plot is its own text block. A 12-word floor called a CLIP axis
+block prose and collapsed the band to nothing; body text sets ~10 words to the
+line and plot furniture 1–2, which separates them cleanly.
+- **The column gutter is read off the page, not assumed to be the midline.** In
+a two-column paper the right column starts about three points past centre, so a
+midline split pulled the *other* column's paragraphs in as neighbours.
+- **A caption belongs to the content it is adjacent to, and figures claim
+first.** ResNet's "Table 1." sits 3pt below its own table and 3pt above Figure
+4's plot; BERT prints every table caption *below* its table while Transformer
+prints them above. Proximity alone decided BERT's page 7 by 0.1pt and assigned
+every table to its neighbour's caption — so unambiguous captions vote on the
+document's convention and the majority settles the rest.
+
+**`bbox: null` is a first-class answer**, not a failure: a scan, a pseudocode
+listing, or a cross-reference like "Figure 8 shows…" is listed by caption and
+rendered caption-only with a page link. A wrong crop is worse than no crop,
+because the reader trusts what it is shown.
+
+Measured against real arXiv PDFs — **81 of 85 captions** resolved to a box
+(ResNet 21/21, Transformer 9/9, BERT 13/13, CLIP 38/42; the CLIP misses are a
+pseudocode listing, a full-page image grid and two oversized appendix tables).
+PyMuPDF's coordinates and pdf.js's viewport were checked against each other on
+46 text spans across six pages: **worst disagreement 0.01pt**, which is what
+makes the crop transform a pure translation.
 
 ### Heading vocabulary
 
@@ -797,3 +1136,68 @@ four tiers. The table has to cover discipline-specific naming: ML papers label
 their methods section *Model Architecture* or *Approach* rather than *Methods*,
 and until those aliases existed the Transformer paper mapped no `method`
 evidence at all despite parsing perfectly.
+---
+
+## What a Request Costs — the two meters
+
+There are two meters and they measure different things. Confusing them is how
+the old sidebar ended up telling people they had "50 messages left" for a
+product where one PDF analysis can cost four of those and one literature brief
+a fraction of one.
+
+| | Daily AI wallet | This request |
+|---|---|---|
+| Where | Sidebar, every page | PDF Analysis, beside the composer |
+| Unit | Real provider tokens | Estimated tokens (`chars / 4`) |
+| Denominator | `users.custom_quota` or 250,000 | The paper's char cap + the rest of this prompt + the reply budget |
+| Word | **used** | **full** |
+| Resets | Midnight UTC | Every message |
+| Source | `usage_logs` summed for today | `analyze_uploaded_paper` reporting the prompt it just built |
+
+```mermaid
+flowchart TD
+    subgraph Spend["Billing - one path, tagged at the feature boundary"]
+        Entry["Feature entry point<br/>@tagged - literature, pdf_analysis, manuscript, venue"]
+        Ctx["current_query_type contextvar<br/>outermost scope wins"]
+        Gen["generate_completion / stream_completion"]
+        Check["check_quota - 429 at the ceiling"]
+        Log["log_usage - tokens, model, query_type"]
+        Logs[("usage_logs - one doc per completion")]
+        Entry --> Ctx --> Gen --> Check --> Log --> Logs
+    end
+
+    subgraph Wallet["Daily wallet - GET /api/user/usage"]
+        Group["Group today's tokens by query_type"]
+        Buckets["literature / pdf_analysis / manuscript / other<br/>segments sum to used, so the bar cannot disagree"]
+        Card["Sidebar card - N% used, ~31.2K / 250K, resets in Xh"]
+        Logs --> Group --> Buckets --> Card
+    end
+
+    subgraph Window["This request - PDF Analysis only"]
+        Build["analyze_uploaded_paper assembles the prompt"]
+        Report["_context_report - instructions / paper / conversation<br/>question / reply budget, plus the 40k cap and cache flag"]
+        Chip["Context chip - N% full, 'Paper text truncated to fit'"]
+        Build --> Report --> Chip
+    end
+```
+
+**Why the tag is a contextvar and not an argument.** Only four call sites in
+`ai/llm_provider.py` ever bill, and they sit many layers below the feature that
+asked. Threading a tag down would touch every signature in between. The
+boundary sets it once; everything underneath inherits it, including a search
+that fans out into fifty briefings, a background `warm_briefs` that outlives
+the response, and a manuscript section still streaming after the endpoint
+returned.
+
+**Outermost wins.** Evidence extraction runs under the literature survey *and*
+under manuscript generation. The spend belongs to whoever asked, so an inner
+scope never overwrites an outer one — it only fills in the `general` default.
+
+**`venue` has no bucket of its own.** It is a real tag, and the wallet folds it
+into `other` along with anything untagged. Unknown tags are bucketed rather
+than dropped, so the four segments always add up to `used`.
+
+**Estimates are labelled.** The wallet is exact — it sums what the providers
+reported. The request panel divides characters by four and says so, and prefixes
+its numbers with `~`. Cached paper text is marked `cached`: it still occupies
+the window, it is only the billing that changes, so it stays in the bar.

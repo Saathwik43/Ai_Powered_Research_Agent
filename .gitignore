@@ -30,7 +30,8 @@ Sample paper/
 *.log.*
 backend.log
 
-.cursor/
+.cursor/*
+!.cursor/mcp.json
 .claude/
 # OAuth client secrets must never be committed. One was found untracked in
 # backend/integrations/ on 2026-08-24 - delete it and rotate the credential.

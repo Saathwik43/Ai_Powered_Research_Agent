@@ -1,0 +1,318 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: >-
+  Always-free AWS footprint for AI-Assisted Research Paper Guide — S3 for PDFs and
+  export bundles, SQS for the research-job queue, and one scoped IAM identity for the
+  Render-hosted backend. Deliberately excludes any always-on compute: the account runs
+  on a fixed credit balance, so every resource here bills per-use or not at all.
+
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@2
+  com.aws.cloudformation.Context:
+    arch: >-
+      Backend stays on Render (free). AWS holds only what Render cannot: durable object
+      storage, a job queue that outlives a redeploy, and parameter storage for API keys.
+      Render is outside AWS, so it authenticates as an IAM user with static keys rather
+      than assuming a role.
+    must:
+      - No always-on compute in this stack; credits expire 2027-02-18 and idle burn is the main risk
+      - SSE-S3 and SQS-managed SSE only; a customer-managed KMS key bills per month and per request
+    ref:
+      - at: infra/README.md
+        has: deploy + teardown steps, SecureString parameter setup, cost notes
+        scope: this stack
+
+Parameters:
+  AllowedOrigins:
+    Type: CommaDelimitedList
+    Default: "https://ai-powered-research-agent-live.onrender.com,http://localhost:5173,http://127.0.0.1:5173"
+    Description: >-
+      Browser origins permitted to PUT/GET objects via presigned URLs. Must match the
+      SPA origins the backend already trusts (backend/core/config.py DEFAULT_CORS_ORIGINS
+      plus the deployed frontend).
+
+  ExportRetentionDays:
+    Type: Number
+    Default: 30
+    MinValue: 1
+    MaxValue: 365
+    Description: Days before a generated export bundle under exports/ is deleted.
+
+Resources:
+
+  # ---------------------------------------------------------------- storage --
+
+  UploadsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: >-
+          Holds uploaded PDFs and generated export bundles. Moves both off GridFS, where
+          they compete with application documents for Mongo Atlas M0's 512MB. SSE-S3 over
+          KMS because KMS bills monthly per key + per request and buys nothing here.
+          Versioning on (an overwrite should not destroy a user's source) but noncurrent
+          versions expire, so it cannot grow without bound.
+        must:
+          - All four public-access blocks stay true; uploads are user documents
+          - Objects reachable only over TLS - enforced by UploadsBucketPolicy
+          - Keep a noncurrent-version expiry rule; versioning without it grows forever
+        mutable: change-with-constraints
+        mutability:
+          BucketName: must-never-change
+    Properties:
+      BucketName: !Sub "${AWS::StackName}-uploads-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+            BucketKeyEnabled: true
+      VersioningConfiguration:
+        Status: Enabled
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      LifecycleConfiguration:
+        Rules:
+          - Id: abort-incomplete-multipart
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+          - Id: expire-noncurrent-versions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+          - Id: expire-generated-exports
+            Status: Enabled
+            Prefix: exports/
+            ExpirationInDays: !Ref ExportRetentionDays
+      CorsConfiguration:
+        CorsRules:
+          - AllowedMethods: [GET, PUT, HEAD]
+            AllowedOrigins: !Ref AllowedOrigins
+            AllowedHeaders: ["*"]
+            ExposedHeaders: [ETag]
+            MaxAge: 3000
+
+  UploadsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Refuses plaintext HTTP for uploads and downloads alike.
+        must:
+          - Keep the aws:SecureTransport deny; presigned URLs are otherwise usable over HTTP
+    Properties:
+      Bucket: !Ref UploadsBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt UploadsBucket.Arn
+              - !Sub "${UploadsBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+  # ------------------------------------------------------------------ queue --
+
+  ResearchJobsQueue:
+    Type: AWS::SQS::Queue
+    # Explicitly Delete, not Retain. A queued job is a work item keyed by canonical
+    # topic over public literature - regenerable by definition. A retained queue would
+    # outlive the stack, keep its name, and then collide with the next deploy of the
+    # same stack name. The bucket is the only genuinely irreplaceable store here.
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: >-
+          Decouples the corpus-preparation pipeline (8-source fan-out, relevance pass, up
+          to 15 full-text fetches) from the web process. Today a redeploy mid-pipeline
+          strands the run and services/research_jobs.py reaps it after STALE_AFTER_SECONDS.
+          A queued message survives that instead. Standard, not FIFO - jobs are keyed by
+          canonical topic and already idempotent, so ordering buys nothing and FIFO would
+          cap throughput.
+        must:
+          - VisibilityTimeout >= worst-case prepare_corpus runtime, else a slow job is redelivered and run twice
+          - Keep the DLQ redrive; a poison topic must not recycle forever
+        mutable: change-with-constraints
+    Properties:
+      QueueName: !Sub "${AWS::StackName}-research-jobs"
+      VisibilityTimeout: 900
+      MessageRetentionPeriod: 345600
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ResearchJobsDLQ.Arn
+        maxReceiveCount: 3
+
+  ResearchJobsDLQ:
+    Type: AWS::SQS::Queue
+    # Same reasoning as the primary queue: failed jobs are re-runnable, so retaining
+    # this past stack deletion buys an orphan and a name collision, not safety.
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Holds jobs that failed three deliveries, for inspection and replay.
+        must:
+          - Retention longer than the source queue, or evidence expires before anyone looks
+    Properties:
+      QueueName: !Sub "${AWS::StackName}-research-jobs-dlq"
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  # One policy per queue, not one policy listing both. SQS rejects a statement
+  # carrying more than a single Resource ("Each statement in the policy should have
+  # exactly one resource"), and a shared document would in any case attach a
+  # statement naming the primary queue onto the DLQ. cfn-lint does not catch this -
+  # it is a service constraint, surfaced only at create time.
+  ResearchJobsQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Denies non-TLS access to the primary queue.
+        must:
+          - Exactly one Resource per statement; SQS rejects a list
+    Properties:
+      Queues:
+        - !Ref ResearchJobsQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 'sqs:*'
+            Resource: !GetAtt ResearchJobsQueue.Arn
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+  ResearchJobsDLQPolicy:
+    Type: AWS::SQS::QueuePolicy
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Denies non-TLS access to the dead-letter queue.
+        must:
+          - Exactly one Resource per statement; SQS rejects a list
+    Properties:
+      Queues:
+        - !Ref ResearchJobsDLQ
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 'sqs:*'
+            Resource: !GetAtt ResearchJobsDLQ.Arn
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+  # -------------------------------------------------------------- identity --
+
+  BackendPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: >-
+          Least-privilege set for the Render backend. Object-level S3 rather than bucket
+          admin; no s3:DeleteBucket, no queue creation, no ssm:PutParameter - the backend
+          reads configuration, it never rewrites it.
+        must:
+          - Never widen to a resource wildcard; these keys live on a third-party host
+          - ssm:GetParameter* stays scoped to the /rpg/ path
+    Properties:
+      ManagedPolicyName: !Sub "${AWS::StackName}-backend-access"
+      Description: Scoped S3 + SQS + SSM access for the Render-hosted FastAPI backend.
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: ObjectReadWrite
+            Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:DeleteObject
+            Resource: !Sub "${UploadsBucket.Arn}/*"
+          - Sid: BucketList
+            Effect: Allow
+            Action:
+              - s3:ListBucket
+              - s3:GetBucketLocation
+            Resource: !GetAtt UploadsBucket.Arn
+          - Sid: JobQueue
+            Effect: Allow
+            Action:
+              - sqs:SendMessage
+              - sqs:ReceiveMessage
+              - sqs:DeleteMessage
+              - sqs:GetQueueAttributes
+              - sqs:GetQueueUrl
+              - sqs:ChangeMessageVisibility
+            Resource:
+              - !GetAtt ResearchJobsQueue.Arn
+              - !GetAtt ResearchJobsDLQ.Arn
+          - Sid: ReadOwnParameters
+            Effect: Allow
+            Action:
+              - ssm:GetParameter
+              - ssm:GetParameters
+              - ssm:GetParametersByPath
+            Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/rpg/*"
+
+  BackendUser:
+    Type: AWS::IAM::User
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: >-
+          Render runs outside AWS and cannot assume a role via instance metadata or OIDC,
+          so a static key pair is the only workable credential. Kept to one identity with
+          one attached policy so the blast radius is exactly the statements above.
+        must:
+          - Access keys are created out-of-band, never via AWS::IAM::AccessKey - the secret would land in stack outputs in plaintext
+          - One user per deployment target; do not share these keys with CI
+        mutable: review-required
+    Properties:
+      UserName: !Sub "${AWS::StackName}-render-backend"
+      ManagedPolicyArns:
+        - !Ref BackendPolicy
+
+Outputs:
+  UploadsBucketName:
+    Description: S3 bucket for uploaded PDFs and generated export bundles.
+    Value: !Ref UploadsBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-uploads-bucket"
+
+  ResearchJobsQueueUrl:
+    Description: SQS queue URL for the research-job pipeline.
+    Value: !Ref ResearchJobsQueue
+    Export:
+      Name: !Sub "${AWS::StackName}-research-jobs-url"
+
+  ResearchJobsQueueArn:
+    Description: SQS queue ARN, for a future Lambda event-source mapping.
+    Value: !GetAtt ResearchJobsQueue.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-research-jobs-arn"
+
+  ResearchJobsDLQUrl:
+    Description: Dead-letter queue URL.
+    Value: !Ref ResearchJobsDLQ
+
+  BackendUserName:
+    Description: IAM user the Render backend authenticates as. Create its access key with the CLI.
+    Value: !Ref BackendUser

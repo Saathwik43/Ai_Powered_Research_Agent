@@ -2,6 +2,7 @@ import logging
 from ai.guardrails import validate_input_layers_a_b
 from ai.keyword_extractor import extract_top_topics
 from integrations.paper_search import SHARED_LIMIT_PER_SOURCE, search_all
+from services.usage_tracker import tagged
 logger = logging.getLogger(__name__)
 
 # Upper bound on the TF-IDF corpus, taken from the ranked head.
@@ -20,6 +21,7 @@ def _fallback_topics(intent: str):
     ]
 
 
+@tagged("literature")
 async def discover_topics(intent: str):
     """
     Discover trending research topics by aggregating papers from all
