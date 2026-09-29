@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { BookOpen, CheckCircle2, ChevronRight, Copy, Download, ExternalLink, FileText, Filter, List, Save, Search, Sparkles, User, X, Loader2, Bookmark, Unlock, ChevronDown, Trash2, Square } from 'lucide-react';
+import { BookOpen, CheckCircle2, ChevronRight, Copy, Download, ExternalLink, FileText, Filter, GitBranch, List, Save, Search, Sparkles, User, X, Loader2, Bookmark, Unlock, ChevronDown, Trash2, Square } from 'lucide-react';
 import { InteractiveHoverButton } from '@/components/ui/interactive-hover-button';
 import { AnimatePresence, LayoutGroup, motion } from 'motion/react';
 import './LiteratureSurvey.css';
@@ -37,10 +37,56 @@ const SOURCE_LABELS = {
   BASE: 'BASE',
   EuropePMC: 'Europe PMC',
   DOAJ: 'DOAJ',
+  OpenReview: 'OpenReview',
+  ACLAnthology: 'ACL Anthology',
+  Zenodo: 'Zenodo',
 };
 
 function sourceLabel(name) {
   return SOURCE_LABELS[name] || name;
+}
+
+// How many of the reader's top results seed a citation expansion. The server
+// caps it too — this is the number the status line quotes back.
+const SNOWBALL_SEEDS = 10;
+
+// Provenance the server attaches to a snowballed paper. Copied onto a row the
+// search had already returned, so one card can say both "from search" and "3 of
+// your results cite this" instead of the second answer being thrown away.
+function pickProvenance(paper) {
+  return {
+    snowball_direction: paper.snowball_direction,
+    snowball_seeds: paper.snowball_seeds,
+    snowball_seed_count: paper.snowball_seed_count,
+  };
+}
+
+// The one-line justification for a snowballed row, in the reader's terms rather
+// than the graph's: "cited by" means their own results cite it (it is prior
+// work), "cites" means it builds on their results (it is newer work).
+function citationProvenance(paper) {
+  const n = paper.snowball_seed_count || 0;
+  const of = `${n} result${n === 1 ? '' : 's'}`;
+  if (paper.snowball_direction === 'backward') return `Cited by ${of}`;
+  if (paper.snowball_direction === 'forward') return `Cites ${of}`;
+  return `Linked to ${of}`;
+}
+
+// Fold the snowball's per-graph outcomes into the search's, keyed by name. The
+// panel reports what each database did for this result set; after an expansion
+// OpenAlex and Semantic Scholar have done two things, and the citation pass is
+// the more recent one.
+function mergeOutcomes(existing, incoming) {
+  const byName = new Map((existing || []).map((o) => [o.name, o]));
+  for (const outcome of incoming) {
+    const before = byName.get(outcome.name);
+    byName.set(outcome.name, {
+      ...before,
+      ...outcome,
+      count: (before?.count || 0) + (outcome.count || 0),
+    });
+  }
+  return Array.from(byName.values());
 }
 
 const BRIEF_LABELS = ['About', 'Method', 'Finding', 'Results', 'Limit'];
@@ -271,7 +317,7 @@ function SourceOutcomes({ sources }) {
 const HTTP_RE = /^https?:\/\//i;
 
 // Where a reader can open the paper, and where its PDF actually is. Paper
-// dicts arrive straight from nine sources, so every locator field is present
+// dicts arrive straight from twelve sources, so every locator field is present
 // on some of them and missing on others — hence the ladders rather than one
 // field. Only used by the PDF export; the cards render whichever links they
 // happen to have.
@@ -332,6 +378,9 @@ export default function LiteratureSurvey() {
   // Full-text briefings, one per card the reader opened. Never prefetched:
   // a fetch-and-parse is seconds of wall clock and megabytes of transfer.
   const [deepBriefs, setDeepBriefs] = useState({});
+  // Citation snowballing (2.2): '' | 'loading' | a summary line to show once.
+  const [snowballStatus, setSnowballStatus] = useState('');
+  const [snowballError, setSnowballError] = useState('');
   const briefRequestedRef = useRef(new Set());
   const { run: runSearch, stop: stopRequest } = useSearchRequest();
 
@@ -379,6 +428,8 @@ export default function LiteratureSurvey() {
     setSaveStatus('');
     setMatchedQuery('');
     setSourceOutcomes([]);
+    setSnowballStatus('');
+    setSnowballError('');
   }, [
     stopSearch, setQuery, setPapers, setSearchError, setHasSearched,
     setLastQuery, setFilterYear, setFilterSource, setVisibleCount,
@@ -412,6 +463,8 @@ export default function LiteratureSurvey() {
       setFetchedLimit(INITIAL_LIMIT);
       setMatchedQuery('');
       setSourceOutcomes([]);
+      setSnowballStatus('');
+      setSnowballError('');
       setBriefs({});
       setDeepBriefs({});
       briefRequestedRef.current = new Set();
@@ -545,6 +598,82 @@ export default function LiteratureSurvey() {
     }
     return true;
   });
+
+  // ─── Citation snowballing (2.2) ─────────────────────────────────────────────
+  //
+  // Keyword search finds papers whose words match the query. The literature's
+  // own citation graph finds the papers those results are built on and the ones
+  // built on them since — which is how a survey is actually assembled, and it
+  // reaches work whose title shares not one word with the query.
+  //
+  // Seeded from the top of what the reader is currently looking at, filters
+  // included: if they have narrowed to 2024 onwards, the expansion should
+  // follow those papers' citations, not the ones they filtered away.
+  const expandByCitations = async () => {
+    if (snowballStatus === 'loading') return;
+    const seeds = filteredPapers.slice(0, SNOWBALL_SEEDS).map((p) => ({
+      title: p.title || '',
+      doi: p.doi || '',
+      id: p.id || '',
+      url: p.url || '',
+      arxiv_id: p.arxiv_id || '',
+    }));
+    if (!seeds.length) return;
+
+    setSnowballStatus('loading');
+    setSnowballError('');
+    try {
+      const data = await api.post('/api/literature/snowball', {
+        seeds,
+        direction: 'both',
+        query: lastQuery,
+      });
+      const incoming = data.data || [];
+      let added = 0;
+      setPapers((prev) => {
+        const seen = new Set(prev.map(paperKey));
+        // A snowballed paper the search already returned is not new — but it
+        // *is* now explained by the citation graph, so the provenance is folded
+        // onto the row the reader already has rather than dropped with it.
+        const merged = prev.map((p) => {
+          const hit = incoming.find((c) => paperKey(c) === paperKey(p));
+          return hit ? { ...p, ...pickProvenance(hit) } : p;
+        });
+        const fresh = incoming.filter((p) => !seen.has(paperKey(p)));
+        added = fresh.length;
+        return fresh.length ? [...merged, ...fresh] : merged;
+      });
+
+      const unreachable = Number(data.seeds_unresolvable || 0);
+      setSnowballStatus(
+        added
+          ? `Added ${added} paper${added === 1 ? '' : 's'} from the references and citing works of your top ${data.seeds_used} result${data.seeds_used === 1 ? '' : 's'}.`
+          : 'No new papers — the citation graphs returned only papers already in these results.'
+      );
+      if (unreachable) {
+        // Almost always a paper with neither a DOI nor an arXiv id: neither
+        // graph is addressable for it. Saying so beats letting the reader
+        // wonder why ten seeds produced four papers.
+        setSnowballError(
+          `${unreachable} of your top results could not be traced — no DOI or arXiv id to look up.`
+        );
+      }
+      if (Array.isArray(data.sources) && data.sources.length) {
+        setSourceOutcomes((prev) => mergeOutcomes(prev, data.sources));
+      }
+    } catch (e) {
+      console.error(e);
+      setSnowballStatus('');
+      // 5/minute on this route, and a citation walk is 40 upstream requests —
+      // a second press inside the minute is the likely failure, so say which
+      // one it is rather than offering a retry that will fail the same way.
+      setSnowballError(
+        e?.status === 429 || e?.status === 503
+          ? 'Too many citation searches in the last minute. Wait a moment and try again.'
+          : 'Could not follow citations. Please try again.'
+      );
+    }
+  };
 
   const displayedPapers = filteredPapers.slice(0, visibleCount);
   const hasMoreFiltered = visibleCount < filteredPapers.length || serverHasMore;
@@ -863,6 +992,16 @@ export default function LiteratureSurvey() {
               <span className="lit-filter-query">for &ldquo;{lastQuery}&rdquo;</span>
             </div>
             <div className="lit-filter-actions">
+              <button
+                className="btn btn-secondary"
+                onClick={expandByCitations}
+                disabled={snowballStatus === 'loading'}
+                title={`Find the papers your top ${SNOWBALL_SEEDS} results cite, and the papers citing them`}
+              >
+                {snowballStatus === 'loading'
+                  ? <><Spinner size={14} /> Following…</>
+                  : <><GitBranch size={14} /> Follow citations</>}
+              </button>
               <button className="btn btn-secondary" onClick={saveSurvey} disabled={saveStatus === 'saving'}>
                 <Save size={14} /> {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : 'Save'}
               </button>
@@ -871,6 +1010,25 @@ export default function LiteratureSurvey() {
               </button>
             </div>
           </div>
+
+          {(snowballStatus && snowballStatus !== 'loading') || snowballError ? (
+            <div className="lit-snowball-note" role="status">
+              {snowballStatus && snowballStatus !== 'loading' && (
+                <span className="lit-snowball-note-text">{snowballStatus}</span>
+              )}
+              {snowballError && (
+                <span className="lit-snowball-note-warn">{snowballError}</span>
+              )}
+              <button
+                type="button"
+                className="lit-snowball-note-dismiss"
+                onClick={() => { setSnowballStatus(''); setSnowballError(''); }}
+                aria-label="Dismiss"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          ) : null}
 
           <div className="lit-filter-row">
             <div className="lit-filter-field">
@@ -899,6 +1057,9 @@ export default function LiteratureSurvey() {
                 <option value="arXiv">arXiv</option>
                 <option value="Crossref">Crossref</option>
                 <option value="GitHub">GitHub</option>
+                <option value="OpenReview">OpenReview</option>
+                <option value="ACLAnthology">ACL Anthology</option>
+                <option value="Zenodo">Zenodo</option>
               </select>
             </div>
           </div>
@@ -981,6 +1142,17 @@ export default function LiteratureSurvey() {
                 {p.citations > 0 && (
                   <span className="lit-badge">
                     {p.citations.toLocaleString()} citations
+                  </span>
+                )}
+                {/* Why this paper is here at all. A snowballed row does not
+                    have to match the query — its justification is the citation
+                    link, so the card has to state it. */}
+                {p.snowball_seed_count > 0 && (
+                  <span
+                    className="lit-badge lit-badge-snowball"
+                    title={`${citationProvenance(p)}:\n${(p.snowball_seeds || []).join('\n')}`}
+                  >
+                    <GitBranch size={11} /> {citationProvenance(p)}
                   </span>
                 )}
               </div>

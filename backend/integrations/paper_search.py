@@ -15,6 +15,9 @@ from integrations.pubmed import search_papers as pubmed_search
 from integrations.springer import search_papers as springer_search
 from integrations.europepmc import search_papers as europepmc_search
 from integrations.doaj import search_papers as doaj_search
+from integrations.openreview import search_papers as openreview_search
+from integrations.acl import search_papers as acl_search
+from integrations.zenodo import search_papers as zenodo_search
 from core.query_key import canonical_key
 from core.paper_identity import (
     identity_keys,
@@ -296,6 +299,9 @@ _SOURCE_WEIGHTS = {
     "PubMed": 0.65,
     "Crossref": 0.6,
     "DOAJ": 0.55,
+    "OpenReview": 0.6,
+    "ACLAnthology": 0.8,
+    "Zenodo": 0.45,
     "arXiv": 0.5,
 }
 # GitHub sub-sources all start with "GitHub/"
@@ -880,6 +886,9 @@ async def _execute_search(
     springer_results = results_map.get("Springer", [])
     europepmc_results = results_map.get("EuropePMC", [])
     doaj_results     = results_map.get("DOAJ", [])
+    openreview_results = results_map.get("OpenReview", [])
+    acl_results = results_map.get("ACLAnthology", [])
+    zenodo_results = results_map.get("Zenodo", [])
 
     # Tag sources that don't already have one
     for p in openalex_results:
@@ -892,13 +901,20 @@ async def _execute_search(
         p.setdefault("source", "Crossref")
     for p in pubmed_results:
         p.setdefault("source", "PubMed")
-    # Semantic Scholar, Springer, EuropePMC, DOAJ already tag their own in their modules (or we enforce it here if not)
+    # Semantic Scholar, Springer, EuropePMC, DOAJ, OpenReview, ACL Anthology,
+    # and Zenodo already tag their own in their modules (or we enforce it here).
     for p in springer_results:
         p.setdefault("source", "Springer")
     for p in europepmc_results:
         p.setdefault("source", "EuropePMC")
     for p in doaj_results:
         p.setdefault("source", "DOAJ")
+    for p in openreview_results:
+        p.setdefault("source", "OpenReview")
+    for p in acl_results:
+        p.setdefault("source", "ACLAnthology")
+    for p in zenodo_results:
+        p.setdefault("source", "Zenodo")
 
     # Merge all sources into a single list
     merged = (
@@ -911,6 +927,9 @@ async def _execute_search(
         + springer_results
         + europepmc_results
         + doaj_results
+        + openreview_results
+        + acl_results
+        + zenodo_results
     )
 
     # Deduplicate

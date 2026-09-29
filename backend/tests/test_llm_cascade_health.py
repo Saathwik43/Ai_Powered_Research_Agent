@@ -139,10 +139,15 @@ class TestCascadeSkipsDeadProviders:
         for name, attr in [
             ("OpenAI", "_generate_openai"), ("Gemini", "_generate_gemini"),
             ("Groq", "_generate_groq"), ("Cerebras", "_generate_cerebras"),
-            ("Mistral", "_generate_mistral"), ("HuggingFace", "_generate_huggingface"),
+            ("Mistral", "_generate_mistral"), ("Kimi", "_generate_kimi"),
+            ("HuggingFace", "_generate_huggingface"),
         ]:
             if name in outcomes:
                 monkeypatch.setattr(llm_provider, attr, make(name))
+            elif name == "Kimi":
+                async def _kimi_unused(*args, **kwargs):
+                    raise RuntimeError("kimi not in this test")
+                monkeypatch.setattr(llm_provider, attr, _kimi_unused)
 
         monkeypatch.setattr(llm_provider, "LLM_PROVIDER", "auto")
         monkeypatch.setattr(llm_provider.os, "getenv", lambda k, d=None: (
@@ -175,7 +180,7 @@ class TestCascadeSkipsDeadProviders:
             "Gemini": "recovered",
             "Groq": "unused",
         })
-        for name in ("OpenAI", "Gemini", "Groq", "Cerebras", "Mistral", "HuggingFace"):
+        for name in ("OpenAI", "Gemini", "Groq", "Cerebras", "Mistral", "Kimi", "HuggingFace"):
             _trip(name)
 
         result = await llm_provider.generate_completion("sys", "user")

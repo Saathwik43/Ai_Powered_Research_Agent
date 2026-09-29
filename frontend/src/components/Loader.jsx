@@ -3,13 +3,13 @@ import React from 'react';
 // Perplexity-inspired subtle spinner
 export function Spinner({ size = 24, label }) {
   return (
-    <div className="flex items-center gap-2 text-text-subtle">
-      <div 
+    <span className="inline-flex items-center gap-2 align-middle text-text-subtle">
+      <span
         className="ui-spinner"
         style={{ width: size, height: size }}
       />
       {label && <span className="text-sm font-medium">{label}</span>}
-    </div>
+    </span>
   );
 }
 

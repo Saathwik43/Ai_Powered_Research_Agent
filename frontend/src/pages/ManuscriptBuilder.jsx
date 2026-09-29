@@ -329,6 +329,9 @@ export default function ManuscriptBuilder() {
   const abortControllerRef = useRef(null);
   const streamBufferRef = useRef('');
   const streamRafRef = useRef(null);
+  // Whether this sitting's topic came from the user typing it. The prewarm
+  // below is billed work, so it needs an intent to generate — see there.
+  const topicTypedRef = useRef(false);
   const [sectionTruncated, setSectionTruncated] = useState(false);
 
   const flushStreamBuffer = (sectionId) => {
@@ -383,10 +386,18 @@ export default function ManuscriptBuilder() {
   // one takes the whole 8-source fan-out, the relevance pass and the full-text
   // fetches off the critical path of the first Generate. Debounced because this
   // fires on every keystroke of the topic field.
+  // Only for a topic the user is *typing*, because this is billed work and not
+  // every topic change is an intent to generate. `prepare_corpus` is tagged
+  // `manuscript` in the usage tracker and pays for an LLM screening pass plus
+  // per-paper evidence extraction, so firing it on `topic` alone charged a
+  // reader for opening a finished draft (`load` sets the topic) or for merely
+  // navigating back to this page (the topic lives in AppContext and outlives
+  // the mount). Both are reads. Nothing is lost by waiting: Generate prepares
+  // the corpus itself and reports the same stages inline.
   useEffect(() => {
     const trimmed = topic.trim();
     setResearchReady(false);
-    if (trimmed.length < 4 || generating) return undefined;
+    if (trimmed.length < 4 || generating || !topicTypedRef.current) return undefined;
 
     let cancelled = false;
     const timer = setTimeout(async () => {
@@ -1252,7 +1263,7 @@ export default function ManuscriptBuilder() {
               <input
                 placeholder="Enter research topic..."
                 value={topic}
-                onChange={e => setTopic(e.target.value)}
+                onChange={e => { topicTypedRef.current = true; setTopic(e.target.value); }}
                 style={{ padding: 'var(--space-2)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: 'var(--fs-sm)', width: '100%', outline: 'none' }}
               />
             </div>

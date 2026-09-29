@@ -119,6 +119,9 @@ def test_execute_search_records_skip_empty_ok_and_error():
              patch.object(ps, "springer_search", empty), \
              patch.object(ps, "europepmc_search", empty), \
              patch.object(ps, "doaj_search", empty), \
+             patch.object(ps, "openreview_search", empty), \
+             patch.object(ps, "acl_search", empty), \
+             patch.object(ps, "zenodo_search", empty), \
              patch.object(ps, "_rank_and_rerank", new=AsyncMock(side_effect=lambda q, papers, emb: papers)):
             return await ps._execute_search(
                 "graph neural networks",

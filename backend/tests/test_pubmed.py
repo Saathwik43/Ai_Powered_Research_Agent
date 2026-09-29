@@ -327,6 +327,9 @@ class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
             patch("integrations.paper_search.springer_search",  side_effect=instant_search),
             patch("integrations.paper_search.europepmc_search", side_effect=instant_search),
             patch("integrations.paper_search.doaj_search",      side_effect=instant_search),
+            patch("integrations.paper_search.openreview_search", side_effect=instant_search),
+            patch("integrations.paper_search.acl_search",       side_effect=instant_search),
+            patch("integrations.paper_search.zenodo_search",    side_effect=instant_search),
         ):
             t0 = time.monotonic()
             results = await ps_module.search_all(
@@ -393,6 +396,9 @@ class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
             patch("integrations.paper_search.springer_search",  side_effect=always_slow),
             patch("integrations.paper_search.europepmc_search", side_effect=always_slow),
             patch("integrations.paper_search.doaj_search",      side_effect=always_slow),
+            patch("integrations.paper_search.openreview_search", side_effect=always_slow),
+            patch("integrations.paper_search.acl_search",       side_effect=always_slow),
+            patch("integrations.paper_search.zenodo_search",    side_effect=always_slow),
         ):
             t0 = time.monotonic()
             results = await ps_module.search_all(
@@ -450,6 +456,9 @@ class TestSearchAllCeiling(unittest.IsolatedAsyncioTestCase):
             patch("integrations.paper_search.springer_search",  side_effect=sp_fast),
             patch("integrations.paper_search.europepmc_search", side_effect=ie_fast),
             patch("integrations.paper_search.doaj_search",      side_effect=ie_fast),
+            patch("integrations.paper_search.openreview_search", side_effect=ie_fast),
+            patch("integrations.paper_search.acl_search",       side_effect=ie_fast),
+            patch("integrations.paper_search.zenodo_search",    side_effect=ie_fast),
         ):
             t0 = time.monotonic()
             results = await ps_module.search_all(
@@ -510,6 +519,9 @@ class TestSearchAllPartialResults(unittest.IsolatedAsyncioTestCase):
             patch("integrations.paper_search.springer_search",  side_effect=instant),
             patch("integrations.paper_search.europepmc_search", side_effect=instant),
             patch("integrations.paper_search.doaj_search",      side_effect=instant),
+            patch("integrations.paper_search.openreview_search", side_effect=instant),
+            patch("integrations.paper_search.acl_search",       side_effect=instant),
+            patch("integrations.paper_search.zenodo_search",    side_effect=instant),
         ):
             t0 = time.monotonic()
             results = await ps_module.search_all(
@@ -616,6 +628,9 @@ class TestSearchAllPartialResults(unittest.IsolatedAsyncioTestCase):
             patch("integrations.paper_search.springer_search",  side_effect=sp_fast),
             patch("integrations.paper_search.europepmc_search", side_effect=ie_fast),
             patch("integrations.paper_search.doaj_search",      side_effect=ie_fast),
+            patch("integrations.paper_search.openreview_search", side_effect=ie_fast),
+            patch("integrations.paper_search.acl_search",       side_effect=ie_fast),
+            patch("integrations.paper_search.zenodo_search",    side_effect=ie_fast),
         ):
             t0 = time.monotonic()
             results = await ps_module.search_all(

@@ -107,6 +107,17 @@ async def main():
               params={"query": QUERY, "format": "json", "pageSize": 15, "resultType": "core"},
               count_fn=lambda r: len(r.json().get("resultList", {}).get("result", []))),
 
+        probe("OpenReview", "GET", "https://api2.openreview.net/notes/search",
+              params={"term": QUERY, "source": "forum", "content": "all", "limit": 15},
+              count_fn=jlen("notes")),
+
+        probe("ACL Anthology", "GET", "https://aclanthology.org/2024.acl-long.1.xml",
+              count_fn=lambda r: 1 if "title" in r.text.lower() else 0),
+
+        probe("Zenodo", "GET", "https://zenodo.org/api/records",
+              params={"q": QUERY, "size": 15, "type": "publication", "sort": "bestmatch"},
+              count_fn=lambda r: len(r.json().get("hits", {}).get("hits", []))),
+
         probe("DOAJ", "GET",
               f"https://doaj.org/api/search/articles/{urllib.parse.quote(QUERY)}",
               params={"pageSize": 15},
@@ -131,6 +142,10 @@ async def main():
 
         probe("Mistral /models", "GET", "https://api.mistral.ai/v1/models",
               headers={"Authorization": f"Bearer {os.getenv('MISTRAL_API_KEY', '')}"},
+              count_fn=jlen("data")),
+
+        probe("Kimi /models", "GET", "https://api.moonshot.ai/v1/models",
+              headers={"Authorization": f"Bearer {os.getenv('KIMI_API_KEY', '')}"},
               count_fn=jlen("data")),
 
         probe("OpenRouter /models", "GET", "https://openrouter.ai/api/v1/models",

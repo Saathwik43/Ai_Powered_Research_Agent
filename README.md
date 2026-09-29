@@ -1,6 +1,6 @@
 # Research Agent
 
-An AI-assisted platform for academic research and publishing. It supports the workflow end to end: discovering a topic, running a literature survey across nine bibliographic databases, reading and questioning source papers, drafting a manuscript grounded in that literature, and selecting a publication venue.
+An AI-assisted platform for academic research and publishing. It supports the workflow end to end: discovering a topic, running a literature survey across twelve bibliographic databases, reading and questioning source papers, drafting a manuscript grounded in that literature, and selecting a publication venue.
 
 - **Live deployment:** [ai-powered-research-agent-live.onrender.com](https://ai-powered-research-agent-live.onrender.com)
 - **Architecture:** `[architecture_and_workflow.md](architecture_and_workflow.md)` — component diagram, end-to-end request sequence, search pipeline, and evidence ladder.
@@ -8,7 +8,7 @@ An AI-assisted platform for academic research and publishing. It supports the wo
 ## Capabilities
 
 - **Topic discovery.** Suggests research directions for an area of interest. Keywords are derived by TF-IDF over the retrieved corpus rather than by an LLM, which keeps the suggestions cheap and reproducible.
-- **Literature survey.** A single query fans out in parallel to nine databases — Semantic Scholar, OpenAlex, Crossref, PubMed, arXiv, Springer Nature, Europe PMC, DOAJ, and a set of checked-out GitHub knowledge repositories. Results are deduplicated by DOI, arXiv identifier, or normalized title, then ranked and relevance-filtered. Unpaywall enriches open-access links after deduplication.
+- **Literature survey.** A single query fans out in parallel to twelve databases — Semantic Scholar, OpenAlex, Crossref, PubMed, arXiv, OpenReview, the ACL Anthology, Zenodo, Springer Nature, Europe PMC, DOAJ, and a set of checked-out GitHub knowledge repositories. Results are deduplicated by DOI, arXiv identifier, or normalized title, then ranked and relevance-filtered. Unpaywall enriches open-access links after deduplication.
 - **Document reader.** Upload a paper or supply an open-access URL and query it directly. Remote fetches pass through an SSRF guard; parsing runs in-process.
 - **Manuscript drafting.** Sections are generated with live streaming. A mid-stream provider failure continues on the next provider rather than restarting. Revisions can target a whole section, a selected sentence range, or a single diagram, and are applied through an accept/reject diff.
 - **Grounding checks.** Generated text is checked against the retrieved sources, numerical claims are validated, and every `[N]` citation is resolved against the reference list. Unsupported claims are flagged rather than shipped silently.
@@ -20,7 +20,7 @@ An AI-assisted platform for academic research and publishing. It supports the wo
 
 ## Architecture overview
 
-**Provider cascade.** `ai/llm_provider.py` fails over across providers in the order OpenAI, Gemini, Groq, Cerebras, Mistral, HuggingFace. A provider joins the chain only when its key is configured, so the effective order on a given deployment is that list minus whatever is unset. OpenRouter and NVIDIA are reachable only by setting `MANUSCRIPT_PROVIDER` explicitly and are never part of the automatic chain. Gemini contexts above roughly 32k tokens use prompt caching.
+**Provider cascade.** `ai/llm_provider.py` fails over across providers in the order OpenAI, Gemini, Groq, Cerebras, Mistral, Kimi, HuggingFace. A provider joins the chain only when its key is configured, so the effective order on a given deployment is that list minus whatever is unset. OpenRouter and NVIDIA are reachable only by setting `MANUSCRIPT_PROVIDER` explicitly and are never part of the automatic chain. Gemini contexts above roughly 32k tokens use prompt caching.
 
 **Evidence ladder.** Full text is resolved through five tiers, cheapest first: arXiv LaTeXML HTML, arXiv LaTeX e-print, Europe PMC JATS, in-process PyMuPDF structure parsing, and finally an LLM over title and abstract. No hosted document-parsing service is involved, and nothing is cloned at request time.
 
@@ -33,7 +33,7 @@ An AI-assisted platform for academic research and publishing. It supports the wo
 | -------- | ------------------------------------------------------------------------------------------------------------------- |
 | Frontend | React 19, Vite, React Router, Tailwind CSS v4, `react-pdf` / `pdfjs-dist`, Mermaid, KaTeX, Recharts, Motion         |
 | Backend  | FastAPI on Python 3.11/3.12, MongoDB via Motor, `httpx` with a shared connection pool                               |
-| Models   | Gemini, OpenAI, Groq, Cerebras, Mistral, HuggingFace (automatic cascade); Gemini embeddings back the semantic cache |
+| Models   | Gemini, OpenAI, Groq, Cerebras, Mistral, Kimi, HuggingFace (automatic cascade); Gemini embeddings back the semantic cache |
 | Email    | Brevo, for address verification and password reset                                                                  |
 
 
@@ -90,7 +90,7 @@ npm run dev
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `JWT_SECRET_KEY` | The application refuses to start without it                                                                              |
 | `MONGO_URI`      | Defaults to `mongodb://localhost:27017`                                                                                  |
-| One provider key | `GEMINI_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `CEREBRAS_API_KEY`, `MISTRAL_API_KEY`, or `HUGGINGFACEHUB_API_TOKEN` |
+| One provider key | `GEMINI_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `CEREBRAS_API_KEY`, `MISTRAL_API_KEY`, `KIMI_API_KEY`, or `HUGGINGFACEHUB_API_TOKEN` |
 
 
 ### Authentication and email
@@ -99,7 +99,7 @@ npm run dev
 
 ### Model providers
 
-`MANUSCRIPT_PROVIDER` selects the strategy and defaults to `auto`. Set it to `openrouter` or `nvidia` to use those providers, together with `OPENROUTER_API_KEY` or `NVIDIA_API_KEY`; OpenRouter additionally sends `APP_PUBLIC_URL` as its referer. Model overrides are available per provider: `GEMINI_MODEL`, `OPENAI_MODEL`, `GROQ_MODEL`, `CEREBRAS_MODEL`, `MISTRAL_MODEL`, `NVIDIA_MODEL`, `OPENROUTER_MODEL`, and `HUGGINGFACE_MANUSCRIPT_MODEL`. HuggingFace reads `HUGGINGFACEHUB_API_TOKEN`, falling back to `HF_TOKEN`.
+`MANUSCRIPT_PROVIDER` selects the strategy and defaults to `auto`. Set it to `openrouter` or `nvidia` to use those providers, together with `OPENROUTER_API_KEY` or `NVIDIA_API_KEY`; OpenRouter additionally sends `APP_PUBLIC_URL` as its referer. Model overrides are available per provider: `GEMINI_MODEL`, `OPENAI_MODEL`, `GROQ_MODEL`, `CEREBRAS_MODEL`, `MISTRAL_MODEL`, `KIMI_MODEL`, `NVIDIA_MODEL`, `OPENROUTER_MODEL`, and `HUGGINGFACE_MANUSCRIPT_MODEL`. HuggingFace reads `HUGGINGFACEHUB_API_TOKEN`, falling back to `HF_TOKEN`. Kimi uses the Moonshot API (`KIMI_API_KEY`); the default model is `kimi-k2.6`.
 
 ### Search sources
 

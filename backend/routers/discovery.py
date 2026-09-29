@@ -27,6 +27,7 @@ from integrations.paper_search import (
     search_all,
     search_all_with_meta,
 )
+from integrations.snowball import DEFAULT_LIMIT as SNOWBALL_DEFAULT_LIMIT, snowball
 from ai.paper_brief import (
     INLINE_BRIEF_COUNT,
     WARM_BRIEF_COUNT,
@@ -39,6 +40,7 @@ from schemas import (
     LiteratureBriefPayload,
     LiteratureDeepBriefPayload,
     LiteratureSavePayload,
+    LiteratureSnowballPayload,
 )
 from services.query_history import (
     _suggest_rank,
@@ -68,6 +70,11 @@ async def get_topics(request: Request, intent: str, current_user: dict = Depends
 
 LITERATURE_DEFAULT_LIMIT = 50
 LITERATURE_MAX_LIMIT = 100
+
+# A citation expansion is capped well below a search: every row has to be worth
+# reading on its provenance alone, and the tail of a snowball is papers a single
+# seed happened to cite once.
+SNOWBALL_MAX_LIMIT = 60
 
 # Extra papers classified per round beyond what is still needed, so a round
 # that drops several irrelevant papers usually still fills the request without
@@ -392,6 +399,52 @@ async def deep_brief_literature(
     text — which is most closed-access papers.
     """
     return await deep_brief_paper(payload.paper.model_dump())
+
+
+@router.post("/api/literature/snowball")
+# A snowball is up to MAX_SEEDS x 2 graphs x 2 directions citation requests, so
+# it is rate-limited like /api/literature rather than like the brief endpoints.
+@limiter.limit("5/minute")
+async def snowball_literature(
+    request: Request,
+    payload: LiteratureSnowballPayload,
+    current_user: dict = Depends(get_current_user),
+):
+    """Papers reached from a seed set by following citations both ways (2.2).
+
+    Backward is each seed's reference list; forward is the works citing it. Both
+    graphs (OpenAlex, Semantic Scholar) are traversed and merged — they disagree
+    about a large share of any paper's edges.
+
+    Unlike /api/literature this does **not** run the relevance classifier. A
+    paper four of the user's own seeds cite is relevant by construction, and its
+    abstract often does not mention the query terms at all — the classifier
+    would throw away exactly the prior work snowballing exists to find. The
+    provenance on each row (`snowball_seeds`) is what justifies it instead.
+    """
+    if payload.direction not in ("backward", "forward", "both"):
+        raise HTTPException(
+            status_code=422,
+            detail="direction must be 'backward', 'forward' or 'both'.",
+        )
+
+    seeds = [s.model_dump() for s in (payload.seeds or [])]
+    if not seeds:
+        raise HTTPException(status_code=422, detail="At least one seed paper is required.")
+
+    limit = max(1, min(payload.limit or SNOWBALL_DEFAULT_LIMIT, SNOWBALL_MAX_LIMIT))
+    papers, meta = await snowball(
+        seeds,
+        direction=payload.direction,
+        query=payload.query or "",
+        limit=limit,
+    )
+    return {
+        "data": papers,
+        "count": len(papers),
+        "limit": limit,
+        **meta.as_dict(),
+    }
 
 
 @router.post("/api/literature/save")

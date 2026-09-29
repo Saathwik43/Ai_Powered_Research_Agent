@@ -170,3 +170,24 @@ class LiteratureBriefPayload(BaseModel):
 class LiteratureDeepBriefPayload(BaseModel):
     """One paper. The full-text path is per-card and on demand, never a page."""
     paper: LiteratureBriefPaper
+
+
+class LiteratureSnowballPayload(BaseModel):
+    """Seed set for a citation expansion (2.2).
+
+    `LiteratureBriefPaper` is reused deliberately: it already carries exactly
+    the identifiers the citation graphs are addressable by (DOI, arXiv id,
+    OpenAlex work URL in `id`/`url`), and rejecting the extra keys a search
+    result arrives with keeps a whole page of paper dicts from being echoed back
+    into a request body.
+
+    `seeds` is capped by the router, not here — a client sending its whole
+    result set should get the top slice snowballed, not a 422.
+    """
+    seeds: List[LiteratureBriefPaper]
+    # "backward" (references), "forward" (citing works), or "both".
+    direction: str = "both"
+    # The original topic. Used only for the lexical tie-break between papers
+    # reached by the same number of seeds; an expansion is well defined without it.
+    query: str = ""
+    limit: Optional[int] = None

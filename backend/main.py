@@ -11,7 +11,9 @@ from core.config import (  # noqa: F401 — loads .env + logging on import
     get_cors_origins,
 )
 
+import asyncio
 import logging
+import sys
 import traceback
 from contextlib import asynccontextmanager
 
@@ -44,7 +46,21 @@ async def lifespan(app: FastAPI):
         await _ensure_disabled_loaded()
     except Exception:
         logger.warning("Could not load admin source toggles on startup", exc_info=True)
+    # The Anthology search reads a cached bibliography (~13 MB). Start the
+    # download now so the first literature search is not the one that pays for it.
+    acl_warm = None
+    if "pytest" not in sys.modules:
+        from integrations.acl import warm_index
+        acl_warm = asyncio.create_task(warm_index())
     yield
+    if acl_warm is not None:
+        acl_warm.cancel()
+        try:
+            await acl_warm
+        except (asyncio.CancelledError, Exception):
+            pass
+        from integrations.acl import close_index
+        await close_index()
     # Return the shared search connection pool cleanly on shutdown.
     from integrations.http_client import aclose as close_http_pool
     await close_http_pool()

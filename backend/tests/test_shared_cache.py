@@ -254,14 +254,15 @@ class TestSearchMemoryPersistence(SharedStoreCase):
                  "source": "arXiv", "year": "2024", "citations": n - i} for i in range(n)]
 
     def _stub_every_source(self, arxiv_papers):
-        """Patch the nine fan-out integrations. The real _execute_search then
+        """Patch the fan-out integrations. The real _execute_search then
         runs — which is the point: the durable write lives next to the
         in-memory one, and a test that stubs _execute_search would not see it."""
         empty = AsyncMock(return_value=[])
         patches = [
             patch.object(self.ps, name, empty)
             for name in ("s2_search", "openalex_search", "crossref_search", "pubmed_search",
-                         "springer_search", "europepmc_search", "doaj_search")
+                         "springer_search", "europepmc_search", "doaj_search",
+                         "openreview_search", "acl_search", "zenodo_search")
         ]
         patches.append(patch.object(self.ps, "arxiv_search", AsyncMock(return_value=arxiv_papers)))
         patches.append(patch.object(self.ps, "search_github_knowledge", lambda *a, **k: []))

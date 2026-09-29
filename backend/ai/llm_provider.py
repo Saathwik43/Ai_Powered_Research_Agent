@@ -15,6 +15,7 @@ _SEM_LIMITS = {
     "Cerebras": 5,
     "HuggingFace": 3,
     "Mistral": 3,
+    "Kimi": 3,
     "Gemini": 3,
     "OpenAI": 2,
     "NVIDIA": 3,
@@ -169,6 +170,9 @@ MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "mistral-large-latest")
 CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY")
 CEREBRAS_MODEL = os.getenv("CEREBRAS_MODEL", "llama-3.3-70b")
+KIMI_API_KEY = os.getenv("KIMI_API_KEY")
+KIMI_MODEL = os.getenv("KIMI_MODEL", "kimi-k2.6")
+KIMI_API_URL = "https://api.moonshot.ai/v1/chat/completions"
 
 # google-genai Client — created once at module level if key is available.
 # The old google-generativeai SDK used genai.configure() globally; the new SDK
@@ -278,6 +282,54 @@ async def _generate_mistral(system_prompt: str, user_prompt: str, max_tokens: in
         data = response.json()
         usage = data.get("usage", {}).get("total_tokens", 0)
         return data["choices"][0]["message"]["content"].strip(), usage
+
+
+def _kimi_model(explicit: str | None = None) -> str:
+    return (explicit or os.getenv("KIMI_MODEL") or "kimi-k2.6").strip()
+
+
+def _kimi_payload(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float, model: str | None = None) -> dict:
+    """Chat body for Moonshot. K2.6 thinking is off so the reply is the answer.
+
+    ``kimi-k2.7-code`` always reasons and rejects ``thinking.type = disabled``.
+    """
+    name = _kimi_model(model)
+    payload = {
+        "model": name,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    if name == "kimi-k2.6":
+        payload["thinking"] = {"type": "disabled"}
+    return payload
+
+
+async def _generate_kimi(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float, model: str = None) -> str:
+    key = os.getenv("KIMI_API_KEY")
+    if not key:
+        raise RuntimeError("KIMI_API_KEY is not configured.")
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+    }
+    async with pooled_client(timeout=60.0) as client:
+        response = await client.post(
+            KIMI_API_URL,
+            headers=headers,
+            json=_kimi_payload(system_prompt, user_prompt, max_tokens, temperature, model),
+        )
+        response.raise_for_status()
+        data = response.json()
+        message = data["choices"][0]["message"]
+        content = (message.get("content") or "").strip()
+        if not content:
+            raise RuntimeError("Kimi returned no answer text.")
+        usage = data.get("usage", {}).get("total_tokens", 0)
+        return content, usage
 
 
 async def _generate_groq(system_prompt: str, user_prompt: str, max_tokens: int, temperature: float) -> str:
@@ -499,6 +551,7 @@ _TELEMETRY_NAMES = {
     "nvidia": "NVIDIA NIM",
     "huggingface": "Hugging Face Inference",
     "mistral": "Mistral",
+    "kimi": "Kimi",
 }
 
 
@@ -677,7 +730,9 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
             provider_fn = _generate_huggingface
         elif effective_provider == "mistral":
             provider_fn = _generate_mistral
-            
+        elif effective_provider == "kimi":
+            provider_fn = _generate_kimi
+
         if not provider_fn:
             raise RuntimeError(f"Unknown provider '{effective_provider}'.")
             
@@ -698,6 +753,8 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
                     async with track_call(tel_name, "generate") as rec:
                         if effective_provider == "gemini":
                             result, tokens = await asyncio.wait_for(provider_fn(system_prompt, sized, max_tokens, temperature, effective_model, cached_content), timeout=60)
+                        elif effective_provider == "kimi":
+                            result, tokens = await asyncio.wait_for(provider_fn(system_prompt, sized, max_tokens, temperature, effective_model), timeout=60)
                         else:
                             result, tokens = await asyncio.wait_for(provider_fn(system_prompt, sized, max_tokens, temperature), timeout=60)
                         rec.succeed(http_status=200, items=tokens)
@@ -728,6 +785,8 @@ async def generate_completion(system_prompt: str, user_prompt: str, max_tokens: 
         providers.append(("Cerebras", _generate_cerebras))
     if LLM_PROVIDER in ("auto", "mistral") and os.getenv("MISTRAL_API_KEY"):
         providers.append(("Mistral", _generate_mistral))
+    if LLM_PROVIDER in ("auto", "kimi") and os.getenv("KIMI_API_KEY"):
+        providers.append(("Kimi", _generate_kimi))
     if LLM_PROVIDER in ("auto", "huggingface"):
         providers.append(("HuggingFace", _generate_huggingface))
 
@@ -989,6 +1048,16 @@ async def stream_completion(system_prompt: str, user_prompt: str, max_tokens: in
         async for chunk in _stream_openai_compatible("https://api.mistral.ai/v1/chat/completions", headers, payload, "Mistral"):
             yield chunk
 
+    elif effective_provider == "kimi":
+        key = os.getenv("KIMI_API_KEY")
+        if not key:
+            yield {"type": "stopped", "reason": "error", "message": "KIMI_API_KEY not configured."}
+            return
+        payload = _kimi_payload(system_prompt, user_prompt, max_tokens, temperature, effective_model)
+        headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+        async for chunk in _stream_openai_compatible(KIMI_API_URL, headers, payload, "Kimi"):
+            yield chunk
+
     elif effective_provider == "huggingface":
         from services.api_telemetry import track_call
         async with track_call("Hugging Face Inference", "generate") as rec:
@@ -1081,7 +1150,7 @@ async def stream_completion_auto(
     the shared context removed) is used for that leg, so the context is sent
     once via the cache rather than twice.
     """
-    fixed_order = ("openai", "gemini", "groq", "cerebras", "mistral", "huggingface")
+    fixed_order = ("openai", "gemini", "groq", "cerebras", "mistral", "kimi", "huggingface")
     full_accumulated_text = ""
 
     for provider in fixed_order:

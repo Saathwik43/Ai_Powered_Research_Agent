@@ -326,6 +326,44 @@
   flex-wrap: wrap;
 }
 
+/* What a citation expansion did, once, above the filters it applies to. */
+.lit-snowball-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.75rem;
+  margin-top: 0.75rem;
+  padding: 0.55rem 0.8rem;
+  border: var(--border-width) solid var(--border);
+  border-left: 3px solid var(--primary);
+  border-radius: 6px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.lit-snowball-note-text {
+  color: var(--text);
+}
+
+.lit-snowball-note-warn {
+  color: var(--text-muted);
+}
+
+.lit-snowball-note-dismiss {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.lit-snowball-note-dismiss:hover {
+  color: var(--text);
+}
+
 .lit-filter-row {
   display: flex;
   gap: 0.75rem;
@@ -453,6 +491,15 @@
   color: #16a34a;
   background: rgba(22, 163, 74, 0.08);
   border-color: rgba(22, 163, 74, 0.22);
+}
+
+/* Why a snowballed row is in the list at all — it does not have to match the
+   query, so the citation link is its whole justification. */
+.lit-badge-snowball {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  border-color: color-mix(in srgb, var(--primary) 24%, transparent);
+  cursor: help;
 }
 
 .lit-result-meta {

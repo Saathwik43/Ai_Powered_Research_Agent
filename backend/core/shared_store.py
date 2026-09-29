@@ -48,6 +48,7 @@ NS_SEARCH = "search"          # ranked fan-out results, keyed by canonical query
 NS_SEMANTIC = "semantic"      # semantic-cache entries, keyed by bucket + query
 NS_RELEVANCE = "relevance"    # LLM yes/no verdicts, keyed by topic + paper id
 NS_BRIEF = "brief"            # card briefing bullets, keyed by paper id
+NS_SNOWBALL = "snowball"      # citation expansion (2.2), keyed by seed set + direction
 
 # A cache read must never be slower than the work it is meant to skip.
 _OP_TIMEOUT = float(os.getenv("SHARED_CACHE_TIMEOUT", "2.5"))

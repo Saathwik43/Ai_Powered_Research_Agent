@@ -80,6 +80,7 @@ async def _probe_chat(
     key_name: str,
     model: str,
     extra_headers: Optional[dict] = None,
+    extra_body: Optional[dict] = None,
     timeout: float = 12.0,
 ) -> Source:
     if not key:
@@ -90,6 +91,8 @@ async def _probe_chat(
         "max_tokens": 4,
         "temperature": 0,
     }
+    if extra_body:
+        payload.update(extra_body)
     headers = {
         "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
@@ -104,6 +107,13 @@ async def _probe_chat(
         if res.status_code == 200:
             return _result(name, "LLM Providers", "operational", f"Generation OK ({model})", latency, key_name, probe)
         if res.status_code == 429:
+            body = ""
+            try:
+                body = (res.text or "").lower()
+            except Exception:
+                body = ""
+            if "insufficient balance" in body or "exceeded_current_quota" in body:
+                return _result(name, "LLM Providers", "offline", "Insufficient balance", latency, key_name, probe)
             return _result(name, "LLM Providers", "rate_limited", "Rate limited on generate", latency, key_name, probe)
         if res.status_code == 402:
             return _result(name, "LLM Providers", "offline", "Payment / credits required", latency, key_name, probe)
@@ -138,6 +148,18 @@ async def check_openai() -> Source:
         key=os.getenv("OPENAI_API_KEY", ""),
         key_name="OPENAI_API_KEY",
         model=os.getenv("OPENAI_MODEL", "gpt-4o"),
+    )
+
+
+async def check_kimi() -> Source:
+    model = os.getenv("KIMI_MODEL", "kimi-k2.6")
+    return await _probe_chat(
+        "Kimi",
+        url="https://api.moonshot.ai/v1/chat/completions",
+        key=os.getenv("KIMI_API_KEY", ""),
+        key_name="KIMI_API_KEY",
+        model=model,
+        extra_body={"thinking": {"type": "disabled"}} if model == "kimi-k2.6" else None,
     )
 
 
@@ -402,6 +424,37 @@ async def check_europepmc() -> Source:
     )
 
 
+async def check_openreview() -> Source:
+    return await _probe_search(
+        "OpenReview",
+        "https://api2.openreview.net/notes/search",
+        params={"term": "machine learning", "source": "forum", "limit": 1},
+        count_fn=lambda _r, d: len((d or {}).get("notes") or []),
+        timeout=15.0,
+    )
+
+
+async def check_acl_anthology() -> Source:
+    # A single paper record, not the 13 MB bibliography. The search path caches
+    # that file itself; this only answers whether aclanthology.org is up.
+    return await _probe_search(
+        "ACLAnthology",
+        "https://aclanthology.org/2024.acl-long.1.xml",
+        count_fn=lambda r, _d: 1 if "title" in (getattr(r, "text", "") or "").lower() else 0,
+        timeout=12.0,
+    )
+
+
+async def check_zenodo() -> Source:
+    return await _probe_search(
+        "Zenodo",
+        "https://zenodo.org/api/records",
+        params={"q": "machine learning", "size": 1, "type": "publication", "sort": "bestmatch"},
+        count_fn=lambda _r, d: len((((d or {}).get("hits") or {}).get("hits")) or []),
+        timeout=12.0,
+    )
+
+
 async def check_doaj() -> Source:
     return await _probe_search(
         "DOAJ",
@@ -544,6 +597,7 @@ CHECKS: list[CheckFn] = [
     check_gemini,
     check_openai,
     check_mistral,
+    check_kimi,
     check_openrouter,
     check_nvidia,
     check_cerebras,
@@ -555,6 +609,9 @@ CHECKS: list[CheckFn] = [
     check_crossref,
     check_springer,
     check_europepmc,
+    check_openreview,
+    check_acl_anthology,
+    check_zenodo,
     check_doaj,
     check_unpaywall,
     check_github_knowledge,
@@ -570,6 +627,7 @@ CHECK_BY_NAME: dict[str, CheckFn] = {
     "Google Gemini": check_gemini,
     "OpenAI": check_openai,
     "Mistral": check_mistral,
+    "Kimi": check_kimi,
     "OpenRouter": check_openrouter,
     "NVIDIA NIM": check_nvidia,
     "Cerebras": check_cerebras,
@@ -581,6 +639,9 @@ CHECK_BY_NAME: dict[str, CheckFn] = {
     "Crossref": check_crossref,
     "Springer Nature": check_springer,
     "Europe PMC": check_europepmc,
+    "OpenReview": check_openreview,
+    "ACLAnthology": check_acl_anthology,
+    "Zenodo": check_zenodo,
     "DOAJ": check_doaj,
     "Unpaywall": check_unpaywall,
     "GitHub Knowledge Repos": check_github_knowledge,
@@ -600,6 +661,9 @@ SEARCH_SKIP_MAP = {
     "arXiv": "arXiv",
     "Springer Nature": "Springer",
     "Europe PMC": "EuropePMC",
+    "OpenReview": "OpenReview",
+    "ACLAnthology": "ACLAnthology",
+    "Zenodo": "Zenodo",
     "DOAJ": "DOAJ",
     "GitHub Knowledge Repos": "GitHub",
     "Unpaywall": "Unpaywall",

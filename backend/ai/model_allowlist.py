@@ -40,6 +40,7 @@ ALLOWED_PROVIDERS = frozenset({
     "cerebras",
     "huggingface",
     "mistral",
+    "kimi",
 })
 
 # Explicit model IDs offered in the UI. Keep in step with frontend/src/constants/models.js.
@@ -53,6 +54,8 @@ ALLOWED_NAMED_MODELS = frozenset({
     ("groq", "openai/gpt-oss-120b"),
     ("groq", "openai/gpt-oss-20b"),
     ("groq", "qwen/qwen3.6-27b"),
+    ("kimi", "kimi-k2.6"),
+    ("kimi", "kimi-k2.7-code"),
 })
 
 

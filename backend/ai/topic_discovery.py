@@ -26,7 +26,7 @@ async def discover_topics(intent: str):
     """
     Discover trending research topics by aggregating papers from all
     configured sources (OpenAlex, Semantic Scholar, arXiv, Crossref,
-    PubMed, Springer, Europe PMC, DOAJ, GitHub) and extracting the most
+    PubMed, Springer, Europe PMC, DOAJ, OpenReview, ACL Anthology, Zenodo, GitHub) and extracting the most
     frequent keyword phrases — no LLM required.
     """
     # ── Guardrail check (unchanged) ──────────────────────────────────

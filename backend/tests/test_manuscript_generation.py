@@ -206,7 +206,7 @@ class TestProviderCascadeOrder(unittest.IsolatedAsyncioTestCase):
     Auto-mode cascade order.
 
     generate_completion() builds its provider list at call time from the
-    environment: OpenAI -> Gemini -> Groq -> Cerebras -> Mistral -> HuggingFace,
+    environment: OpenAI -> Gemini -> Groq -> Cerebras -> Mistral -> Kimi -> HuggingFace,
     each included only when its key is configured (Groq and HuggingFace are
     always in the list). These tests set that environment explicitly.
 

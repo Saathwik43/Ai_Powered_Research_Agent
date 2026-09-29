@@ -69,7 +69,7 @@ class TestEntryType:
 class TestVenue:
     def test_the_name_of_a_search_service_is_never_a_venue(self):
         # The regression: `journal = {OpenAlex}` in shipped .bib files.
-        for service in ("OpenAlex", "Semantic Scholar", "arXiv", "Crossref", "PubMed"):
+        for service in ("OpenAlex", "Semantic Scholar", "arXiv", "Crossref", "PubMed", "OpenReview", "ACL Anthology", "Zenodo"):
             assert venue_of({"source": service, "venue": service}) == ""
 
     def test_a_real_venue_is_kept(self):

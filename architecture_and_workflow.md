@@ -59,9 +59,12 @@ flowchart TD
             Embed["Embeddings - gemini-embedding-001"]
         end
 
-        subgraph Integrations["Knowledge integrations - 9 sources, one pooled HTTP client"]
+        subgraph Integrations["Knowledge integrations - 12 sources, one pooled HTTP client"]
             Search["Unified search engine - search_all"]
             ArXiv["arXiv API"]
+            OpenReview["OpenReview API"]
+            ACLAnthology["ACL Anthology bibliography"]
+            Zenodo["Zenodo API"]
             Crossref["Crossref API"]
             SemanticScholar["Semantic Scholar API"]
             OpenAlex["OpenAlex API - keyless, polite pool"]
@@ -93,6 +96,7 @@ flowchart TD
         Groq["Groq API"]
         Cerebras["Cerebras API"]
         Mistral["Mistral API"]
+        Kimi["Kimi / Moonshot API"]
         HF["HuggingFace API"]
         OpenRouter["OpenRouter API"]
         NVIDIA["NVIDIA NIM API"]
@@ -153,7 +157,8 @@ flowchart TD
     LLM_P -->|"3"| Groq
     LLM_P -->|"4"| Cerebras
     LLM_P -->|"5"| Mistral
-    LLM_P -->|"6"| HF
+    LLM_P -->|"6"| Kimi
+    LLM_P -->|"7"| HF
     LLM_P -.->|"Explicit selection only"| OpenRouter
     LLM_P -.->|"Explicit selection only"| NVIDIA
 
@@ -163,6 +168,9 @@ flowchart TD
     Search --> Crossref
     Search --> PubMed
     Search --> ArXiv
+    Search --> OpenReview
+    Search --> ACLAnthology
+    Search --> Zenodo
     Search -->|"On disk, run in a thread"| GitHubKB
     Search --> Springer
     Search --> EuropePMC
@@ -223,7 +231,7 @@ flowchart TD
 > beside it. The edges now name the module that makes the call.
 
 > **The cascade order is the one** `llm_provider` **actually uses.** OpenAI first,
-> then Gemini, Groq, Cerebras, Mistral, HuggingFace — a provider joins the chain
+> then Gemini, Groq, Cerebras, Mistral, Kimi, HuggingFace — a provider joins the chain
 > only when its key is set, so the effective order on a given deploy is that list
 > minus whatever is unconfigured. OpenRouter and NVIDIA are reachable only by
 > setting `LLM_PROVIDER` to them explicitly; they are never part of the auto
@@ -415,6 +423,12 @@ sequenceDiagram
     API->>Cascade: Relevance classification, backfilled to `limit`
     Cascade-->>API: Relevant subset
     API-->>Front: Display papers & evidence
+    User->>Front: 2b. Follow citations (optional)
+    Front->>API: POST /api/literature/snowball (top 10 results as seeds)
+    API->>Sources: OpenAlex + Semantic Scholar, references and citing works
+    Sources-->>API: Expansion, deduplicated against the seeds
+    Note over API,Sources: No relevance classification — a snowballed paper's abstract<br/>often shares no words with the query, which is exactly the<br/>prior work searching could not find. Its provenance<br/>("cited by 3 of your results") is the justification instead.
+    API-->>Front: New papers, each badged with which seeds reached it
     User->>Front: Save relevant papers
     Front->>API: POST /api/literature/save
     API->>DB: Store saved survey
@@ -504,7 +518,7 @@ Two things it exists to prevent, both of which shipped before it:
 
 ```mermaid
 flowchart TD
-    Sources["Search integrations<br/>OpenAlex · Crossref · S2 · arXiv<br/>PubMed · DOAJ · Springer"]
+    Sources["Search integrations<br/>OpenAlex · Crossref · S2 · arXiv<br/>OpenReview · ACL Anthology · Zenodo<br/>PubMed · DOAJ · Springer"]
     Sources -->|"type, venue, publisher,<br/>volume, issue, pages, eprint"| Dedupe["paper_search._merge_into<br/>higher-cited record wins,<br/>loser fills the gaps"]
     Dedupe --> Snapshot["manuscript_references<br/>the [N] map, with bibliographic fields"]
     Snapshot --> Resolve["resolve_export_references<br/>fill holes from the display list"]
@@ -562,6 +576,7 @@ flowchart TD
     U -->|/api/topics| T[Drop DOAJ, head 60,<br/>TF-IDF keyword extraction]
     U -->|/api/literature| V[Relevance classifier in rounds<br/>batched 10 papers per call<br/>until `limit` filled]
     U -->|manuscript, gap| W[Head 15, relevance filter]
+    V --> SB["/api/literature/snowball<br/>seed the citation graph<br/>with the top results"]
 ```
 
 
@@ -571,11 +586,11 @@ flowchart TD
 Three, and only the first is per-worker:
 
 
-| Tier       | Where                                             | Holds                                                           | Lifetime                                              |
-| ---------- | ------------------------------------------------- | --------------------------------------------------------------- | ----------------------------------------------------- |
-| L1         | `TTLCache` / `semantic_cache` in process          | Search results, semantic entries, relevance verdicts            | Minutes; dies with the worker                         |
-| L2         | `cache_entries` in Mongo (`core/shared_store.py`) | The same, shared across workers and across deploys              | 10 min (search) to 6h (relevance verdicts)            |
-| Embeddings | `paper_embeddings` in Mongo                       | Vectors keyed by DOI → arXiv id → title, and by canonical query | **No expiry** — a paper's embedding does not go stale |
+| Tier       | Where                                             | Holds                                                                                        | Lifetime                                                       |
+| ---------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| L1         | `TTLCache` / `semantic_cache` in process          | Search results, semantic entries, relevance verdicts                                         | Minutes; dies with the worker                                  |
+| L2         | `cache_entries` in Mongo (`core/shared_store.py`) | The same, plus citation expansions (`NS_SNOWBALL`), shared across workers and across deploys | 10 min (search), 30 min (snowball), to 6h (relevance verdicts) |
+| Embeddings | `paper_embeddings` in Mongo                       | Vectors keyed by DOI → arXiv id → title, and by canonical query                              | **No expiry** — a paper's embedding does not go stale          |
 
 
 L2 never raises and never blocks for long: on failure every call degrades to a
@@ -585,7 +600,7 @@ lookup.
 
 ### Source roster
 
-Nine sources fan out in parallel. `integrations/registry.py` is the single list —
+Twelve sources fan out in parallel. `integrations/registry.py` is the single list —
 it is the fan-out order *and* the order per-database yield is reported in, so the
 two cannot drift. Yield comes back on `SearchMeta.sources`, so a source that
 timed out is distinguishable from one that returned nothing and from one that was
@@ -599,6 +614,9 @@ skipped because its circuit is open.
 | Crossref               | no (polite `mailto`)        | Also carries Retraction Watch data                          |
 | PubMed / NCBI          | optional                    | 5s budget                                                   |
 | arXiv                  | no                          | Also the LaTeX/HTML source for extraction                   |
+| OpenReview             | no                          | Forum notes only (papers, not reviews). API v2, keyless     |
+| ACL Anthology          | no                          | Full `anthology.bib.gz`, cached 24h. No per-query search API |
+| Zenodo                 | no                          | Publications only (`/api/records`)                          |
 | Europe PMC             | no                          | Also serves JATS full text                                  |
 | Springer Nature        | yes                         |                                                             |
 | DOAJ                   | no                          | Dropped for topic discovery — broad-OA noise skews keywords |
@@ -761,6 +779,66 @@ but a partial parse would assign one paper's verdict to another.
 Classifier failures fail **open** — the paper is included — and the failure is
 cached briefly, so a rate-limited provider is not re-hammered once per paper on
 every retry.
+
+### Citation snowballing (2.2)
+
+Keyword search finds papers whose *words* match the query. A survey is not
+assembled that way: you find a few good papers, read what they cite, then read
+what has cited them since. `POST /api/literature/snowball` is that second move —
+`integrations/snowball.py` seeds from the reader's top results and walks the
+citation graph in both directions.
+
+```mermaid
+flowchart TD
+    SD["POST /api/literature/snowball<br/>top 10 of what the reader sees"] --> CAP[Cap at MAX_SEEDS = 10<br/>40 requests is what the rate limits tolerate]
+    CAP --> CK{Shared store<br/>NS_SNOWBALL, 30 min<br/>key = sorted seed identities}
+    CK -->|hit| RANK
+    CK -->|miss| CB{Circuit breaker<br/>per graph}
+    CB --> ID[Address each seed<br/>OpenAlex: work id, else DOI lookup<br/>S2: S2 id, else DOI, else arXiv id]
+    ID --> FO["Fan out, Semaphore(6), 25s ceiling"]
+    FO --> B1["OpenAlex backward<br/>filter=cited_by:W…"]
+    FO --> F1["OpenAlex forward<br/>filter=cites:W…"]
+    FO --> B2["S2 backward<br/>/paper/{ref}/references"]
+    FO --> F2["S2 forward<br/>/paper/{ref}/citations"]
+    B1 --> P[Track provenance per identity<br/>which seeds, which directions, isInfluential]
+    F1 --> P
+    B2 --> P
+    F2 --> P
+    P --> DR[Drop the seeds themselves<br/>identity keys intersect the seed set]
+    DR --> DD[Same dedupe as search<br/>DOI / arXiv id / normalized title]
+    DD --> RE[Reattach provenance<br/>union over every identity the merged record carries]
+    RE --> RANK[Rank: 0.60 co-citation<br/>+ 0.30 lexical + 0.10 influential]
+    RANK --> OUT["snowball_direction, snowball_seeds,<br/>snowball_seed_count on every row"]
+```
+
+**Why two graphs.** They disagree about a large share of any paper's edges — S2
+parses reference lists out of PDFs, OpenAlex indexes publisher-deposited ones —
+and each covers what the other cannot address. OpenAlex does not index arXiv's
+DataCite DOI, so an arXiv-only seed resolves to nothing there; S2 answers the
+same seed under `ARXIV:1706.03762`. OpenAlex has no usable title search to fall
+back on (`filter=title.search:` answers HTTP 503, the failure that got CORE
+removed as a source), so the second graph *is* the fallback.
+
+**Why co-citation dominates the ranking.** A paper four of the reader's own
+results cite is central to the area whether or not its title repeats the query.
+It also has to carry the forward direction, where the graphs are uneven: OpenAlex
+sorts citing works by citation count, S2's `/citations` takes no sort parameter
+and returns an arbitrary page, which for a heavily cited seed is mostly last
+month's passing references.
+
+**Why the relevance classifier is skipped.** Unlike `/api/literature`, an
+expansion is not filtered by the LLM. A snowballed paper's abstract often shares
+no vocabulary with the query — that is precisely the prior work the reader could
+not have found by searching — so classifying it would throw away the result. The
+provenance on each row is the justification instead, and the card states it
+(`Cited by 3 results`).
+
+**Why empty is not a failure.** A paper with no indexed references is ordinary,
+and a snowball issues up to 40 of these requests. The telemetry helper counts
+`succeed(items=0)` as unhealthy — right for a keyword search, wrong here — so
+both fetchers record an empty traversal through `_record_empty`, which reports
+success without an item count. Otherwise one snowball over unindexed seeds would
+open the breaker on a healthy graph and take keyword search down with it.
 
 ### Card briefing
 
