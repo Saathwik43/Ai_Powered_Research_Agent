@@ -15,7 +15,6 @@ export default function ApisPanel({
 }) {
   const [catFilter, setCatFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [inUseOnly, setInUseOnly] = useState(false);
   const [expanded, setExpanded] = useState(null);
   const rowRefs = useRef({});
 
@@ -30,15 +29,13 @@ export default function ApisPanel({
     return sources.filter((src) => {
       if (catFilter !== 'all' && src.category !== catFilter) return false;
       const meta = sourceStatusMeta(src);
-      if (inUseOnly && !meta.inUse) return false;
       if (statusFilter === 'operational' && (src.status !== 'operational' || meta.skipped)) return false;
       if (statusFilter === 'degraded' && !['degraded', 'rate_limited'].includes(src.status)) return false;
       if (statusFilter === 'offline' && !['offline', 'no_key'].includes(src.status)) return false;
       if (statusFilter === 'skipped' && !meta.skipped) return false;
-      if (statusFilter === 'in-use' && !meta.inUse) return false;
       return true;
     });
-  }, [sources, catFilter, statusFilter, inUseOnly]);
+  }, [sources, catFilter, statusFilter]);
 
   const catNames = categories.length
     ? categories.map((c) => c.name)
@@ -80,23 +77,16 @@ export default function ApisPanel({
           </button>
         ))}
         <span className="admin-chip-sep" />
-        {['all', 'operational', 'degraded', 'offline', 'skipped', 'in-use'].map((id) => (
+        {['all', 'operational', 'degraded', 'offline', 'skipped'].map((id) => (
           <button
             key={id}
             type="button"
             className={`admin-chip${statusFilter === id ? ' is-on' : ''}`}
             onClick={() => setStatusFilter(id)}
           >
-            {id === 'all' ? 'Any status' : id.replace('-', ' ')}
+            {id === 'all' ? 'Any status' : id}
           </button>
         ))}
-        <button
-          type="button"
-          className={`admin-chip${inUseOnly ? ' is-on' : ''}`}
-          onClick={() => setInUseOnly((v) => !v)}
-        >
-          In use
-        </button>
       </div>
 
       <div className="admin-table-container">

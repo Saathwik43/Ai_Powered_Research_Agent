@@ -20,10 +20,12 @@ export default function OverviewPanel({
   return (
     <section className="admin-panel admin-overview-panel">
       <div className="admin-panel-toolbar">
-        <div className="admin-table-title">
-          <Radio size={18} /> Incident strip
+        <div>
+          <div className="admin-table-title">
+            <Radio size={18} /> Incident strip
+          </div>
+          <p className="admin-panel-hint">Live snapshot — jump a failing API to probe or skip it.</p>
         </div>
-        <p className="admin-panel-hint">Live snapshot — jump a failing API to probe or skip it.</p>
       </div>
 
       <div className="admin-incident-grid">

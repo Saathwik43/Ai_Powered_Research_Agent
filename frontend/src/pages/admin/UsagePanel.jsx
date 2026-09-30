@@ -12,10 +12,12 @@ export default function UsagePanel({ usage }) {
   return (
     <section className="admin-panel admin-usage-panel">
       <div className="admin-panel-toolbar">
-        <div className="admin-table-title">
-          <Activity size={18} /> Usage today
+        <div>
+          <div className="admin-table-title">
+            <Activity size={18} /> Usage today
+          </div>
+          <p className="admin-panel-hint">UTC day from usage_logs. Provider split is the logged model name.</p>
         </div>
-        <p className="admin-panel-hint">UTC day from usage_logs. Provider split is the logged model name.</p>
       </div>
 
       <div className="admin-usage-hero">

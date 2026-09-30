@@ -13,6 +13,11 @@
   --admin-wash: var(--bg-elevated);
   --admin-radius: 12px;
   --admin-radius-sm: 8px;
+  /* One horizontal inset for every panel child, tables included, so headings
+     and the first table column share a left edge. */
+  --admin-pad: 1.35rem;
+  --admin-warn: var(--warning);
+  --admin-danger: var(--danger);
   --admin-ease: 220ms cubic-bezier(0.22, 1, 0.36, 1);
   color: var(--admin-ink);
   max-width: var(--content-wide);
@@ -134,21 +139,8 @@
   justify-content: space-between;
   align-items: flex-start;
   gap: 1.25rem;
-  margin-bottom: 1.75rem;
-  padding-bottom: 1.25rem;
-  position: relative;
+  margin-bottom: 1.35rem;
   flex-wrap: wrap;
-}
-
-.admin-masthead::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  height: 3px;
-  width: 4.5rem;
-  border-radius: 0;
-  background: var(--admin-rust);
 }
 
 .admin-masthead-copy {
@@ -278,84 +270,6 @@
   color: var(--admin-mute);
 }
 
-/* ── Stats ── */
-.admin-stats-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-}
-
-.admin-stat-card {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 1.2rem 1.35rem;
-  background: var(--admin-paper);
-  border: 1px solid var(--admin-line);
-  border-radius: var(--admin-radius);
-  animation: adminSoftIn 0.4s var(--admin-ease) both;
-  transition:
-    transform var(--admin-ease),
-    border-color var(--admin-ease),
-    box-shadow var(--admin-ease);
-}
-
-.admin-stat-card:hover {
-  transform: translateY(-2px);
-  border-color: var(--admin-line);
-  box-shadow: 0 10px 24px rgba(18, 20, 26, 0.05);
-}
-
-.admin-stat-orb {
-  position: relative;
-  width: 48px;
-  height: 48px;
-  border-radius: 14px;
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-}
-
-.admin-stat-orb-glow {
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  opacity: 0.55;
-  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.7), transparent 65%);
-  pointer-events: none;
-}
-
-.admin-stat-orb--ink {
-  background: var(--admin-avatar-bg);
-  color: var(--admin-ink);
-}
-
-.admin-stat-orb--rust {
-  background: rgba(30, 79, 214, 0.12);
-  color: var(--admin-rust);
-}
-
-.admin-stat-orb--forest {
-  background: rgba(31, 92, 69, 0.12);
-  color: var(--admin-forest);
-}
-
-.admin-health-ring {
-  --health: 0%;
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-  color: var(--admin-forest);
-  background:
-    radial-gradient(circle, var(--admin-paper) 58%, transparent 59%),
-    conic-gradient(var(--admin-forest) var(--health), rgba(214, 210, 200, 0.9) 0);
-  transition: background 0.6s var(--admin-ease);
-}
-
 .admin-stat-label {
   font-family: 'IBM Plex Mono', monospace;
   font-size: 0.65rem;
@@ -395,7 +309,6 @@
   padding: 0.3rem;
   margin-bottom: 1.35rem;
   background: var(--admin-wash);
-  border: 1px solid var(--admin-line);
   border-radius: var(--admin-radius);
 }
 
@@ -454,6 +367,15 @@
   transform: translateX(calc(var(--tab-i, 0) * 100% + var(--tab-i, 0) * 0.25rem));
   transition: transform var(--admin-ease);
   pointer-events: none;
+}
+
+/* index.css matches `[class*="-card"]` and forces `box-shadow: var(--shadow-sm)
+   !important` on it, which catches .admin-incident-card and every .source-card-*
+   element. Inside a panel that already draws an edge that shadow is noise, and
+   because it is !important no plain box-shadow declared here can win — which is
+   why a state rail has to be a border, not an inset shadow. */
+.admin-page [class*="-card"] {
+  box-shadow: none !important;
 }
 
 /* ── Panels ── */
@@ -529,7 +451,7 @@
 }
 
 .admin-table th {
-  padding: 0.8rem 1.15rem;
+  padding: 0.8rem var(--admin-pad);
   color: var(--admin-mute);
   font-family: 'IBM Plex Mono', monospace;
   font-weight: 650;
@@ -542,7 +464,7 @@
 }
 
 .admin-table td {
-  padding: 0.95rem 1.15rem;
+  padding: 0.95rem var(--admin-pad);
   border-bottom: 1px solid var(--admin-td-line);
   font-size: 0.88rem;
   vertical-align: middle;
@@ -639,12 +561,14 @@
 }
 
 .admin-quota-fill.is-hot {
-  background: var(--admin-rust);
+  background: var(--admin-danger);
 }
 
 .admin-row-actions {
   display: flex;
-  flex-wrap: wrap;
+  /* The cell is the last column of a scrollable table, so let it claim its
+     natural width instead of wrapping the buttons onto a second line. */
+  flex-wrap: nowrap;
   gap: 0.35rem;
 }
 
@@ -755,181 +679,6 @@
   font-family: 'IBM Plex Mono', monospace;
 }
 
-/* ── API status ── */
-.admin-status-panel {
-  padding: 1.35rem 1.45rem 1.5rem;
-}
-
-.admin-status-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-  flex-wrap: wrap;
-}
-
-.admin-status-header h3 {
-  margin: 0;
-  font-family: 'Source Serif 4', Georgia, serif;
-  font-size: 1.15rem;
-  font-weight: 650;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.admin-status-subtitle {
-  margin: 0.4rem 0 0;
-  font-size: 0.82rem;
-  color: var(--admin-mute);
-  max-width: 36rem;
-  line-height: 1.45;
-}
-
-.admin-status-summary-pills {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-
-.status-pill {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.68rem;
-  font-weight: 650;
-  padding: 0.35rem 0.65rem;
-  border-radius: 999px;
-  border: 1px solid var(--admin-line);
-}
-
-.status-pill.ok {
-  background: rgba(31, 92, 69, 0.1);
-  color: var(--admin-forest);
-  border-color: rgba(31, 92, 69, 0.25);
-}
-
-.status-pill.warn {
-  background: rgba(30, 79, 214, 0.08);
-  color: var(--admin-rust);
-  border-color: rgba(30, 79, 214, 0.25);
-}
-
-.status-pill.bad {
-  background: var(--admin-avatar-bg);
-  color: var(--admin-ink-soft);
-  border-color: var(--admin-line);
-}
-
-.admin-status-category {
-  margin-bottom: 1.65rem;
-}
-
-.admin-status-category:last-child {
-  margin-bottom: 0;
-}
-
-.admin-status-category-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 0.85rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid var(--admin-line);
-}
-
-.admin-status-category-head h4 {
-  margin: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.55rem;
-  font-size: 0.9rem;
-  font-weight: 750;
-  color: var(--admin-ink);
-}
-
-.admin-status-category-head span {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.68rem;
-  font-weight: 650;
-  color: var(--admin-mute);
-}
-
-.admin-cat-mark {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-}
-
-.admin-cat-mark--ink {
-  background: var(--admin-avatar-bg);
-  color: var(--admin-ink);
-}
-
-.admin-cat-mark--rust {
-  background: rgba(30, 79, 214, 0.12);
-  color: var(--admin-rust);
-}
-
-.admin-cat-mark--forest {
-  background: rgba(31, 92, 69, 0.12);
-  color: var(--admin-forest);
-}
-
-.sources-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
-  border: none;
-}
-
-.source-card-item {
-  padding: 0.15rem 0;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  animation: adminSoftIn 0.35s var(--admin-ease) both;
-  transition: opacity var(--admin-ease);
-  box-shadow: none;
-}
-
-.source-card-item:hover {
-  transform: none;
-  box-shadow: none;
-  background: transparent;
-  opacity: 0.85;
-}
-
-.source-card-item--operational,
-.source-card-item--warning,
-.source-card-item--offline {
-  border: none;
-  opacity: 1;
-}
-
-.source-card-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 0.75rem;
-}
-
-.source-card-name {
-  font-weight: 700;
-  font-size: 0.95rem;
-  color: var(--admin-ink);
-  letter-spacing: -0.01em;
-}
-
-.source-type-pill {
-  display: none;
-}
-
 .source-status-badge {
   display: inline-flex;
   align-items: center;
@@ -966,15 +715,15 @@
 }
 
 .source-status-badge.warning {
-  color: var(--admin-rust);
+  color: var(--admin-warn);
 }
 
 .source-status-badge.offline {
-  color: var(--admin-mute);
+  color: var(--admin-danger);
 }
 
 .source-status-badge.offline .source-status-pulse {
-  opacity: 0.35;
+  opacity: 1;
 }
 
 .source-status-badge.skipped {
@@ -986,7 +735,7 @@
   opacity: 0.3;
 }
 
-.source-card-item.is-in-use .source-status-pulse {
+.is-in-use-row .source-status-pulse {
   animation: adminLiveBlink 1.4s ease-in-out infinite;
 }
 
@@ -1035,63 +784,28 @@
   font-weight: 550;
 }
 
-.source-card-key,
-.source-card-key-row {
-  display: inline;
-  padding: 0;
-  border: none !important;
-  border-radius: 0;
-  background: transparent !important;
-  box-shadow: none !important;
-  outline: none !important;
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.72rem;
-  color: var(--admin-mute);
-}
-
 .status-pill {
   font-family: 'IBM Plex Mono', monospace;
   font-size: 0.68rem;
   font-weight: 650;
-  padding: 0;
-  border-radius: 0;
-  border: none;
-  background: transparent;
 }
 
 .status-pill.ok {
-  background: transparent;
   color: var(--admin-forest);
-  border: none;
 }
 
 .status-pill.warn {
-  background: transparent;
-  color: var(--admin-rust);
-  border: none;
+  color: var(--admin-warn);
 }
 
 .status-pill.bad {
-  background: transparent;
-  color: var(--admin-mute);
-  border: none;
+  color: var(--admin-danger);
 }
 
 .admin-status-summary-pills {
   display: flex;
   flex-wrap: wrap;
   gap: 0.85rem;
-}
-
-.admin-status-empty {
-  padding: 2rem 1rem;
-  text-align: center;
-  color: var(--admin-mute);
-  font-size: 0.88rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
 }
 
 /* ── Modals ── */
@@ -1242,7 +956,7 @@
   justify-content: space-between;
   align-items: flex-start;
   gap: 1rem;
-  padding: 1.1rem 1.35rem 0.85rem;
+  padding: 1.1rem var(--admin-pad) 0.85rem;
   flex-wrap: wrap;
 }
 
@@ -1263,7 +977,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 0.4rem;
-  padding: 0 1.35rem 0.95rem;
+  padding: 0 var(--admin-pad) 0.95rem;
 }
 
 .admin-chip-row--inset {
@@ -1328,7 +1042,7 @@
   background: rgba(30, 79, 214, 0.07);
 }
 
-.admin-ops-table tbody tr.is-in-use-row td {
+.admin-ops-table tbody tr.is-in-use-row td:first-child {
   box-shadow: inset 3px 0 0 var(--admin-forest);
 }
 
@@ -1400,14 +1114,16 @@
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.75rem;
-  padding: 0 1.35rem 1.15rem;
+  padding: 0 var(--admin-pad) 1.15rem;
 }
 
 .admin-incident-card {
   text-align: left;
   padding: 0.95rem 1rem;
   border-radius: var(--admin-radius-sm);
-  border: 1px solid var(--admin-line);
+  border: 1px solid transparent;
+  /* Reserved so a state rail can colour it without shifting the content. */
+  border-left-width: 3px;
   background: var(--admin-wash);
   color: inherit;
   font-family: inherit;
@@ -1421,11 +1137,11 @@ button.admin-incident-card {
 
 button.admin-incident-card:hover {
   transform: translateY(-1px);
-  border-color: var(--admin-ink-soft);
+  border-color: var(--admin-line);
 }
 
 .admin-incident-card.is-warn {
-  border-color: rgba(30, 79, 214, 0.28);
+  border-left-color: var(--admin-warn);
 }
 
 .admin-incident-label {
@@ -1457,7 +1173,24 @@ button.admin-incident-card:hover {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 1.25rem;
-  padding: 0 1.35rem 1.25rem;
+  padding: 0 var(--admin-pad) 1.25rem;
+}
+
+/* Nested in a half-width column, so it cannot carry the full-page min-width,
+   and it supplies its own inset rather than the panel's. */
+.admin-usage-split .admin-table {
+  min-width: 0;
+}
+
+.admin-usage-split .admin-table th,
+.admin-usage-split .admin-table td {
+  padding-left: 0;
+  padding-right: 0.75rem;
+}
+
+.admin-usage-split .admin-table th:last-child,
+.admin-usage-split .admin-table td:last-child {
+  padding-right: 0;
 }
 
 .admin-overview-h {
@@ -1487,13 +1220,13 @@ button.admin-incident-card:hover {
 .admin-fail-row {
   width: 100%;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 0.55rem;
-  padding: 0.55rem 0.7rem;
-  border: 1px solid var(--admin-line);
+  gap: 0.55rem 0.7rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid transparent;
   border-radius: var(--admin-radius-sm);
-  background: var(--admin-paper);
+  background: transparent;
   color: inherit;
   font-family: inherit;
   text-align: left;
@@ -1501,7 +1234,7 @@ button.admin-incident-card:hover {
 }
 
 .admin-fail-row:hover {
-  border-color: var(--admin-ink-soft);
+  background: var(--admin-wash);
 }
 
 .admin-fail-name {
@@ -1522,7 +1255,7 @@ button.admin-incident-card:hover {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.45rem 0.7rem;
-  padding: 0.85rem 1.35rem 1.2rem;
+  padding: 0.85rem var(--admin-pad) 1.2rem;
   border-top: 1px solid var(--admin-line);
   color: var(--admin-mute);
   font-family: 'IBM Plex Mono', monospace;
@@ -1533,11 +1266,11 @@ button.admin-incident-card:hover {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  padding: 0 1.35rem 1.15rem;
+  padding: 0 var(--admin-pad) 1.15rem;
 }
 
 .admin-usage-bar {
-  height: 10px;
+  height: 8px;
 }
 
 .admin-provider-list {
@@ -1597,7 +1330,7 @@ button.admin-incident-card:hover {
   grid-template-columns: 10px 5.5rem minmax(7rem, 0.9fr) minmax(6rem, 0.8fr) minmax(7rem, 0.7fr) minmax(0, 1.2fr);
   align-items: baseline;
   gap: 0.55rem 0.75rem;
-  padding: 0.55rem 1.35rem;
+  padding: 0.55rem var(--admin-pad);
   border-top: 1px solid var(--admin-td-line);
   font-size: 0.8rem;
 }
@@ -1615,7 +1348,7 @@ button.admin-incident-card:hover {
 }
 
 .admin-event-dot.is-fail {
-  background: var(--admin-rust);
+  background: var(--admin-danger);
 }
 
 .admin-event-name {
@@ -1627,7 +1360,7 @@ button.admin-incident-card:hover {
 }
 
 .admin-event-error {
-  color: var(--admin-rust);
+  color: var(--admin-danger);
   font-size: 0.74rem;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1640,7 +1373,6 @@ button.admin-incident-card:hover {
 }
 
 @media (max-width: 900px) {
-  .admin-stats-grid,
   .admin-incident-grid,
   .admin-overview-split,
   .admin-usage-split {
@@ -1648,7 +1380,15 @@ button.admin-incident-card:hover {
   }
 
   .admin-event-row {
-    grid-template-columns: 10px 1fr;
+    grid-template-columns: 10px minmax(0, 1fr);
+    align-items: start;
+    row-gap: 0.15rem;
+  }
+
+  /* Every field after the dot stacks in the content column; without this the
+     name lands back in the 10px dot track and overlaps the operation. */
+  .admin-event-row > *:not(.admin-event-dot) {
+    grid-column: 2;
   }
 }
 
@@ -1674,50 +1414,30 @@ button.admin-incident-card:hover {
   .admin-table-header {
     flex-direction: column;
     align-items: stretch;
-  }
-
-  .sources-grid {
-    display: flex;
-  }
-
-  .admin-status-panel {
-    padding: 1rem;
-  }
-}
+  }}
 
 @media (max-width: 520px) {
   .admin-mark {
     width: 48px;
     height: 48px;
     border-radius: 14px;
-  }
-
-  .admin-stat-card {
-    padding: 1rem;
-  }
-
-  .admin-stat-value {
+  }.admin-stat-value {
     font-size: 1.35rem;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .admin-page,
-  .admin-stat-card,
-  .source-card-item,
   .admin-table tbody tr,
   .admin-mark-ring,
   .admin-mark-ring-delay,
   .admin-live-dot,
-  .admin-stat-orb,
   .source-status-badge.operational .source-status-pulse,
+  .is-in-use-row .source-status-pulse,
   .admin-mark.is-spinning .admin-mark-icon,
   .admin-spin {
     animation: none !important;
   }
-
-  .admin-stat-card:hover,
-  .source-card-item:hover,
   .admin-refresh-btn:hover:not(:disabled),
   .admin-action-btn:hover:not(:disabled) {
     transform: none;
