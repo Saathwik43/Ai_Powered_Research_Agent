@@ -1,5 +1,5 @@
 {
-  "mcpServers": {
+  "servers": {
     "shadcn": {
       "command": "npx",
       "args": [
