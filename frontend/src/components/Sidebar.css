@@ -1,171 +1,200 @@
+/* Scholar Desk left rail.
+   A panel surface separated from the canvas by a single rule — no drop shadow,
+   no fill on the brand mark, no pill affordances. Structure reads from the
+   group labels and the 2px active marker, not from colour. */
+
 .sidebar {
   width: var(--sidebar-width);
   height: 100vh;
+  /* Visible so the seam toggle (right: -13px) is not clipped. Scroll is on
+     .sidebar-body instead — overflow-y:auto here forced overflow-x to clip. */
+  overflow: visible;
   position: fixed;
   top: 0;
   left: 0;
-  background: var(--bg-card);
-  border-right: var(--border-width) solid var(--border-strong);
+  background: var(--panel);
+  border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   z-index: 100;
-  transition: transform var(--transition);
-  box-shadow: 12px 0 36px rgba(17, 24, 39, 0.06);
+  transition: transform var(--transition), width var(--transition);
 }
 
+/* ── Brand ─────────────────────────────────────────────────────────────────── */
 .sidebar-header {
-  padding: 1.35rem 1.2rem;
+  padding: var(--space-4) var(--space-4);
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  border-bottom: 1px solid var(--border);
+  gap: var(--space-3);
+  border-bottom: 1px solid var(--line);
   position: relative;
+  flex-shrink: 0;
+  /* Keep the protruding toggle above the scrolling body and the canvas. */
+  z-index: 2;
+}
+
+.sidebar-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-mark {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  flex-shrink: 0;
 }
 
 .sidebar-brand-text {
   flex: 1;
   min-width: 0;
-  opacity: 1;
-  transition: opacity 0.2s;
   overflow: hidden;
   white-space: nowrap;
 }
 
+.sidebar-header h2 {
+  font-family: var(--font-serif);
+  font-size: var(--fs-md);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  margin: 0;
+  line-height: 1.2;
+}
+
+.sidebar-header span {
+  font-size: var(--fs-2xs);
+  font-family: var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-subtle);
+}
+
 .sidebar-toggle-btn {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  width: 36px;
-  height: 36px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  width: 26px;
+  height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
   position: absolute;
-  right: -18px;
+  /* Half outside the rail — the expand/collapse control sits on the seam. */
+  right: -13px;
   top: 50%;
   transform: translateY(-50%);
   cursor: pointer;
-  color: var(--text-muted);
-  box-shadow: var(--shadow-sm);
+  color: var(--ink-subtle);
   z-index: 10;
-  transition: var(--transition);
+  flex-shrink: 0;
+  padding: 0;
+  transition: color var(--transition), border-color var(--transition);
+}
+
+.sidebar-toggle-btn:hover {
+  color: var(--focus);
+  border-color: var(--focus);
 }
 
 .sidebar-close-btn {
   display: none;
   background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  width: 40px;
-  height: 40px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  width: 32px;
+  height: 32px;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  color: var(--text-muted);
+  color: var(--ink-muted);
   flex-shrink: 0;
   margin-left: auto;
 }
 
 .sidebar-close-btn:hover {
-  background: var(--bg-elevated);
-  color: var(--text);
-}
-.sidebar-toggle-btn:hover {
-  background: var(--primary-light);
-  color: var(--primary);
-  border-color: var(--primary);
+  background: var(--inset);
+  color: var(--ink);
 }
 
-.logo-icon {
-  width: 40px;
-  height: 40px;
-  background: var(--primary);
-  color: var(--on-primary);
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 900;
-  font-size: var(--fs-base);
-  flex-shrink: 0;
-  box-shadow: 0 6px 14px rgba(30, 79, 214, 0.22);
-}
-
-.sidebar-header h2 {
-  font-size: var(--fs-base);
-  font-weight: 800;
-  color: var(--text);
-  margin: 0;
-  line-height: 1.15;
-}
-
-.sidebar-header span {
-  font-size: var(--fs-xs);
-  color: var(--text-muted);
-  font-weight: 600;
-}
-
+/* ── Navigation: Discover / Analyze / Write / Publish ─────────────────────── */
+/* Scroll is on .sidebar-body (header stays put so the seam toggle can stick
+   out). Nav itself grows with content; it does not nest a second scrollport. */
 .sidebar-nav {
-  padding: 1rem 0.75rem;
-  flex: 1;
+  padding: var(--space-3) var(--space-3);
+  flex: 1 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 0.28rem;
-  overflow-y: auto;
+  gap: var(--space-4);
+}
+
+.nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .nav-section-label {
+  font-family: var(--font-mono);
   font-size: var(--fs-2xs);
-  font-weight: 850;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-subtle);
-  padding: 0.5rem 0.75rem 0.28rem;
-  margin-top: 0.25rem;
+  letter-spacing: 0.12em;
+  color: var(--ink-subtle);
+  padding: 0 var(--space-2) var(--space-1);
 }
 
 .nav-link {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.72rem 0.85rem;
-  color: var(--text-muted);
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-2);
+  color: var(--ink-muted);
   text-decoration: none;
   border-radius: var(--radius-md);
-  transition: background-color var(--transition), color var(--transition), transform var(--transition), border-color var(--transition);
-  font-size: var(--fs-sm);
-  font-weight: 700;
+  transition: background-color var(--transition), color var(--transition);
+  font-size: var(--fs-base);
+  font-weight: 450;
   position: relative;
-  border: 1px solid transparent;
 }
 
-.nav-link svg {
-  stroke-width: 2.25;
+.nav-link-icon {
+  flex-shrink: 0;
+  stroke-width: 1.75;
 }
 
 .nav-link:hover {
-  background: var(--bg-elevated);
-  color: var(--text);
-  transform: translateX(2px);
+  background: var(--inset);
+  color: var(--ink);
 }
 
-.nav-link.active {
-  background: var(--primary);
-  color: var(--on-primary);
-  border-color: var(--primary);
-  box-shadow: 0 8px 18px rgba(30, 79, 214, 0.14);
+/* Selected row: ink text on the inset well plus a 2px blue marker. The one
+   place a border thickens, per the design system.
+   Keyed off aria-current, which react-router sets on the active NavLink -
+   a class computed in the component does not survive Radix Slot merging. */
+.nav-link[aria-current="page"] {
+  background: var(--inset);
+  color: var(--ink);
+  font-weight: 600;
 }
 
-.nav-link.active::before {
+.nav-link[aria-current="page"]::before {
   content: '';
   position: absolute;
-  left: -0.76rem;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 4px;
-  height: 58%;
-  background: var(--accent);
-  border-radius: 0 999px 999px 0;
+  left: 0;
+  top: var(--space-1);
+  bottom: var(--space-1);
+  width: 2px;
+  background: var(--focus);
+}
+
+.nav-link[aria-current="page"] .nav-link-icon {
+  color: var(--focus);
+  stroke-width: 2;
 }
 
 .hide-desktop { display: none; }
@@ -183,47 +212,46 @@
   }
 }
 
-/* Daily AI wallet — tokens used against today's UTC quota.
-   Deliberately compact: three lines and a pill, no gauge and no legend. The
-   breakdown lives in the popover so the resting card stays this height. */
+/* ── Daily AI wallet — tokens used against today's UTC quota ────────────────
+   A compact mono strip, not a card: label, figures, one 3px meter, reset. The
+   breakdown lives in the popover so the resting height stays this small. */
 .sidebar-usage-card {
   position: relative;
-  margin: 0.5rem 0.75rem;
-  background: var(--bg-elevated);
-  border: var(--border-width) solid var(--border);
-  border-radius: var(--radius-md);
+  margin: 0 var(--space-3) var(--space-2);
+  border-top: 1px solid var(--line);
   font-size: var(--fs-xs);
 }
 
 .sidebar-usage-trigger {
   width: 100%;
-  padding: 0.7rem 0.85rem;
+  padding: var(--space-3) var(--space-2);
   background: none;
   border: none;
-  border-radius: inherit;
   text-align: left;
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: var(--space-2);
   font: inherit;
   color: inherit;
 }
 
 .sidebar-usage-trigger:hover {
-  background: var(--bg-hover);
+  background: var(--inset);
 }
 
 .sidebar-usage-trigger:focus-visible {
-  outline: 2px solid var(--primary);
+  outline: 2px solid var(--focus);
   outline-offset: -2px;
 }
 
 .sidebar-usage-title {
-  color: var(--text-muted);
+  font-family: var(--font-mono);
+  color: var(--ink-subtle);
   font-size: var(--fs-2xs);
   font-weight: 600;
-  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
 }
 
 .sidebar-usage-row,
@@ -231,16 +259,19 @@
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  gap: 0.5rem;
+  gap: var(--space-2);
 }
 
 .sidebar-usage-pct {
-  color: var(--text);
-  font-weight: 600;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 
 .sidebar-usage-tokens {
-  color: var(--text-muted);
+  color: var(--ink-subtle);
+  font-family: var(--font-mono);
   font-size: var(--fs-2xs);
   /* Tabular figures so the number does not jitter sideways as it ticks up. */
   font-variant-numeric: tabular-nums;
@@ -248,9 +279,8 @@
 }
 
 .sidebar-usage-track {
-  height: 5px;
-  background: var(--border);
-  border-radius: 999px;
+  height: 3px;
+  background: var(--line);
   overflow: hidden;
   display: flex;
 }
@@ -260,42 +290,44 @@
   transition: width 0.3s ease;
 }
 
-/* Four distinct hues rather than four tints of one, so a thin segment is still
-   identifiable against its neighbour. Fixed values, not theme tokens: these
-   have to stay the same colour as their popover swatches in both themes. */
+/* Four separable values rather than four tints of one, so a thin segment is
+   still identifiable against its neighbour. Fixed values, not theme tokens:
+   these must match their popover swatches in both themes, and both themes read
+   them against the same --line track. */
 .sidebar-usage-seg.is-literature,
-.sidebar-usage-swatch.is-literature { background: #3b82f6; }
+.sidebar-usage-swatch.is-literature { background: #1F4E79; }
 
 .sidebar-usage-seg.is-pdf,
-.sidebar-usage-swatch.is-pdf { background: #f59e0b; }
+.sidebar-usage-swatch.is-pdf { background: #9A5B00; }
 
 .sidebar-usage-seg.is-manuscript,
-.sidebar-usage-swatch.is-manuscript { background: #10b981; }
+.sidebar-usage-swatch.is-manuscript { background: #1F6B3A; }
 
 .sidebar-usage-seg.is-other,
-.sidebar-usage-swatch.is-other { background: #8b8fa3; }
+.sidebar-usage-swatch.is-other { background: #8A8780; }
 
 .sidebar-usage-reset {
-  color: var(--text-subtle);
+  color: var(--ink-subtle);
+  font-family: var(--font-mono);
   font-size: var(--fs-2xs);
 }
 
-/* Opens upward: the card sits directly above the footer, so a downward
+/* Opens upward: the strip sits directly above the footer, so a downward
    popover would be clipped by the sidebar's bottom edge. */
 .sidebar-usage-popover {
   position: absolute;
-  bottom: calc(100% + 0.4rem);
+  bottom: calc(100% + var(--space-1));
   left: 0;
   right: 0;
   z-index: 20;
-  padding: 0.75rem 0.85rem;
-  background: var(--bg-elevated);
-  border: var(--border-width) solid var(--border);
+  padding: var(--space-3);
+  background: var(--paper);
+  border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-md);
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: var(--space-2);
 }
 
 .sidebar-usage-list {
@@ -304,71 +336,79 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: var(--space-1);
 }
 
 .sidebar-usage-list li {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: var(--space-2);
 }
 
 .sidebar-usage-swatch {
   width: 8px;
   height: 8px;
-  border-radius: 2px;
   flex-shrink: 0;
 }
 
 .sidebar-usage-list-label {
-  color: var(--text-muted);
+  color: var(--ink-muted);
   flex: 1;
   min-width: 0;
 }
 
 .sidebar-usage-list-value {
-  color: var(--text);
+  color: var(--ink);
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 
 .sidebar-usage-empty,
 .sidebar-usage-hint {
   margin: 0;
-  color: var(--text-subtle);
+  color: var(--ink-subtle);
   font-size: var(--fs-2xs);
   line-height: 1.4;
 }
 
+/* ── Footer ───────────────────────────────────────────────────────────────── */
 .sidebar-footer {
-  padding: 1rem 0.75rem;
-  border-top: 1px solid var(--border);
+  padding: var(--space-3);
+  border-top: 1px solid var(--line);
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
+  gap: var(--space-1);
 }
 
 .user-info {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.75rem;
-  background: var(--bg-elevated);
-  border-radius: var(--radius-md);
-  border: var(--border-width) solid var(--border);
+  gap: var(--space-3);
+  padding: var(--space-2);
+  margin-bottom: var(--space-1);
 }
 
 .user-avatar {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  background: var(--primary);
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--inset);
+  border: 1px solid var(--line);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 850;
-  font-size: var(--fs-sm);
-  color: var(--on-primary);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: var(--fs-2xs);
+  color: var(--ink-muted);
   flex-shrink: 0;
+}
+
+.user-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .user-details {
@@ -377,17 +417,18 @@
 }
 
 .user-name {
-  font-size: var(--fs-sm);
-  font-weight: 750;
-  color: var(--text);
+  font-size: var(--fs-base);
+  font-weight: 500;
+  color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .user-email {
-  font-size: var(--fs-xs);
-  color: var(--text-muted);
+  font-size: var(--fs-2xs);
+  font-family: var(--font-mono);
+  color: var(--ink-subtle);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -397,48 +438,52 @@
 .logout-btn {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--space-3);
   width: 100%;
-  padding: 0.65rem 0.85rem;
+  padding: var(--space-2);
   background: transparent;
-  border: 1px solid transparent;
+  border: none;
   border-radius: var(--radius-md);
-  color: var(--text-muted);
-  font-size: var(--fs-sm);
-  font-weight: 750;
+  color: var(--ink-muted);
+  font-size: var(--fs-base);
+  font-weight: 450;
   cursor: pointer;
-  transition: var(--transition);
+  transition: background-color var(--transition), color var(--transition);
   font-family: inherit;
 }
 
+.theme-toggle-btn svg,
+.logout-btn svg {
+  flex-shrink: 0;
+  stroke-width: 1.75;
+}
+
 .theme-toggle-btn:hover {
-  background: var(--bg-elevated);
-  color: var(--text);
-  border-color: var(--border);
+  background: var(--inset);
+  color: var(--ink);
 }
 
 .logout-btn:hover {
-  background: rgba(229, 28, 35, 0.09);
-  color: var(--danger);
-  border-color: rgba(229, 28, 35, 0.22);
+  background: var(--bad-soft);
+  color: var(--bad);
 }
 
-/* Collapsed State */
+/* ── Collapsed: icons only. Group labels are hidden, so Sidebar.jsx wraps each
+   link in a Tooltip to give the name back on hover. ───────────────────────── */
 .sidebar.collapsed {
-  width: 80px;
+  width: var(--sidebar-collapsed-width);
 }
 
 .sidebar.collapsed .sidebar-header {
-  padding: 1.35rem 0;
+  padding: var(--space-4) 0;
   justify-content: center;
 }
 
-.sidebar.collapsed .sidebar-header img {
+.sidebar.collapsed .sidebar-mark {
   margin: 0 auto;
 }
 
 .sidebar.collapsed .sidebar-brand-text,
-.sidebar.collapsed .nav-section-label,
 .sidebar.collapsed .nav-link-text,
 .sidebar.collapsed .user-details,
 .sidebar.collapsed .logout-text,
@@ -446,52 +491,54 @@
   display: none;
 }
 
-.sidebar.collapsed .nav-link {
-  justify-content: center;
-  padding: 0.75rem 0;
+/* Grouping still reads without text, but as a rule *between* groups rather
+   than a rule per label - the latter drew one under the brand as well. */
+.sidebar.collapsed .nav-section-label {
+  display: none;
 }
 
-.sidebar.collapsed .nav-link::before {
-  left: 0;
+.sidebar.collapsed .nav-group + .nav-group {
+  border-top: 1px solid var(--line);
+  padding-top: var(--space-3);
+}
+
+.sidebar.collapsed .sidebar-nav {
+  padding: var(--space-3) var(--space-2);
+  gap: var(--space-3);
+}
+
+.sidebar.collapsed .nav-link {
+  justify-content: center;
+  padding: var(--space-2) 0;
 }
 
 .sidebar.collapsed .user-info {
-  padding: 0.5rem;
+  padding: var(--space-2) 0;
   justify-content: center;
-}
-
-.sidebar.collapsed .user-avatar {
-  margin: 0;
 }
 
 .sidebar.collapsed .theme-toggle-btn,
 .sidebar.collapsed .logout-btn {
-  width: 40px;
-  height: 40px;
-  margin: 0 auto;
-  padding: 0;
   justify-content: center;
-  border-radius: 50%;
-  border-color: var(--border);
+  padding: var(--space-2) 0;
 }
 
 @media (max-width: 768px) {
   .sidebar,
   .sidebar.collapsed {
-    width: min(272px, 88vw) !important;
+    width: min(268px, 88vw) !important;
   }
 
   .sidebar.collapsed .sidebar-header {
-    padding: 1.35rem 1.2rem;
+    padding: var(--space-4);
     justify-content: flex-start;
   }
 
-  .sidebar.collapsed .sidebar-header img {
+  .sidebar.collapsed .sidebar-mark {
     margin: 0;
   }
 
   .sidebar.collapsed .sidebar-brand-text,
-  .sidebar.collapsed .nav-section-label,
   .sidebar.collapsed .nav-link-text,
   .sidebar.collapsed .user-details,
   .sidebar.collapsed .logout-text,
@@ -499,28 +546,34 @@
     display: block;
   }
 
-  .sidebar.collapsed .sidebar-brand-text {
-    opacity: 1;
+  .sidebar.collapsed .nav-section-label {
+    height: auto;
+    padding: 0 var(--space-2) var(--space-1);
+    margin: 0;
+    overflow: visible;
+    color: var(--ink-subtle);
+    background: none;
+  }
+
+  .sidebar.collapsed .sidebar-nav {
+    padding: var(--space-3);
+    gap: var(--space-4);
   }
 
   .sidebar.collapsed .nav-link {
     justify-content: flex-start;
-    padding: 0.72rem 0.85rem;
-  }
-
-  .sidebar.collapsed .nav-link::before {
-    left: -0.76rem;
+    padding: var(--space-2);
   }
 
   .sidebar.collapsed .user-info {
-    padding: 0.75rem;
+    padding: var(--space-2);
     justify-content: flex-start;
   }
 
   .sidebar.collapsed .theme-toggle-btn,
   .sidebar.collapsed .logout-btn {
     justify-content: flex-start;
-    padding: 0.65rem 0.85rem;
+    padding: var(--space-2);
   }
 
   .sidebar.collapsed .sidebar-usage-card {

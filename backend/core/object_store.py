@@ -41,9 +41,11 @@ is built on httpx exception types and does not apply to botocore.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import re
+from datetime import datetime, timezone
 from functools import partial
 from uuid import uuid4
 
@@ -163,6 +165,83 @@ async def store_pdf(user_id: str, filename: str, data: bytes) -> str:
         )
     )
     return key
+
+
+# ─── same bytes, same file (PDF-4) ────────────────────────────────────────────
+#
+# Uploading the same paper twice used to store the bytes twice and open a second
+# chat, so the history filled with identical entries and each copy cost its
+# full size again. `pdf_files` remembers which stored file holds which content,
+# per user: the `_id` is `<user_id>:<sha256>`, so the lookup is a primary-key
+# read and two users can never share a row. Forward-only -- files stored before
+# this have no row and are simply stored again once, after which they dedupe.
+
+
+def content_digest(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _digest_key(user_id: str, digest: str) -> str:
+    return f"{user_id}:{digest}"
+
+
+async def pdf_exists(storage_id: str) -> bool:
+    """True when the store still holds *storage_id*. A cheap metadata read in
+    either store; never opens the bytes."""
+    if _is_legacy_id(storage_id):
+        from bson import ObjectId
+
+        from core.database import db
+
+        doc = await db["pdfs.files"].find_one({"_id": ObjectId(storage_id)}, {"_id": 1})
+        return doc is not None
+
+    if owner_of(storage_id) is None or not is_enabled():
+        return False
+    client = _get_client()
+    try:
+        await anyio.to_thread.run_sync(
+            partial(client.head_object, Bucket=S3_BUCKET, Key=storage_id)
+        )
+    except Exception:
+        return False
+    return True
+
+
+async def find_stored_pdf(user_id: str, digest: str) -> str | None:
+    """The id of a file this user already stored with these exact bytes, if it
+    is still there. Any failure answers None: dedupe saves space, it must never
+    be the reason an upload fails."""
+    from core.database import db
+
+    try:
+        row = await db["pdf_files"].find_one({"_id": _digest_key(user_id, digest)})
+        if row and row.get("file_id") and await pdf_exists(row["file_id"]):
+            return row["file_id"]
+    except Exception as exc:
+        logger.warning("PDF dedupe lookup failed for user %s: %s", user_id, exc)
+    return None
+
+
+async def remember_stored_pdf(user_id: str, digest: str, file_id: str) -> None:
+    """Record that *file_id* holds the content with *digest* for this user."""
+    from core.database import db
+
+    try:
+        await db["pdf_files"].update_one(
+            {"_id": _digest_key(user_id, digest)},
+            {
+                "$set": {
+                    "user_id": str(user_id),
+                    "sha256": digest,
+                    "file_id": file_id,
+                    "created_at": datetime.now(timezone.utc),
+                }
+            },
+            upsert=True,
+        )
+    except Exception as exc:
+        logger.warning("Could not record PDF digest for user %s: %s", user_id, exc)
 
 
 # ─── reads ────────────────────────────────────────────────────────────────────

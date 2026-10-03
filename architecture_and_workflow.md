@@ -6,12 +6,22 @@ Here are the visual representations of how the Research Paper Guide system is st
 
 This diagram shows the major components: the React Frontend, the FastAPI Backend, the AI Engine with Multi-Provider Auto-Cascade, Knowledge Integrations, Database, and external AI services.
 
+On the frontend, the design system is Scholar Desk and the token sheet in `index.css` is the single source of surface, ink, rule, focus, hover, elevation, type, space and radius values for every page — there are no page-scoped palettes. SD-13 introduced one on Topic Discovery as a recorded exception; **SD-14** promoted those values to `:root` and deleted it, so the page CSS owns layout only again. The same pass repainted the ground from a warm cream to a neutral grey, raised the container radius off a flat 6px cap, gave elevation two layers, and fixed two token defects the compiled bundle exposed that the source did not: `border-input` resolves to `--input` (which aliased `--paper`, i.e. a white border on a white field) rather than the `--color-input` in `@theme`, and the vendored `shadcn/tailwind.css` re-declares `.rounded-md`/`.rounded-sm` with hardcoded values after the token-based ones, so those two utilities ignored their tokens entirely — fixed globally in SD-17 by re-declaring each as a doubled class (`.rounded-md.rounded-md`), which outranks the vendored rule on specificity rather than on order. No backend component, search source or pipeline step moved in either change.
+
+One CSS rule governs the whole frontend and is worth knowing before editing `index.css`: **layered CSS always loses to unlayered CSS, whatever the specificity.** Tailwind v4 emits its utilities into `@layer utilities`, so any unlayered rule in `index.css` silently overrides every utility it touches. SD-15 found two live instances by measuring in a real browser — `* { padding: 0 }` was zeroing every spacing utility in the app, and `overflow-x: hidden` on `html, body, #root` was making them scroll containers and killing `position: sticky` on every descendant. The reset now sits in `@layer base` and the overflow guard uses `clip`. Page CSS files stay unlayered on purpose: that is how a page composes over a primitive without editing it.
+
 ```mermaid
 flowchart TD
     subgraph Frontend["Frontend - React + Vite"]
-        UI["User interface + manuscript builder"]
+        subgraph DS["Design system - Scholar Desk"]
+            Tokens["One token sheet - index.css<br/>surfaces, ink, line, focus, hover, shadow, type, space, radius<br/>legacy names alias the same values<br/>no page-scoped palettes on migrated pages"]
+            Prims["shadcn/ui primitives - components/ui/*<br/>Button, Input, Badge, Card, Table, ToggleGroup,<br/>Dialog, AlertDialog, Sheet, Tabs, Tooltip"]
+            Shell["App shell - Sidebar (Discover/Analyze/Write/Publish)<br/>TopBar context strip, PageHeader masthead"]
+        end
+        UI["Pages - discovery, survey, PDF, manuscript, venue, admin"]
         ApiClient["One API client - lib/api.js + query cache"]
         SSEr["SSE reader + typewriter state - ManuscriptBuilder"]
+        Tokens --> Prims --> Shell --> UI
     end
 
     subgraph Backend["Backend API - FastAPI"]
@@ -31,7 +41,7 @@ flowchart TD
         Consent["Third-party processing consent - 1.16"]
 
         subgraph SelfHeal["API self-heal"]
-            Registry["Source registry - one fan-out list"]
+            Registry["Source registry - one fan-out list, per-source timeout and query dialect"]
             Health["Rolling health window + circuit breaker"]
             Retry["One retry policy - Retry-After + jitter"]
         end
@@ -218,6 +228,7 @@ flowchart TD
     Router <-->|"Upload / stream a PDF"| Store
     Store <-->|"S3_BUCKET set"| S3
     Store <-->|"otherwise GridFS"| MongoDB
+    Store <-->|"pdf_files: sha256 per user, same bytes reuse one file - PDF-4"| MongoDB
 ```
 
 
@@ -292,6 +303,33 @@ flowchart TD
 > the key (`uploads/<user_id>/<uuid>.pdf`), which cannot be omitted the way
 > metadata could. Deletes enumerate *versions*, not keys — the bucket is
 > versioned, so a plain delete writes a marker and leaves the PDF behind.
+
+> **The same paper is stored once (PDF-4).** `extract-pdf` hashes the upload
+> before doing anything else and looks up `pdf_files/<user_id>:<sha256>`. A hit
+> whose file still exists (a metadata read — `pdfs.files` or `head_object`, never
+> the bytes) reuses that file; if a chat already holds it, the route returns
+> `existing_chat_id` without extracting at all and the client opens that chat.
+> A miss extracts, stores, then writes the row. Forward-only: files stored
+> before this have no row. A failed lookup answers "not found", so dedupe can
+> cost a duplicate but never an upload. The rows are user data, so the account
+> purge deletes them with the rest.
+
+> **Saved lists can be pinned and renamed (ROW-1).** PDF chats, literature
+> surveys and manuscript drafts share one helper, `core/saved_lists.py`: a
+> `PATCH` per collection takes `{pinned, title}`, `pinned` is stored only as
+> `true` (unpin removes it, so Mongo's sort cannot split unpinned rows into a
+> `false` run and a missing run), and `title` is display-only — the key a row
+> is found by (`query`, `topic`, `filename`) never changes. All three lists
+> sort pinned first, then newest, and their page cursor records which of those
+> two runs it stopped in.
+
+> **The browser holds PDF bytes, never a `blob:` URL (PDF-2).** The CSP's
+> `connect-src` has no `blob:`, and pdf.js *fetches* a URL — so a saved chat's
+> PDF, turned into an object URL, failed to open in Read mode and in figure
+> crops on every restore while a fresh upload (a `File`) worked. The page now
+> downloads a saved chat's PDF once, keeps the `Blob`, and hands the same bytes
+> to the reader and to `PaperFiguresProvider`. Widening the CSP was the
+> alternative and was not needed.
 
 > **Nothing clones on a request.** The GitHub knowledge repos are checked out
 > into `backend/data/` by `python -m scripts.sync_github_repos` at build time.
@@ -431,7 +469,8 @@ sequenceDiagram
     API-->>Front: New papers, each badged with which seeds reached it
     User->>Front: Save relevant papers
     Front->>API: POST /api/literature/save
-    API->>DB: Store saved survey
+    API->>DB: Store saved survey (`saved_at` ISO timestamp)
+    Note over Front,API: GET /api/literature/list backfills `saved_at` from the<br/>document ObjectId when older rows predate that field,<br/>returns each row's `id`, and sorts pinned rows first - ROW-1.
     User->>Front: Download PDF (live results or a saved survey)
     Front->>Front: jsPDF table, built in the browser — no API call
     Note over Front: Each row carries the paper link and the PDF /<br/>open-access link, printed as text and hyperlinked,<br/>so the export is usable away from the app.
@@ -564,7 +603,8 @@ flowchart TD
     SC -->|>= 0.97| RV[Serve stored ranking<br/>+ matched_query]
     SC -->|>= 0.92| RR[Reuse papers, re-rank<br/>against typed query + matched_query]
     SC -->|below| CB{Circuit breaker<br/>skip sources failing right now}
-    CB --> F[Fan out to the healthy sources in parallel<br/>stop once 5 have answered + 3s grace<br/>20s ceiling as the backstop]
+    CB --> QE[query_expansion.build_plan<br/>synonym, acronym and spelling variants<br/>+ one anchored MeSH clause]
+    QE --> F[Fan out to the healthy sources in parallel<br/>each source gets its own dialect rendering<br/>stop once 5 have answered + 3s grace<br/>20s ceiling as the backstop]
     RV --> R
     RR --> R
     F --> D[Deduplicate & merge<br/>DOI / arXiv id / normalized title]
@@ -607,20 +647,20 @@ timed out is distinguishable from one that returned nothing and from one that wa
 skipped because its circuit is open.
 
 
-| Source                 | Key                         | Notes                                                       |
-| ---------------------- | --------------------------- | ----------------------------------------------------------- |
-| Semantic Scholar       | optional                    | Highest ranking weight                                      |
-| OpenAlex               | **required since Feb 2026** | `OPENALEX_API_KEY`; ~$1/day free allowance                  |
-| Crossref               | no (polite `mailto`)        | Also carries Retraction Watch data                          |
-| PubMed / NCBI          | optional                    | 5s budget                                                   |
-| arXiv                  | no                          | Also the LaTeX/HTML source for extraction                   |
-| OpenReview             | no                          | Forum notes only (papers, not reviews). API v2, keyless     |
-| ACL Anthology          | no                          | Full `anthology.bib.gz`, cached 24h. No per-query search API |
-| Zenodo                 | no                          | Publications only (`/api/records`)                          |
-| Europe PMC             | no                          | Also serves JATS full text                                  |
-| Springer Nature        | yes                         |                                                             |
-| DOAJ                   | no                          | Dropped for topic discovery — broad-OA noise skews keywords |
-| GitHub Knowledge Repos | no                          | Local corpus, no network call                               |
+| Source                 | Key                         | Dialect (2.3) | Notes                                                       |
+| ---------------------- | --------------------------- | ------------- | ----------------------------------------------------------- |
+| Semantic Scholar       | optional                    | `plain`       | Highest ranking weight                                      |
+| OpenAlex               | **required since Feb 2026** | `boolean`     | `OPENALEX_API_KEY`; ~$1/day free allowance                  |
+| Crossref               | no (polite `mailto`)        | `plain`       | Also carries Retraction Watch data                          |
+| PubMed / NCBI          | optional                    | `pubmed`      | 5s budget. The only source sent MeSH field tags             |
+| arXiv                  | no                          | `plain`       | Also the LaTeX/HTML source for extraction                   |
+| OpenReview             | no                          | `plain`       | Forum notes only (papers, not reviews). API v2, keyless     |
+| ACL Anthology          | no                          | `plain`       | Full `anthology.bib.gz`, cached 24h. No per-query search API |
+| Zenodo                 | no                          | `plain`       | Publications only (`/api/records`)                          |
+| Europe PMC             | no                          | `plain`       | Also serves JATS full text                                  |
+| Springer Nature        | yes                         | `plain`       |                                                             |
+| DOAJ                   | no                          | `plain`       | Dropped for topic discovery — broad-OA noise skews keywords |
+| GitHub Knowledge Repos | no                          | `plain`       | Local corpus, no network call                               |
 
 
 Unpaywall runs *after* dedupe as OA enrichment, not as a search source.
@@ -648,6 +688,51 @@ carries a byte-identical port so the client's in-flight dedupe guard and the
 server cache agree; `ai/keyword_extractor.py` imports `GRAMMAR_STOPS` and
 `stem` from the same module so tokenisation cannot drift.
 
+### Query expansion (2.3)
+
+`integrations/query_expansion.py` renders one query per source dialect, between
+the circuit breaker and the fan-out. It is deterministic and offline — a curated
+lexicon, no LLM call, no extra round trip — and it never becomes an identity:
+the cache key above and `_rank_papers` below both keep using the raw query, so
+an expansion cannot split one search into two cache entries.
+
+The shape is a top-level OR of **whole-query variants**, with the user's query
+verbatim as the first clause:
+
+```
+(llm agents) OR (large language model agents)
+(crispr gene editing) OR (cas9 genome editing) OR ("Gene Editing"[MeSH Terms] AND crispr)
+```
+
+Because the original leads, a rendering can never return less than the
+unexpanded search would have. The rejected alternative — re-tagging each concept
+as a field-qualified phrase AND — was built and measured against the live
+endpoints first: it cut PubMed from 9354 hits to 8 and arXiv from 482025 to 0 on
+a British-spelling seed, because a phrase AND throws away PubMed's Automatic
+Term Mapping and demands an exact phrase nobody writes.
+
+Three inputs, all curated and disjoint: acronym pairs (`llm` ↔ `large language
+model`), British/American spellings (`tumour` ↔ `tumor`), and a short list of
+lay-to-indexed synonyms (`heart attack` ↔ `myocardial infarction`). A MeSH
+clause is added for PubMed only, is capped at one, and is always **anchored** to
+the rest of the query — an unanchored heading matches tens of thousands of
+off-topic papers, and PubMed sorts by relevance into exactly the rows the
+fan-out reads. `scripts/verify_mesh_headings.py` checks every heading in the map
+against live PubMed on demand; the suite does not, because the MeSH vocabulary
+is NLM's artefact and moves yearly.
+
+**A query that already speaks a query language is passed through untouched** —
+uppercase `AND`/`OR`/`NOT`, a quoted phrase, a `[field]` tag or explicit parens
+all mark an expert query, and rewriting one is how a tool earns the reputation
+of fighting its users.
+
+Dialects are earned by measurement, not by capability. Only **PubMed** and
+**OpenAlex** were shown to return a superset *and* hold their top-N; Europe PMC
+raised hit counts while displacing the best row, DOAJ was mixed and answers HTTP
+400 to a field tag in its URL path, and arXiv's own loose matching collapses
+under quoted variants. Those three, plus every source nobody has measured, stay
+on `plain` and receive the raw string exactly as they did before 2.3.
+
 ### Semantic cache
 
 Canonical keys collapse wording; they cannot collapse synonyms. `"CNN classification"` and `"convolutional neural network classification"` are one
@@ -655,6 +740,10 @@ search to a researcher and two full fan-outs to the canonical key.
 `services/semantic_cache.py` closes that gap by keying on the query
 *embedding* — which the rerank step needs anyway, so a true miss pays nothing
 extra for the lookup.
+
+2.3 does not change this. Query expansion widens what one fan-out *retrieves*;
+it leaves cache identity alone, so those two wordings are still two entries and
+the semantic cache is still the only thing that makes the second one free.
 
 Two tiers, both conservative:
 
@@ -1138,7 +1227,7 @@ model invented. `extract_figures` emits one record per caption onto
 ```
 
 **No pixels are ever shipped, stored or fetched.** The browser already holds the
-PDF in pdf.js for Read mode, so a figure is a clip of a page it has parsed
+PDF in pdf.js for Read mode (as bytes — a `File` or a fetched `Blob`, see PDF-2), so a figure is a clip of a page it has parsed
 already — the backend sends a few hundred bytes of coordinates on the
 `structure` object that upload, `pdf_chats` and reload already carry. There is
 no image endpoint, no `object_store` write, and no vision call anywhere on this
@@ -1221,11 +1310,12 @@ evidence at all despite parsing perfectly.
 There are two meters and they measure different things. Confusing them is how
 the old sidebar ended up telling people they had "50 messages left" for a
 product where one PDF analysis can cost four of those and one literature brief
-a fraction of one.
+a fraction of one. The wallet is a compact meter strip in the sidebar footer,
+not a card — the breakdown lives in its popover.
 
 | | Daily AI wallet | This request |
 |---|---|---|
-| Where | Sidebar, every page | PDF Analysis, beside the composer |
+| Where | Sidebar meter strip, every page | PDF Analysis, beside the composer |
 | Unit | Real provider tokens | Estimated tokens (`chars / 4`) |
 | Denominator | `users.custom_quota` or 250,000 | The paper's char cap + the rest of this prompt + the reply budget |
 | Word | **used** | **full** |
@@ -1247,7 +1337,7 @@ flowchart TD
     subgraph Wallet["Daily wallet - GET /api/user/usage"]
         Group["Group today's tokens by query_type"]
         Buckets["literature / pdf_analysis / manuscript / other<br/>segments sum to used, so the bar cannot disagree"]
-        Card["Sidebar card - N% used, ~31.2K / 250K, resets in Xh"]
+        Card["Sidebar meter strip - N% used, ~31.2K / 250K, resets in Xh"]
         Logs --> Group --> Buckets --> Card
     end
 

@@ -14,6 +14,15 @@ from ai.topic_discovery import discover_topics
 from core.auth import get_current_user
 from core.limiter import limiter
 from core.database import db
+from core.saved_lists import (
+    LIST_SORT,
+    cursor_filter,
+    meta_update,
+    meta_view,
+    next_cursor,
+    parse_object_id,
+)
+from pymongo import ReturnDocument
 from integrations.arxiv import fetch_category_feed
 from integrations.crossref import search_journals
 from integrations.github_knowledge import (
@@ -41,6 +50,7 @@ from schemas import (
     LiteratureDeepBriefPayload,
     LiteratureSavePayload,
     LiteratureSnowballPayload,
+    SavedItemPatch,
 )
 from services.query_history import (
     _suggest_rank,
@@ -490,24 +500,43 @@ async def list_literature_surveys(
 ):
     user_id = current_user["user_id"]
     collection = db["literature"]
-    query = {"user_id": user_id}
-    if cursor:
-        try:
-            query["_id"] = {"$lt": ObjectId(cursor)}
-        except Exception:
-            raise HTTPException(status_code=400, detail="Invalid cursor.")
+    query = {"user_id": user_id, **cursor_filter(cursor)}
     docs = await (
         collection.find(query, {"user_id": 0})
-        .sort("_id", -1)
+        .sort(LIST_SORT)
         .limit(limit)
         .to_list(length=limit)
     )
-    next_cursor = str(docs[-1]["_id"]) if len(docs) == limit else None
+    page_cursor = next_cursor(docs, limit)
     surveys = []
     for doc in docs:
-        doc.pop("_id", None)
+        oid = doc.pop("_id", None)
+        # The id is what pin / rename address (ROW-1); delete still goes by query.
+        if oid is not None:
+            doc["id"] = str(oid)
+        # Older saves predate `saved_at`. Without a fill the Saved Surveys
+        # meta line alternates between "N papers screened" and
+        # "N papers screened · date" for the same list.
+        if not doc.get("saved_at") and oid is not None:
+            doc["saved_at"] = oid.generation_time.replace(tzinfo=timezone.utc).isoformat()
         surveys.append(doc)
-    return {"data": surveys, "next_cursor": next_cursor}
+    return {"data": surveys, "next_cursor": page_cursor}
+
+
+@router.patch("/api/literature/surveys/{survey_id}")
+@limiter.limit("30/minute")
+async def update_literature_meta(request: Request, survey_id: str, payload: SavedItemPatch, current_user: dict = Depends(get_current_user)):
+    """Pin or rename a saved survey (ROW-1). The title is display-only; `query`,
+    which loads and deletes it, is unchanged."""
+    doc = await db["literature"].find_one_and_update(
+        {"_id": parse_object_id(survey_id, "Survey"), "user_id": current_user["user_id"]},
+        meta_update(payload.pinned, payload.title),
+        projection={"pinned": 1, "title": 1},
+        return_document=ReturnDocument.AFTER,
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Survey not found.")
+    return {"id": survey_id, **meta_view(doc)}
 
 @router.delete("/api/literature/delete/{query}")
 @limiter.limit("30/minute")

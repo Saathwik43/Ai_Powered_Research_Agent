@@ -1,4 +1,9 @@
+/* `.app-container` is `display: flex; flex-direction: row`, so this page was a
+   flex item that shrank to its content — 576px on a 1280px viewport, pinned
+   left. `.not-found-main`'s `margin: 0 auto` then had nothing to centre inside
+   and resolved to 0, which is why the 404 sat 352px off-centre (measured). */
 .not-found-page {
+  width: 100%;
   min-height: 100dvh;
   min-height: 100vh;
   display: flex;

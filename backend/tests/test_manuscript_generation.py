@@ -921,8 +921,18 @@ class TestEditPromptFraming(unittest.TestCase):
     def test_generation_prompt_forbids_latex_bracket_delimiters(self):
         prompt = manuscript_generation._prompt("a topic", "methodology", "", "ieee")
         self.assertIn("dollar delimiters", prompt)
-        self.assertIn("$$ E = mc^2 $$", prompt)
+        self.assertIn("`$$...$$`", prompt)
         self.assertIn("double-quoted", prompt)
+
+    def test_generation_prompt_gives_no_concrete_formula_to_copy(self):
+        # ME-13: the syntax example used to be `$$ E = mc^2 $$`, and the model
+        # copied it into unrelated papers ("E = mc^2 may not be directly
+        # applicable to this field" in a driver-drowsiness abstract).
+        prompt = manuscript_generation._prompt("a topic", "methodology", "", "ieee")
+        self.assertNotIn("mc^2", prompt)
+        self.assertNotIn("$x^2$", prompt)
+        self.assertNotIn("$O_2$", prompt)
+        self.assertIn("never insert an illustrative formula", prompt)
 
     def test_braces_in_user_input_do_not_break_the_template(self):
         prompt = manuscript_generation._edit_prompt_fn(

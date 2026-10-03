@@ -1,110 +1,153 @@
+/* Scholar Desk buttons.
+   `.btn` is the CSS face of the same design as the shadcn `Button` component
+   (src/components/ui/button.jsx): identical heights, radii, weights and focus
+   treatment. New markup should import that component; this sheet keeps the
+   pages that still write `className="btn btn-*"` on the same design until each
+   is migrated. Do not add a third button system. */
+
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
-  min-height: 38px;
-  padding: 0.64rem 1rem;
-  font-size: var(--fs-sm);
-  font-weight: 750;
+  gap: var(--space-2);
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  font-family: inherit;
+  font-size: var(--fs-base);
+  font-weight: 500;
+  line-height: 1.2;
   border-radius: var(--radius-md);
   border: 1px solid transparent;
   cursor: pointer;
   transition:
-    transform var(--transition),
-    box-shadow var(--transition),
     background-color var(--transition),
     border-color var(--transition),
     color var(--transition);
-  font-family: inherit;
   white-space: nowrap;
-  letter-spacing: 0;
   text-decoration: none;
   user-select: none;
 }
 
 .btn svg {
   flex-shrink: 0;
-  stroke-width: 2.25;
+  stroke-width: 2;
 }
 
+/* A press is the only movement a button makes. */
 .btn:active {
-  transform: translateY(1px) scale(0.99);
+  transform: translateY(1px);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
 .btn:disabled {
-  opacity: 0.55;
+  opacity: 0.5;
   cursor: not-allowed;
   pointer-events: none;
-  box-shadow: none;
 }
 
+/* ── Primary: the one academic-blue fill on the page ───────────────────────── */
 .btn-primary {
-  background: var(--primary);
-  color: var(--on-primary);
-  border-color: var(--primary);
-  box-shadow: 0 8px 18px rgba(30, 79, 214, 0.18);
+  background: var(--focus);
+  color: var(--on-focus);
+  border-color: var(--focus);
 }
 
 .btn-primary:hover {
-  background: var(--primary-hover);
-  border-color: var(--primary-hover);
-  box-shadow: 0 12px 28px rgba(30, 79, 214, 0.22);
-  transform: translateY(-1px);
+  background: var(--focus-hover);
+  border-color: var(--focus-hover);
 }
 
+/* ── Secondary: paper with a rule ──────────────────────────────────────────── */
 .btn-secondary {
-  background: var(--bg-card);
-  color: var(--text);
-  border-color: var(--border-strong);
-  box-shadow: var(--shadow-sm);
+  background: var(--paper);
+  color: var(--ink);
+  border-color: var(--line-strong);
 }
 
 .btn-secondary:hover {
-  background: var(--bg-elevated);
-  border-color: var(--primary);
-  color: var(--primary);
-  box-shadow: 0 8px 20px rgba(17, 24, 39, 0.1);
-  transform: translateY(-1px);
+  background: var(--inset);
+  border-color: var(--focus);
+  color: var(--focus);
 }
 
+/* ── Ghost: text until touched ─────────────────────────────────────────────── */
 .btn-ghost {
   background: transparent;
-  color: var(--text-muted);
+  color: var(--ink-muted);
   border-color: transparent;
 }
 
 .btn-ghost:hover {
-  background: var(--primary-light);
-  color: var(--primary);
-  border-color: rgba(47, 90, 255, 0.11);
+  background: var(--inset);
+  color: var(--ink);
 }
 
+/* ── Danger: tinted, never a red slab ──────────────────────────────────────── */
 .btn-danger {
-  background: rgba(229, 28, 35, 0.1);
-  color: var(--danger);
-  border-color: rgba(229, 28, 35, 0.22);
+  background: var(--bad-soft);
+  color: var(--bad);
+  border-color: var(--bad);
 }
 
 .btn-danger:hover {
-  background: rgba(229, 28, 35, 0.16);
-  border-color: rgba(229, 28, 35, 0.34);
+  background: var(--bad);
+  color: var(--paper);
 }
 
+/* ── Icon: square, same 32px rhythm as the text buttons ───────────────────── */
 .btn-icon {
   padding: 0;
-  width: 38px;
-  height: 38px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  border-radius: 50%;
-  box-shadow: var(--shadow-sm);
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  color: var(--ink-muted);
+  border-radius: var(--radius-md);
 }
 
 .btn-icon:hover {
-  color: var(--primary);
-  border-color: var(--primary);
-  background: var(--primary-light);
-  transform: translateY(-1px);
+  color: var(--focus);
+  border-color: var(--focus);
+  background: var(--focus-soft);
+}
+
+/* ── Sizes ────────────────────────────────────────────────────────────────── */
+/* Heights and paddings below must stay equal to the matching `size` variant
+   in ui/button.jsx - that is the entire point of the two-forms exception.
+   They had drifted: 26px here against 28px there, 38px against 36px. */
+.btn-sm {
+  min-height: 28px;
+  padding: 0 var(--space-3);
+  font-size: var(--fs-sm);
+}
+
+.btn-lg {
+  min-height: 36px;
+  padding: 0 var(--space-4);
+}
+
+/* A text-weight action for inline "All", "Close feed", "Load more" affordances
+   that should read as a link but behave as a button. */
+.btn-link {
+  min-height: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--focus);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+}
+
+.btn-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.btn-link:active {
+  transform: none;
 }

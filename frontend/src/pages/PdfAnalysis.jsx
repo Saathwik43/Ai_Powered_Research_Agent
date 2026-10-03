@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback, memo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
-  UploadCloud, FileText, Send, AlertCircle,
-  ChevronLeft, ChevronRight, Bot, User, Paperclip, X,
+  FileText, Send, AlertCircle, Plus, Pin,
+  ChevronLeft, Bot, User, Paperclip, X, RotateCw,
   CheckCircle, AlertTriangle, ArrowRight, History,
-  Minus, Plus, BookOpen, MessageSquare, Layers, Search, Image as ImageIcon
+  BookOpen, MessageSquare, Layers, Search, Image as ImageIcon
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Spinner, TypingDots } from '../components/Loader';
@@ -23,21 +24,13 @@ import {
 } from '../utils/mermaidChart';
 import { normalizeLatexDelimiters, KATEX_REHYPE_OPTIONS } from '../utils/latexMath';
 import RequestContextChip from '../components/RequestContextChip';
+import { Badge } from '../components/ui/badge';
+import { SavedItemMenu, RenameField } from '../components/SavedItemActions';
+import { splitPinned, displayName, orderPinned } from '../lib/savedItems';
 import 'katex/dist/katex.min.css';
 import './PdfAnalysis.css';
-import { Document, Page, pdfjs } from 'react-pdf';
-// Bundled, not fetched. The worker used to come from unpkg over a
-// protocol-relative URL, which resolves to http:// on an http origin --
-// and the CSP allows only https://unpkg.com, so it was blocked outright.
-// pdf.js then fell back to a 'fake worker' that dynamically imports the
-// same blocked URL, so that failed too: no worker, no PDF, and Read mode
-// showed 'Failed to load PDF file.' Serving it from 'self' needs no CSP
-// allowance, no network, and cannot drift from react-pdf's pdfjs version.
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import 'react-pdf/dist/Page/AnnotationLayer.css';
-import 'react-pdf/dist/Page/TextLayer.css';
-
-pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+// Also configures the pdf.js worker that PaperFigure's getDocument relies on.
+import PdfReader from '../components/PdfReader';
 
 const REMARK_PLUGINS = [remarkGfm, remarkMath];
 const REHYPE_PLUGINS = [[rehypeKatex, KATEX_REHYPE_OPTIONS]];
@@ -73,6 +66,10 @@ const SUGGESTIONS = [
   { label: 'Key findings', prompt: 'Summarize the key findings and results.' },
   { label: 'Follow-up work', prompt: 'Suggest potential follow-up research directions.' },
 ];
+
+// The landing shows the four questions people actually open a paper with.
+const HOME_SUGGESTIONS = SUGGESTIONS.slice(0, 4);
+const RECENT_LIMIT = 5;
 
 const MODES = [
   { id: 'read', label: 'Read', Icon: BookOpen },
@@ -228,9 +225,20 @@ function MessageBubble({ msg, markdownComponents }) {
 
 const MemoMessageBubble = memo(MessageBubble);
 
+function formatSavedAt(iso, { short = false } = {}) {
+  const date = iso ? new Date(iso) : null;
+  if (!date || Number.isNaN(date.getTime())) return '';
+  // The rail is narrow: drop the year when it is this year.
+  const sameYear = date.getFullYear() === new Date().getFullYear();
+  return date.toLocaleDateString(undefined, short && sameYear
+    ? { day: 'numeric', month: 'short' }
+    : { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
 export default function PdfAnalysis() {
-  const pixelRatio = window.devicePixelRatio || 1;
   const { api } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  // { name } always; `size` only on a File picked in this session.
   const [file, setFile] = useState(null);
   const [extractedText, setExtractedText] = useState('');
   const [structure, setStructure] = useState(null);
@@ -240,16 +248,27 @@ export default function PdfAnalysis() {
   const [customPrompt, setCustomPrompt] = useState('');
   const [messages, setMessages] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
+  // Landing composer (PDF-5): a PDF staged in the composer but not uploaded
+  // yet, and whether the staged question is the structured gap analysis.
+  const [draftFile, setDraftFile] = useState(null);
+  const [draftKind, setDraftKind] = useState('ask');
   const [fileId, setFileId] = useState(null);
-  const [pdfBlobUrl, setPdfBlobUrl] = useState(null);
-  const [numPages, setNumPages] = useState(null);
-  const [pageNumber, setPageNumber] = useState(1);
-  const [zoom, setZoom] = useState(1.2);
+  // The PDF bytes the reader and figure crops open: the picked File, or a Blob
+  // fetched for a saved chat. Never a blob: URL -- connect-src has no blob:,
+  // so pdf.js could not read one back and every restored chat failed (PDF-2).
+  const [pdfData, setPdfData] = useState(null);
+  const [pdfStatus, setPdfStatus] = useState('idle'); // idle | loading | ready | error
+  const [pdfRetry, setPdfRetry] = useState(0);
+  const [jump, setJump] = useState(null);
   const [mode, setMode] = useState('ask');
   const [chatList, setChatList] = useState([]);
-  const [activeChatId, setActiveChatId] = useState(null);
+  const [activeChatId, setActiveChatIdState] = useState(null);
   const [historyCollapsed, setHistoryCollapsed] = useState(true);
   const [loadingChats, setLoadingChats] = useState(false);
+  // Chat whose name is being edited inline, in the rail or the landing list.
+  const [renamingChatId, setRenamingChatId] = useState(null);
+  const [openingChat, setOpeningChat] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
   // What the last analysis actually sent to the model. Not persisted with the
   // chat: it describes one request, and replaying a saved conversation would
   // show the sizes of a call that is not the one about to be made.
@@ -258,9 +277,34 @@ export default function PdfAnalysis() {
   const chatEndRef = useRef(null);
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
-  const viewerScrollRef = useRef(null);
+  // One object per open paper, holding its chat id. Saves carry the object
+  // they were made for and read the id from it, never from a render's
+  // closure: a closure still held the previous chat's id while a new upload
+  // saved, so the new paper was written over the old chat (PDF-3). A save
+  // that finishes after the user moved on still lands on its own chat.
+  const sessionRef = useRef({ chatId: null });
+  // One save at a time: a second save issued before the first returned its
+  // id would insert a duplicate chat.
+  const saveQueueRef = useRef(Promise.resolve());
+  // Set where a save is wanted; the messages effect below performs it once
+  // the turn has settled. Keeps the POST out of setState updaters, which
+  // React may run twice.
+  const pendingSaveRef = useRef(false);
+  const didInitRef = useRef(false);
+  const dragDepthRef = useRef(0);
+
+  /** Start a new paper session; `chatId` is null until the first save returns. */
+  const beginSession = useCallback((chatId = null, firstTurn = null) => {
+    // `firstTurn`: a question asked on the landing before the paper existed,
+    // sent by the effect below once the paper is ready.
+    sessionRef.current = { chatId, firstTurn };
+    pendingSaveRef.current = false;
+    setActiveChatIdState(chatId);
+  }, []);
 
   const hasPaper = Boolean(file || extractedText);
+  const railGroups = useMemo(() => splitPinned(chatList), [chatList]);
+  const activeChat = chatList.find((c) => c.chat_id === activeChatId) || null;
 
   // Gap analyses only. Generated diagrams used to land here too, but the model
   // is no longer allowed to draw any (RP-12): the paper's own figures are the
@@ -272,47 +316,46 @@ export default function PdfAnalysis() {
     [structure],
   );
 
+  // The only place a saved chat's PDF is downloaded. loadChat used to fetch it
+  // as well, so every restore pulled the file twice.
   useEffect(() => {
-    let currentBlobUrl = null;
-    if (fileId && (!file || !file?.size)) {
-      const loadPdf = async () => {
-        try {
-          const res = await api.raw(
-            `/api/manuscript/pdf/${fileId}`
-          );
-          if (res.ok) {
-            const blob = await res.blob();
-            const url = URL.createObjectURL(blob);
-            currentBlobUrl = url;
-            setPdfBlobUrl(url);
-          }
-        } catch (err) {
-          console.error('Failed to load PDF preview', err);
-        }
-      };
-      loadPdf();
-    } else {
-      setPdfBlobUrl(null);
+    if (file?.size) {
+      setPdfData(file);
+      setPdfStatus('ready');
+      return undefined;
     }
-    return () => {
-      if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
-    };
-  }, [fileId, file, api]);
+    setPdfData(null);
+    if (!fileId) {
+      setPdfStatus('idle');
+      return undefined;
+    }
+    const controller = new AbortController();
+    setPdfStatus('loading');
+    (async () => {
+      try {
+        const res = await api.raw(`/api/manuscript/pdf/${fileId}`, { signal: controller.signal });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        if (controller.signal.aborted) return;
+        setPdfData(blob);
+        setPdfStatus('ready');
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        console.error('Failed to load PDF preview', err);
+        setPdfStatus('error');
+      }
+    })();
+    return () => controller.abort();
+  }, [fileId, file, api, pdfRetry]);
 
   useEffect(() => {
     if (mode === 'ask') chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, mode]);
 
-  useEffect(() => {
-    fetchChatList();
-  }, []);
-
   const jumpToPage = useCallback((page) => {
-    setPageNumber(page);
+    if (!Number.isFinite(page) || page < 1) return;
+    setJump((prev) => ({ page, seq: (prev?.seq || 0) + 1 }));
     setMode('read');
-    requestAnimationFrame(() => {
-      viewerScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-    });
   }, []);
 
   const markdownComponents = useMemo(() => ({
@@ -374,106 +417,194 @@ export default function PdfAnalysis() {
     }
   };
 
-  const loadChat = async (chatId) => {
+  const loadChat = async (chatId, { firstTurn = null } = {}) => {
+    setOpeningChat(true);
+    setHistoryCollapsed(true);
     try {
       const res = await api.raw(`/api/pdf-chats/${chatId}`);
-      if (res.ok) {
-        const data = await res.json();
-        const chat = data.data;
-        setActiveChatId(chat.chat_id);
-        setFile({ name: chat.filename });
-        setFileId(chat.file_id || null);
-        setExtractedText(chat.text);
-        setStructure(chat.structure);
-        setMessages(chat.messages || []);
-        setError('');
-        setMode('ask');
-        setHistoryCollapsed(true);
-        // Belongs to the turn that produced it, not to the conversation.
-        setRequestContext(null);
-
-        if (chat.file_id) {
-          try {
-            const pdfRes = await api.raw(
-              `/api/manuscript/pdf/${chat.file_id}`
-            );
-            if (pdfRes.ok) {
-              const blob = await pdfRes.blob();
-              setPdfBlobUrl((prev) => {
-                if (prev) URL.revokeObjectURL(prev);
-                return URL.createObjectURL(blob);
-              });
-            }
-          } catch (pdfErr) {
-            console.error('Failed to restore PDF preview', pdfErr);
-          }
-        }
-      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const chat = data.data;
+      beginSession(chat.chat_id, firstTurn);
+      setFile({ name: chat.filename });
+      setFileId(chat.file_id || null);
+      setExtractedText(chat.text);
+      setStructure(chat.structure);
+      setMessages(chat.messages || []);
+      setError('');
+      setSaveFailed(false);
+      setMode('ask');
+      setJump(null);
+      // Belongs to the turn that produced it, not to the conversation.
+      setRequestContext(null);
     } catch (e) {
       console.error('Failed to load chat', e);
+      reset();
+      setError('That paper could not be opened. It may have been deleted.');
+    } finally {
+      setOpeningChat(false);
     }
   };
 
-  const deleteChat = async (chatId, e) => {
-    e.stopPropagation();
+  /** Throws a user-facing message; SavedItemMenu keeps its dialog open with it. */
+  const deleteChat = async (chatId) => {
+    let res;
     try {
-      const res = await api.raw(
-        `/api/pdf-chats/${chatId}`,
-        { method: 'DELETE' }
-      );
-      if (res.ok) {
-        if (activeChatId === chatId) reset();
-        fetchChatList();
-      }
-    } catch (err) {
-      console.error('Failed to delete chat', err);
+      res = await api.raw(`/api/pdf-chats/${chatId}`, { method: 'DELETE' });
+    } catch {
+      throw new Error('Could not reach the server. Try again.');
     }
+    // 404: already gone, which is what was asked for.
+    if (!res.ok && res.status !== 404) throw new Error('That paper could not be deleted. Try again.');
+    if (sessionRef.current.chatId === chatId) reset();
+    setChatList((prev) => prev.filter((c) => c.chat_id !== chatId));
+    fetchChatList();
   };
 
-  const saveChatState = async (newMessages, currentFile, text, struct, currentFileId = fileId) => {
-    if (!text || newMessages.length === 0) return;
+  /** Pin / rename (ROW-1), applied at once and rolled back if the server refuses. */
+  const patchChat = async (chatId, changes) => {
+    const before = chatList;
+    const apply = (patch) => setChatList((prev) =>
+      orderPinned(prev.map((c) => (c.chat_id === chatId ? { ...c, ...patch } : c)), 'chat_id'));
+    apply(changes);
     try {
-      const payload = {
-        chat_id: activeChatId,
-        filename: currentFile?.name || 'Unknown PDF',
-        text,
-        structure: struct,
-        messages: newMessages,
-        file_id: currentFileId,
-      };
-      const res = await api.raw(`/api/pdf-chats/save`, {
-        method: 'POST',
+      const res = await api.raw(`/api/pdf-chats/${chatId}`, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(changes),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (!activeChatId) setActiveChatId(data.chat_id);
-        fetchChatList();
-      }
-    } catch (e) {
-      console.error('Failed to save chat', e);
+      if (!res.ok) throw new Error(String(res.status));
+      const data = await res.json();
+      apply({ pinned: data.pinned, title: data.title });
+    } catch {
+      setChatList(before);
+      setError('title' in changes
+        ? 'That paper could not be renamed. Try again.'
+        : 'That paper could not be pinned. Try again.');
     }
   };
 
-  const handleFileChange = async (selected) => {
+  /** One row for the rail and the landing list: open, ⋯ menu, inline rename. */
+  const renderChatRow = (chat, { longDate = false } = {}) => {
+    const name = displayName(chat, 'filename') || 'Untitled PDF';
+    const when = formatSavedAt(chat.updated_at || chat.created_at, { short: !longDate });
+    const active = activeChatId === chat.chat_id;
+    return (
+      <div className={`pdf-history-item group ${active ? 'active' : ''}`}>
+        {renamingChatId === chat.chat_id ? (
+          <span className="pdf-history-item-content pdf-history-item-editing">
+            <FileText size={14} />
+            <RenameField
+              className="pdf-history-rename"
+              initial={name}
+              label={`Rename ${name}`}
+              onSubmit={(value) => { setRenamingChatId(null); patchChat(chat.chat_id, { title: value }); }}
+              onCancel={() => setRenamingChatId(null)}
+            />
+          </span>
+        ) : (
+          <button
+            type="button"
+            className="pdf-history-item-main"
+            onClick={() => loadChat(chat.chat_id)}
+            aria-current={active ? 'true' : undefined}
+            title={chat.title ? `${name} (${chat.filename})` : name}
+          >
+            <span className="pdf-history-item-content">
+              {chat.pinned ? <Pin size={14} aria-label="Pinned" /> : <FileText size={14} />}
+              <span className="pdf-history-item-text">{name}</span>
+            </span>
+            {when && <em>{when}</em>}
+          </button>
+        )}
+        <SavedItemMenu
+          name={name}
+          kind="paper"
+          pinned={chat.pinned === true}
+          onTogglePin={() => patchChat(chat.chat_id, { pinned: !chat.pinned })}
+          onRename={() => setRenamingChatId(chat.chat_id)}
+          onDelete={() => deleteChat(chat.chat_id)}
+          deleteDetail="and its conversation will be removed from your account."
+        />
+      </div>
+    );
+  };
+
+  const saveChatState = (snapshot) => {
+    const { session } = snapshot;
+    const run = async () => {
+      if (!snapshot.text || snapshot.messages.length === 0) return;
+      try {
+        const res = await api.raw(`/api/pdf-chats/save`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: session.chatId,
+            filename: snapshot.filename || 'Unknown PDF',
+            text: snapshot.text,
+            structure: snapshot.structure,
+            messages: snapshot.messages,
+            file_id: snapshot.fileId,
+          }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (!session.chatId) session.chatId = data.chat_id;
+        if (session === sessionRef.current) {
+          setActiveChatIdState(session.chatId);
+          setSaveFailed(false);
+        }
+        fetchChatList();
+      } catch (e) {
+        console.error('Failed to save chat', e);
+        if (session === sessionRef.current) setSaveFailed(true);
+      }
+    };
+    saveQueueRef.current = saveQueueRef.current.then(run);
+    return saveQueueRef.current;
+  };
+
+  useEffect(() => {
+    if (!pendingSaveRef.current) return;
+    if (messages.some((m) => m.isLoading)) return;
+    pendingSaveRef.current = false;
+    saveChatState({
+      session: sessionRef.current,
+      filename: file?.name,
+      text: extractedText,
+      structure,
+      messages,
+      fileId,
+    });
+    // Runs when a turn settles; the other values are read as they are then.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages]);
+
+  const retrySave = () => {
+    pendingSaveRef.current = true;
+    setMessages((prev) => [...prev]);
+  };
+
+  const handleFileChange = async (selected, firstTurn = null) => {
     if (!selected) return;
     if (selected.type !== 'application/pdf') {
       setError('Please upload a valid PDF file.');
       return;
     }
 
+    beginSession(null, firstTurn);
+    const session = sessionRef.current;
     setFile(selected);
     setFileId(null);
-    setPdfBlobUrl(null);
     setError('');
+    setSaveFailed(false);
     setExtractedText('');
     setStructure(null);
     setMessages([]);
     setCustomPrompt('');
     setIsExtracting(true);
-    setActiveChatId(null);
     setRequestContext(null);
+    setJump(null);
     setMode('ask');
 
     const formData = new FormData();
@@ -489,6 +620,15 @@ export default function PdfAnalysis() {
         throw new Error(data.detail || 'Failed to extract PDF');
       }
       const data = await res.json();
+      // Another paper was opened while this one was being extracted.
+      if (session !== sessionRef.current) return;
+      // Same bytes as a paper already in the account (PDF-4): open that chat,
+      // with its history, rather than starting a duplicate.
+      if (data.existing_chat_id) {
+        setIsExtracting(false);
+        await loadChat(data.existing_chat_id, { firstTurn: session.firstTurn });
+        return;
+      }
       setExtractedText(data.text);
       setStructure(data.structure);
       setFileId(data.file_id);
@@ -501,13 +641,14 @@ export default function PdfAnalysis() {
           content: `**"${selected.name}"** is ready.\n\nUse **Ask** for questions, **Read** to browse pages, and **Findings** for gap analyses and diagrams.`,
         },
       ];
+      pendingSaveRef.current = true;
       setMessages(initMsgs);
-      await saveChatState(initMsgs, selected, data.text, data.structure, data.file_id);
     } catch (err) {
+      if (session !== sessionRef.current) return;
       setError(err.message || 'Error extracting PDF text. Please try again.');
       setFile(null);
     } finally {
-      setIsExtracting(false);
+      if (session === sessionRef.current) setIsExtracting(false);
     }
   };
 
@@ -520,7 +661,8 @@ export default function PdfAnalysis() {
   const submitAnalysis = async ({ prompt = '', kind = 'ask' } = {}) => {
     const isGaps = kind === 'gaps';
     const finalPrompt = isGaps ? '' : prompt;
-    if (!activeChatId && !extractedText) return;
+    const session = sessionRef.current;
+    if (!session.chatId && !extractedText) return;
     if (!isGaps && !finalPrompt.trim()) return;
 
     const userMsg = {
@@ -539,8 +681,8 @@ export default function PdfAnalysis() {
       const formData = new FormData();
       // Follow-up turns: chat id only. The server hydrates text/structure/history
       // from pdf_chats. First turn (no id yet) still sends the extracted payload.
-      if (activeChatId) {
-        formData.append('chat_id', activeChatId);
+      if (session.chatId) {
+        formData.append('chat_id', session.chatId);
       } else {
         formData.append('text', extractedText);
         if (structure) formData.append('structure', JSON.stringify(structure));
@@ -561,10 +703,13 @@ export default function PdfAnalysis() {
       const nextType = data.type === 'structured' ? 'structured' : data.type;
       // Absent when the question was answered from the paper's metadata without
       // a model call — clear rather than leave the previous turn's sizes up.
+      // The user opened another paper while this answer was in flight.
+      if (session !== sessionRef.current) return;
       setRequestContext(data.context || null);
 
-      setMessages((prev) => {
-        const updated = prev.map((m) =>
+      pendingSaveRef.current = true;
+      setMessages((prev) =>
+        prev.map((m) =>
           m.id === loadingMsg.id
             ? {
                 ...m,
@@ -574,21 +719,19 @@ export default function PdfAnalysis() {
                 data: data.type === 'structured' || data.type === 'gap_analysis' ? data.data : undefined,
               }
             : m
-        );
-        saveChatState(updated, file, extractedText, structure, fileId);
-        return updated;
-      });
+        )
+      );
       if (data.type === 'structured') setMode('findings');
     } catch (err) {
-      setMessages((prev) => {
-        const updated = prev.map((m) =>
+      if (session !== sessionRef.current) return;
+      pendingSaveRef.current = true;
+      setMessages((prev) =>
+        prev.map((m) =>
           m.id === loadingMsg.id
             ? { ...m, isLoading: false, error: true, content: err.message || 'Analysis failed. Please try again.' }
             : m
-        );
-        saveChatState(updated, file, extractedText, structure, fileId);
-        return updated;
-      });
+        )
+      );
     } finally {
       setIsAnalyzing(false);
       inputRef.current?.focus();
@@ -617,22 +760,118 @@ export default function PdfAnalysis() {
     }
   };
 
-  const reset = () => {
+  // A question asked on the landing goes out as soon as the paper is ready --
+  // after extraction, or after the existing chat for the same bytes opened.
+  useEffect(() => {
+    const turn = sessionRef.current.firstTurn;
+    if (!turn || isExtracting || openingChat || isAnalyzing || !extractedText) return;
+    sessionRef.current.firstTurn = null;
+    submitAnalysis(turn);
+    // submitAnalysis is re-created every render; this follows readiness only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isExtracting, openingChat, isAnalyzing, extractedText]);
+
+  /** Landing: stage a PDF in the composer. Nothing uploads until Send. */
+  const stageFile = (selected) => {
+    if (!selected) return;
+    if (selected.type !== 'application/pdf') {
+      setError('That file is not a PDF.');
+      return;
+    }
+    setError('');
+    setDraftFile(selected);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  };
+
+  const pickFile = (selected) => {
+    if (hasPaper) handleFileChange(selected);
+    else stageFile(selected);
+  };
+
+  const sendFromHome = () => {
+    if (!draftFile) {
+      fileInputRef.current?.click();
+      return;
+    }
+    const prompt = customPrompt.trim();
+    const turn = draftKind === 'gaps' ? { kind: 'gaps' } : prompt ? { prompt } : null;
+    const staged = draftFile;
+    setDraftFile(null);
+    setDraftKind('ask');
+    setCustomPrompt('');
+    handleFileChange(staged, turn);
+  };
+
+  const runHomeSuggestion = (suggestion) => {
+    setDraftKind(suggestion.kind === 'gaps' ? 'gaps' : 'ask');
+    setCustomPrompt(suggestion.kind === 'gaps' ? GAP_ANALYSIS_LABEL : suggestion.prompt);
+    if (draftFile) requestAnimationFrame(() => inputRef.current?.focus());
+    else fileInputRef.current?.click();
+  };
+
+  const homeDragProps = {
+    onDragEnter: (e) => {
+      if (!e.dataTransfer?.types?.includes('Files')) return;
+      e.preventDefault();
+      dragDepthRef.current += 1;
+      setIsDragging(true);
+    },
+    onDragOver: (e) => {
+      if (e.dataTransfer?.types?.includes('Files')) e.preventDefault();
+    },
+    onDragLeave: () => {
+      dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+      if (dragDepthRef.current === 0) setIsDragging(false);
+    },
+    onDrop: (e) => {
+      e.preventDefault();
+      dragDepthRef.current = 0;
+      setIsDragging(false);
+      stageFile(e.dataTransfer.files?.[0]);
+    },
+  };
+
+  function reset() {
+    beginSession();
+    setDraftFile(null);
+    setDraftKind('ask');
+    setCustomPrompt('');
     setFile(null);
     setFileId(null);
-    setPdfBlobUrl((prev) => {
-      if (prev) URL.revokeObjectURL(prev);
-      return null;
-    });
     setExtractedText('');
     setStructure(null);
     setMessages([]);
     setError('');
-    setActiveChatId(null);
+    setSaveFailed(false);
+    setIsExtracting(false);
+    setRequestContext(null);
+    setJump(null);
     setMode('ask');
-    setPageNumber(1);
-    setNumPages(null);
-  };
+  }
+
+  // Keep the open chat in the URL, so a reload -- or a link opened on another
+  // device -- comes back to the same paper.
+  useEffect(() => {
+    if (!didInitRef.current) return;
+    const current = searchParams.get('chat');
+    if ((activeChatId || null) === (current || null)) return;
+    const next = new URLSearchParams(searchParams);
+    if (activeChatId) next.set('chat', activeChatId);
+    else next.delete('chat');
+    setSearchParams(next, { replace: true });
+    // searchParams is read, not watched: this follows the chat, not the URL.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeChatId]);
+
+  useEffect(() => {
+    if (didInitRef.current) return;
+    didInitRef.current = true;
+    fetchChatList();
+    const fromUrl = searchParams.get('chat');
+    if (fromUrl) loadChat(fromUrl);
+    // Once per mount; the guard also absorbs StrictMode's second run.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const structureHeadings = useMemo(() => headingsFromStructure(structure), [structure]);
 
@@ -661,29 +900,23 @@ export default function PdfAnalysis() {
             ) : chatList.length === 0 ? (
               <div className="pdf-history-empty">No past chats.</div>
             ) : (
-              chatList.map((chat) => (
-                <div
-                  key={chat.chat_id}
-                  className={`pdf-history-item ${activeChatId === chat.chat_id ? 'active' : ''}`}
-                  onClick={() => loadChat(chat.chat_id)}
-                >
-                  <div className="pdf-history-item-content">
-                    <FileText size={14} />
-                    <span className="pdf-history-item-text">{chat.filename}</span>
-                  </div>
-                  <button type="button" className="pdf-history-item-delete" onClick={(e) => deleteChat(chat.chat_id, e)}>
-                    <X size={14} />
-                  </button>
-                </div>
-              ))
+              [['Pinned', railGroups.pinned], ['Recent', railGroups.rest]]
+                .filter(([, rows]) => rows.length > 0)
+                .map(([label, rows]) => (
+                  <section key={label} className="pdf-history-group" aria-label={label}>
+                    {railGroups.pinned.length > 0 && <h3 className="pdf-history-group-label">{label}</h3>}
+                    {rows.map((chat) => (
+                      <React.Fragment key={chat.chat_id}>{renderChatRow(chat)}</React.Fragment>
+                    ))}
+                  </section>
+                ))
             )}
           </div>
         )}
       </aside>
 
       <PaperFiguresProvider
-        file={file}
-        blobUrl={pdfBlobUrl}
+        file={pdfData}
         figures={paperFigures}
         onJumpToPage={jumpToPage}
       >
@@ -700,7 +933,11 @@ export default function PdfAnalysis() {
             </button>
             <div className="pdf-studio-title">
               <span>Analysis Studio</span>
-              {file?.name && <span className="pdf-studio-file">{file.name}</span>}
+              {(activeChat || file?.name) && (
+                <span className="pdf-studio-file">
+                  {activeChat ? displayName(activeChat, 'filename') : file.name}
+                </span>
+              )}
             </div>
           </div>
 
@@ -724,12 +961,31 @@ export default function PdfAnalysis() {
           )}
 
           <div className="pdf-studio-bar-right">
-            <button type="button" className="pdf-attach-btn" onClick={() => fileInputRef.current?.click()} title="Upload PDF">
-              <Paperclip size={15} />
-              {hasPaper ? 'Replace' : 'Upload'}
-            </button>
+            {saveFailed && (
+              <button
+                type="button"
+                className="pdf-attach-btn is-error"
+                onClick={retrySave}
+                title="This chat was not saved to your account. Retry."
+              >
+                <AlertCircle size={15} />
+                Not saved · Retry
+              </button>
+            )}
             {hasPaper && (
-              <button type="button" className="pdf-attach-btn danger" onClick={reset} title="Clear session">
+              <button type="button" className="pdf-attach-btn" onClick={() => fileInputRef.current?.click()} title="Replace PDF">
+                <Paperclip size={15} />
+                Replace
+              </button>
+            )}
+            {hasPaper && (
+              <button
+                type="button"
+                className="pdf-attach-btn"
+                onClick={reset}
+                title="Close paper"
+                aria-label="Close paper"
+              >
                 <X size={15} />
               </button>
             )}
@@ -741,125 +997,172 @@ export default function PdfAnalysis() {
           type="file"
           accept="application/pdf"
           style={{ display: 'none' }}
-          onChange={(e) => handleFileChange(e.target.files?.[0])}
+          onChange={(e) => {
+            pickFile(e.target.files?.[0]);
+            // Cleared so picking the same file again still fires a change.
+            e.target.value = '';
+          }}
         />
 
         <div className="pdf-studio-body">
-          {isExtracting ? (
+          {isExtracting || openingChat ? (
             <div className="pdf-empty-stage">
               <Spinner size={40} />
-              <h2>Extracting document…</h2>
-              <p>Parsing text and structure. This may take a few seconds.</p>
+              {openingChat ? (
+                <h2>Opening paper…</h2>
+              ) : (
+                <>
+                  <h2>Extracting document…</h2>
+                  <p>
+                    Parsing text and structure. This may take a few seconds.
+                    {sessionRef.current.firstTurn ? ' Your question is sent as soon as it is ready.' : ''}
+                  </p>
+                </>
+              )}
             </div>
           ) : !hasPaper ? (
-            <div className="pdf-empty-stage">
-              <div className="pdf-empty-icon">
-                <FileText size={28} />
+            <div className="pdf-empty-stage pdf-home" {...homeDragProps}>
+              <h1 className="pdf-home-title">Which paper are we reading?</h1>
+
+              <div className="pdf-home-column">
+                {error && (
+                  <div className="pdf-error-banner" role="alert">
+                    <AlertCircle size={15} /> {error}
+                  </div>
+                )}
+
+                <div className="pdf-input-wrapper pdf-home-composer">
+                  {draftFile && (
+                    <Badge variant="secondary" className="pdf-home-file">
+                      <FileText />
+                      <span>{draftFile.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => setDraftFile(null)}
+                        aria-label={`Remove ${draftFile.name}`}
+                      >
+                        <X size={12} />
+                      </button>
+                    </Badge>
+                  )}
+                  <textarea
+                    ref={inputRef}
+                    className="pdf-textarea"
+                    placeholder={
+                      draftFile
+                        ? 'Ask anything about this paper, or just send to open it'
+                        : 'Attach a PDF, then ask anything about it'
+                    }
+                    value={customPrompt}
+                    onChange={(e) => {
+                      setCustomPrompt(e.target.value);
+                      if (draftKind === 'gaps') setDraftKind('ask');
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        if (draftFile) sendFromHome();
+                      }
+                    }}
+                    rows={2}
+                  />
+                  <div className="pdf-home-composer-row">
+                    <button
+                      type="button"
+                      className="pdf-attach-btn"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <Plus size={15} />
+                      {draftFile ? 'Change PDF' : 'Attach PDF'}
+                    </button>
+                    <button
+                      type="button"
+                      className="pdf-send-btn"
+                      onClick={sendFromHome}
+                      disabled={!draftFile}
+                      aria-label="Upload and send"
+                    >
+                      <Send size={16} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="pdf-home-suggestions">
+                  {HOME_SUGGESTIONS.map((s) => (
+                    <button
+                      key={s.label}
+                      type="button"
+                      className="pdf-suggestion-chip"
+                      onClick={() => runHomeSuggestion(s)}
+                    >
+                      {s.kind === 'gaps' ? <Layers size={13} /> : <Search size={13} />}
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+
+                {[
+                  ['pinned', 'Pinned', railGroups.pinned],
+                  ['recent', 'Recent', railGroups.rest.slice(0, RECENT_LIMIT)],
+                ].filter(([, , rows]) => rows.length > 0).map(([key, label, rows]) => (
+                  <section key={key} className="pdf-recent" aria-labelledby={`pdf-${key}-title`}>
+                    <div className="pdf-recent-head">
+                      <h3 id={`pdf-${key}-title`}>{label}</h3>
+                      {key === 'recent' && railGroups.rest.length > RECENT_LIMIT && (
+                        <button type="button" onClick={() => setHistoryCollapsed(false)}>
+                          View all
+                        </button>
+                      )}
+                    </div>
+                    <ul>
+                      {rows.map((chat) => (
+                        <li key={chat.chat_id}>{renderChatRow(chat, { longDate: true })}</li>
+                      ))}
+                    </ul>
+                  </section>
+                ))}
               </div>
-              <h1>Analysis Studio</h1>
-              <p>Upload a paper, then move between Read, Ask, and Findings.</p>
-              {error && (
-                <div className="pdf-error-banner">
-                  <AlertCircle size={15} /> {error}
+
+              {isDragging && (
+                <div className="pdf-home-drop" aria-hidden="true">
+                  <FileText size={22} />
+                  Drop the PDF to attach it
                 </div>
               )}
-              <div
-                className={`pdf-dropzone ${isDragging ? 'dragging' : ''}`}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setIsDragging(true);
-                }}
-                onDragLeave={() => setIsDragging(false)}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setIsDragging(false);
-                  if (e.dataTransfer.files.length) handleFileChange(e.dataTransfer.files[0]);
-                }}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <UploadCloud size={28} className="pdf-dropzone-icon" />
-                <h3>Drop your PDF here</h3>
-                <p>or click to browse</p>
-              </div>
             </div>
           ) : (
             <>
-              {/* READ */}
-              {mode === 'read' && (
-                <section className="pdf-mode-panel pdf-read-panel">
+              {/* READ -- kept mounted while hidden, so switching modes keeps the
+                  parsed document and the reading position. */}
+              <section className="pdf-mode-panel pdf-read-panel" hidden={mode !== 'read'}>
                   <div className="pdf-read-grid">
-                    <div className="pdf-viewer-pane">
-                      {file?.size || pdfBlobUrl ? (
-                        <div className="pdf-viewer-scroll" ref={viewerScrollRef}>
-                          <Document
-                            file={file?.size ? file : pdfBlobUrl}
-                            onLoadSuccess={({ numPages: n }) => {
-                              setNumPages(n);
-                              setPageNumber((p) => Math.min(p, n));
-                            }}
-                            loading={
-                              <div className="pdf-viewer-loading">
-                                <Spinner size={24} />
-                              </div>
-                            }
-                          >
-                            <div
-                              style={{
-                                transform: `scale(${1 / pixelRatio})`,
-                                transformOrigin: 'top left',
-                                width: `${100 * pixelRatio}%`,
-                              }}
-                            >
-                              <Page
-                                pageNumber={pageNumber}
-                                renderTextLayer
-                                renderAnnotationLayer
-                                scale={zoom * pixelRatio}
-                              />
-                            </div>
-                          </Document>
-                        </div>
-                      ) : (
-                        <div className="pdf-viewer-missing">
-                          <p>Preview unavailable.{fileId ? ' Loading PDF…' : ''}</p>
-                        </div>
-                      )}
-                      {(file?.size || pdfBlobUrl) && numPages && (
-                        <div className="pdf-viewer-controls">
-                          <div className="pdf-control-cluster">
-                            <button type="button" className="pdf-control-btn" onClick={() => setZoom((z) => Math.max(0.5, z - 0.2))}>
-                              <Minus size={15} />
-                            </button>
-                            <span className="pdf-control-label">{Math.round(zoom * 100)}%</span>
-                            <button type="button" className="pdf-control-btn" onClick={() => setZoom((z) => Math.min(3, z + 0.2))}>
-                              <Plus size={15} />
-                            </button>
+                    {pdfStatus === 'ready' && pdfData ? (
+                      <PdfReader file={pdfData} active={mode === 'read'} jump={jump} />
+                    ) : (
+                      <div className="pdf-viewer-pane">
+                        {pdfStatus === 'loading' ? (
+                          <div className="pdf-viewer-loading">
+                            <Spinner size={24} />
                           </div>
-                          <div className="pdf-control-divider" />
-                          <div className="pdf-control-cluster">
+                        ) : pdfStatus === 'error' ? (
+                          <div className="pdf-viewer-missing">
+                            <p>The PDF could not be downloaded.</p>
                             <button
                               type="button"
-                              className="pdf-control-btn"
-                              disabled={pageNumber <= 1}
-                              onClick={() => setPageNumber((p) => p - 1)}
+                              className="pdf-attach-btn"
+                              onClick={() => setPdfRetry((n) => n + 1)}
                             >
-                              <ChevronLeft size={15} />
-                            </button>
-                            <span className="pdf-control-label">
-                              Page {pageNumber} / {numPages}
-                            </span>
-                            <button
-                              type="button"
-                              className="pdf-control-btn"
-                              disabled={pageNumber >= numPages}
-                              onClick={() => setPageNumber((p) => p + 1)}
-                            >
-                              <ChevronRight size={15} />
+                              <RotateCw size={15} />
+                              Retry
                             </button>
                           </div>
-                        </div>
-                      )}
-                    </div>
+                        ) : (
+                          <div className="pdf-viewer-missing">
+                            <p>No PDF was stored with this chat, so there is nothing to show here.</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {structureHeadings.length > 0 && (
                       <aside className="pdf-toc-rail">
@@ -885,8 +1188,7 @@ export default function PdfAnalysis() {
                       </aside>
                     )}
                   </div>
-                </section>
-              )}
+              </section>
 
               {/* ASK */}
               {mode === 'ask' && (

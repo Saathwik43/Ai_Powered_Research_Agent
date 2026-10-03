@@ -1,7 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { BookOpen, CheckCircle2, ChevronRight, Copy, Download, ExternalLink, FileText, Filter, GitBranch, List, Save, Search, Sparkles, User, X, Loader2, Bookmark, Unlock, ChevronDown, Trash2, Square } from 'lucide-react';
-import { InteractiveHoverButton } from '@/components/ui/interactive-hover-button';
+import { BookOpen, CheckCircle2, ChevronRight, Copy, Download, ExternalLink, FileText, Filter, GitBranch, List, Save, Search, Sparkles, User, X, Loader2, Bookmark, Unlock, ChevronDown, Square, Pin } from 'lucide-react';
+import { Button } from '../components/ui/button';
+import PageHeader from '../components/PageHeader';
+import TopBar from '../components/TopBar';
 import { AnimatePresence, LayoutGroup, motion } from 'motion/react';
 import './LiteratureSurvey.css';
 import { useAuth } from '../context/AuthContext';
@@ -16,6 +18,8 @@ import {
 import { useSearchRequest } from '../hooks/useSearchRequest';
 import { useApiQuery } from '../hooks/useApiQuery';
 import { invalidate } from '../lib/queryCache';
+import { SavedItemMenu, RenameField } from '../components/SavedItemActions';
+import { splitPinned, displayName } from '../lib/savedItems';
 
 // The Dashboard's "recent surveys" rail reads this same key.
 const SURVEY_LIST_KEY = 'literature:list';
@@ -70,6 +74,18 @@ function citationProvenance(paper) {
   if (paper.snowball_direction === 'backward') return `Cited by ${of}`;
   if (paper.snowball_direction === 'forward') return `Cites ${of}`;
   return `Linked to ${of}`;
+}
+
+function surveyScreenedCount(survey) {
+  return survey.screened ?? survey.papers?.length ?? 0;
+}
+
+/** Stable Saved-tab date label, or null when the clock is missing/invalid. */
+function surveySavedDateLabel(survey) {
+  if (!survey?.saved_at) return null;
+  const d = new Date(survey.saved_at);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString();
 }
 
 // Fold the snowball's per-graph outcomes into the search's, keyed by name. The
@@ -369,6 +385,10 @@ export default function LiteratureSurvey() {
   const [saveStatus, setSaveStatus] = useState('');
   const [savedSurveys, setSavedSurveys] = useState([]);
   const [loadingSaved, setLoadingSaved] = useState(false);
+  // ROW-2: inline rename on a saved survey, and a failed pin / rename.
+  const [renamingSurveyId, setRenamingSurveyId] = useState(null);
+  const [savedActionError, setSavedActionError] = useState('');
+  const savedGroups = useMemo(() => splitPinned(savedSurveys), [savedSurveys]);
   const [serverHasMore, setServerHasMore] = useState(false);
   const [fetchedLimit, setFetchedLimit] = useState(INITIAL_LIMIT);
   // Set when the server answered from a semantically similar query's cache.
@@ -517,9 +537,22 @@ export default function LiteratureSurvey() {
     });
   };
 
-  // Auto-run search when navigated here from Dashboard with a query in state.
+  // Deep-links from the Dashboard shelf: either open the Saved Surveys tab, or
+  // auto-run a search for an incoming query. Both clear nav state afterwards so
+  // refresh/back does not re-fire.
   useEffect(() => {
+    const incomingTab = location.state?.tab;
     const incomingQuery = location.state?.query;
+
+    if (incomingTab === 'saved') {
+      const key = `tab:saved::${location.key || ''}`;
+      if (autoSearchKeyRef.current === key) return;
+      autoSearchKeyRef.current = key;
+      setActiveTab('saved');
+      navigate(location.pathname, { replace: true, state: {} });
+      return;
+    }
+
     if (!incomingQuery || !String(incomingQuery).trim()) return;
 
     const key = `${incomingQuery}::${location.key || ''}`;
@@ -529,7 +562,6 @@ export default function LiteratureSurvey() {
     setActiveTab('search');
     setQuery(incomingQuery);
     void search(incomingQuery, true);
-    // Clear nav state after starting search so refresh/back does not re-fire.
     navigate(location.pathname, { replace: true, state: {} });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state, location.key]);
@@ -854,23 +886,99 @@ export default function LiteratureSurvey() {
     } catch { setSaveStatus('error'); }
   };
 
-  const deleteSurvey = async (surveyQuery) => {
-    if (!window.confirm(`Are you sure you want to delete the survey "${surveyQuery}"?`)) return;
+  /** Confirmed by SavedItemMenu's dialog (was window.confirm); a throw keeps it open. */
+  const deleteSurvey = async (survey) => {
     try {
-      await api.del(`/api/literature/delete/${encodeURIComponent(surveyQuery)}`);
-      invalidate(SURVEY_LIST_KEY);
-      fetchSavedSurveys();
+      await api.del(`/api/literature/delete/${encodeURIComponent(survey.query)}`);
     } catch (e) {
-      console.error("Failed to delete survey", e);
+      // 404: already gone, which is what was asked for.
+      if (e?.status !== 404) throw new Error('That survey could not be deleted. Try again.');
     }
+    invalidate(SURVEY_LIST_KEY);
+    fetchSavedSurveys();
+  };
+
+  /** Pin / rename (ROW-1); the list is shared with the Dashboard rail. */
+  const patchSurvey = async (survey, changes) => {
+    setSavedActionError('');
+    try {
+      await api.patch(`/api/literature/surveys/${survey.id}`, changes);
+    } catch {
+      setSavedActionError('title' in changes
+        ? 'That survey could not be renamed. Try again.'
+        : 'That survey could not be pinned. Try again.');
+    }
+    invalidate(SURVEY_LIST_KEY);
+    fetchSavedSurveys();
+  };
+
+  const renderSavedSurvey = (survey, i) => {
+    const screened = surveyScreenedCount(survey);
+    const savedDate = surveySavedDateLabel(survey);
+    const name = displayName(survey, 'query');
+    return (
+      <div
+        key={survey.id || survey.query}
+        className="lit-result-card lit-saved-card animate-slide-up group"
+        style={{ animationDelay: `${i * 0.04}s` }}
+      >
+        <span className="lit-saved-idx" aria-hidden="true">
+          {survey.pinned ? <Pin size={12} /> : String(i + 1).padStart(2, '0')}
+        </span>
+        {renamingSurveyId === survey.id ? (
+          <RenameField
+            className="lit-saved-rename"
+            initial={name}
+            label={`Rename ${name}`}
+            onSubmit={(value) => { setRenamingSurveyId(null); patchSurvey(survey, { title: value }); }}
+            onCancel={() => setRenamingSurveyId(null)}
+          />
+        ) : (
+          <h3 className="lit-saved-title" title={survey.title ? `${name} (${survey.query})` : name}>{name}</h3>
+        )}
+        <p className="lit-saved-meta">
+          <span>{screened} papers</span>
+          {savedDate ? (
+            <>
+              <span className="lit-saved-sep" aria-hidden="true">·</span>
+              <span>{savedDate}</span>
+            </>
+          ) : null}
+        </p>
+        <div className="lit-saved-actions">
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => exportSurveyToPDF(survey.papers, survey.query)}
+          >
+            <Download size={14} /> PDF
+          </button>
+          <SavedItemMenu
+            name={name}
+            kind="survey"
+            pinned={survey.pinned === true}
+            onTogglePin={survey.id ? () => patchSurvey(survey, { pinned: !survey.pinned }) : undefined}
+            onRename={survey.id ? () => setRenamingSurveyId(survey.id) : undefined}
+            onDelete={() => deleteSurvey(survey)}
+            deleteDetail="and its saved papers will be removed."
+          />
+        </div>
+      </div>
+    );
   };
 
   return (
     <div className="animate-fade-in lit-page">
-      <div className="lit-masthead">
-        <h1>Literature Survey</h1>
-        <p className="text-muted">Search research papers from multiple academic sources in one place.</p>
-      </div>
+      <TopBar
+        crumbs={[{ label: 'Discover' }, { label: 'Literature Survey' }]}
+        context={(hasSearched && query) || undefined}
+      />
+
+      <PageHeader
+        kicker="Literature desk"
+        title="Literature Survey"
+        lede="Search many academic sources at once, screen what comes back, and save the survey."
+      />
 
       <LayoutGroup id="lit-tabs">
         <div className="lit-tabs" role="tablist">
@@ -906,7 +1014,7 @@ export default function LiteratureSurvey() {
                 aria-hidden="true"
               />
             )}
-            <Bookmark size={15} /> <span className="lit-tab-label-full">Saved </span>Surveys
+            <Bookmark size={15} /> <span className="lit-tab-label-full">Saved&nbsp;</span>Surveys
           </button>
         </div>
       </LayoutGroup>
@@ -940,16 +1048,20 @@ export default function LiteratureSurvey() {
           )}
         </div>
         {loading ? (
-          <button type="button" className="lit-search-stop" onClick={stopSearch} aria-label="Stop search" title="Stop">
-            <Square size={14} fill="currentColor" />
-          </button>
+          <Button
+            variant="outline"
+            size="lg"
+            className="lit-search-stop"
+            onClick={stopSearch}
+            aria-label="Stop search"
+            title="Stop"
+          >
+            <Square size={12} fill="currentColor" /> Stop
+          </Button>
         ) : (
-          <InteractiveHoverButton
-            className="lit-search-go"
-            text="Search"
-            loading={false}
-            onClick={() => search()}
-          />
+          <Button size="lg" className="lit-search-go" onClick={() => search()}>
+            <Search size={14} /> Search
+          </Button>
         )}
       </div>
 
@@ -1080,10 +1192,6 @@ export default function LiteratureSurvey() {
                   <Spinner size={12} /> Querying multiple academic libraries simultaneously. This deep search may take a few seconds...
                 </p>
               </div>
-            </div>
-
-            <div className="lit-loading-bar" aria-hidden="true">
-              <div className="lit-loading-bar-fill" />
             </div>
 
             <div className="skeleton-card" />
@@ -1219,29 +1327,21 @@ export default function LiteratureSurvey() {
               You haven't saved any surveys yet.
             </div>
           ) : (
-            savedSurveys.map((survey, i) => (
-              <div key={i} className="lit-result-card lit-saved-card animate-slide-up"
-                style={{ animationDelay: `${i * 0.04}s` }}
-              >
-                <div className="lit-saved-copy">
-                  <h3>{survey.query}</h3>
-                  <p>{survey.screened ?? survey.papers?.length ?? 0} papers screened{survey.saved_at ? ` · ${new Date(survey.saved_at).toLocaleDateString()}` : ''}</p>
-                </div>
-                <div className="lit-result-actions lit-saved-actions">
-                  <button className="btn btn-secondary" onClick={() => exportSurveyToPDF(survey.papers, survey.query)}>
-                    <Download size={14} /> Download PDF
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-icon lit-delete-btn"
-                    onClick={() => deleteSurvey(survey.query)}
-                    aria-label="Delete survey"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              </div>
-            ))
+            <>
+              {savedActionError && (
+                <div className="lit-saved-error" role="alert">{savedActionError}</div>
+              )}
+              {[['Pinned', savedGroups.pinned], ['Saved', savedGroups.rest]]
+                .filter(([, rows]) => rows.length > 0)
+                .map(([label, rows], g) => (
+                  <section key={label} aria-label={label}>
+                    {savedGroups.pinned.length > 0 && <h3 className="lit-saved-group">{label}</h3>}
+                    {rows.map((survey, i) => renderSavedSurvey(
+                      survey, g === 0 ? i : savedGroups.pinned.length + i,
+                    ))}
+                  </section>
+                ))}
+            </>
           )}
         </div>
       )}

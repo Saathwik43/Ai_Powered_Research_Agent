@@ -37,7 +37,12 @@ export function canonicalFigureLabel(word, number) {
   return `${name} ${num}`;
 }
 
-export function PaperFiguresProvider({ file, blobUrl, figures, onJumpToPage, children }) {
+/**
+ * `file` is a File (fresh upload) or a Blob (saved chat, fetched once by the
+ * page). Never a blob: URL: pdf.js fetches URLs, the CSP's connect-src has no
+ * blob:, and every restored chat's figures failed to open that way (PDF-2).
+ */
+export function PaperFiguresProvider({ file, figures, onJumpToPage, children }) {
   const [doc, setDoc] = useState(null);
 
   useEffect(() => {
@@ -45,19 +50,14 @@ export function PaperFiguresProvider({ file, blobUrl, figures, onJumpToPage, chi
     let loaded = null;
     let task = null;
 
-    const hasLocalFile = Boolean(file && file.size);
-    if (!hasLocalFile && !blobUrl) {
+    if (!file || !file.size) {
       setDoc(null);
       return undefined;
     }
 
     (async () => {
       try {
-        // A restored chat has only a blob URL; a fresh upload has the File in
-        // hand and never needs to round-trip through the server for it.
-        const source = hasLocalFile
-          ? { data: new Uint8Array(await file.arrayBuffer()) }
-          : { url: blobUrl };
+        const source = { data: new Uint8Array(await file.arrayBuffer()) };
         task = pdfjs.getDocument(source);
         loaded = await task.promise;
         if (cancelled) {
@@ -78,7 +78,7 @@ export function PaperFiguresProvider({ file, blobUrl, figures, onJumpToPage, chi
       if (loaded) loaded.destroy();
       else if (task?.destroy) task.destroy();
     };
-  }, [file, blobUrl]);
+  }, [file]);
 
   const byLabel = useMemo(() => {
     const map = new Map();

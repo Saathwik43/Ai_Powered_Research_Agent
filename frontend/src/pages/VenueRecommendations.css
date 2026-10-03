@@ -31,7 +31,7 @@
 
 .venue-masthead p {
   margin: 0;
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--font-sans);
   font-style: normal;
   font-size: 0.98rem;
   font-weight: 500;

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
-import { CheckCircle, Circle, Save, FileText, Wand2, FolderOpen, X, Search, Sparkles, Send, BookOpen, Bold, Italic, Strikethrough, Link, List, ListOrdered, CheckSquare, Table, Quote, Code, Undo, Redo, Heading1, Heading2, Heading3, Printer, ChevronDown, ExternalLink, Plus, Trash2, History, RotateCcw } from 'lucide-react';
+import { CheckCircle, Circle, Save, FileText, Wand2, FolderOpen, X, Search, Sparkles, Send, BookOpen, Bold, Italic, Strikethrough, Link, List, ListOrdered, CheckSquare, Table, Quote, Code, Undo, Redo, Heading1, Heading2, Heading3, Printer, ExternalLink, Plus, Pin, History, RotateCcw , PanelLeft, PanelRight, Settings2, Download, AlertTriangle, Pin as PinIcon } from 'lucide-react';
 import './ManuscriptBuilder.css';
 import './PaperPreview.css';
 import { useAuth } from '../context/AuthContext';
@@ -23,6 +23,25 @@ import {
 } from '../utils/mermaidChart';
 import { normalizeLatexDelimiters, KATEX_REHYPE_OPTIONS } from '../utils/latexMath';
 import SourcesPanel from '../components/SourcesPanel';
+import { SavedItemMenu, RenameField } from '../components/SavedItemActions';
+import TopBar from '../components/TopBar';
+import { Button } from '../components/ui/button';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../components/ui/sheet';
+import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
+import {
+  Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue,
+} from '../components/ui/select';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
+  DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '../components/ui/alert-dialog';
+import { splitPinned, displayName, orderPinned } from '../lib/savedItems';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
 function MarkdownCode({ className, children, ...props }) {
@@ -251,6 +270,64 @@ function RevisionChecks({ flags }) {
   );
 }
 
+// Per-viewer layout conveniences (outline / tools panel); never data.
+function readPref(key, fallback) {
+  try {
+    const v = window.localStorage.getItem(key);
+    return v === null ? fallback : v === 'true';
+  } catch {
+    return fallback;
+  }
+}
+
+function writePref(key, value) {
+  try { window.localStorage.setItem(key, String(value)); } catch { /* private mode */ }
+}
+
+function useMediaQuery(query) {
+  const [matches, setMatches] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia(query).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    const onChange = () => setMatches(mq.matches);
+    mq.addEventListener('change', onChange);
+    onChange();
+    return () => mq.removeEventListener('change', onChange);
+  }, [query]);
+  return matches;
+}
+
+function savedAgo(ts, now) {
+  if (!ts) return '';
+  const secs = Math.max(0, Math.round((now - ts) / 1000));
+  if (secs < 45) return 'just now';
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins} min ago`;
+  const d = new Date(ts);
+  // Today: the time. Earlier: the date, or a July save reads as "10:12 AM".
+  return d.toDateString() === new Date(now).toDateString()
+    ? `at ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+    : `on ${d.toLocaleDateString([], { day: 'numeric', month: 'short', year: d.getFullYear() === new Date(now).getFullYear() ? undefined : 'numeric' })}`;
+}
+
+const CITATION_STYLES = [
+  ['ieee', 'IEEE'], ['apa', 'APA'], ['chicago', 'Chicago'], ['oxford', 'Oxford'],
+];
+
+const LATEX_VENUES = [
+  ['ieee', 'IEEE'], ['acm', 'ACM'], ['springer', 'Springer LNCS'], ['elsevier', 'Elsevier'],
+];
+
+// The format toolbar (ME-1): [label, icon, prefix, suffix]. One table so every
+// button gets the same name, keyboard and selection handling.
+const FORMAT_GROUPS = [
+  [['Heading 1', Heading1, '# '], ['Heading 2', Heading2, '## '], ['Heading 3', Heading3, '### ']],
+  [['Bold', Bold, '**', '**'], ['Italic', Italic, '*', '*'], ['Strikethrough', Strikethrough, '~~', '~~'], ['Link', Link, '[', '](url)']],
+  [['Bulleted list', List, '- '], ['Numbered list', ListOrdered, '1. '], ['Checklist', CheckSquare, '- [ ] '],
+    ['Table', Table, '\n| Column 1 | Column 2 |\n| -------- | -------- |\n| Text     | Text     |\n']],
+  [['Blockquote', Quote, '> '], ['Code block', Code, '```\n', '\n```']],
+];
+
 const STEPS = [
   { id: 'abstract',    label: 'Abstract' },
   { id: 'lit_review',  label: 'Literature Review' },
@@ -285,8 +362,8 @@ export default function ManuscriptBuilder() {
   const [draftFilter,  setDraftFilter]  = useState('');
   const [draftLoading, setDraftLoading] = useState(false);
   const [loadError,    setLoadError]    = useState('');
-  const [draftToDelete, setDraftToDelete] = useState(null);
-  const [deletingTopic, setDeletingTopic] = useState('');
+  // ROW-2: draft whose name is being edited inline in the Load dialog.
+  const [renamingDraftId, setRenamingDraftId] = useState(null);
   const [loadedDraftId, setLoadedDraftId] = useState(null);
   // Version history (1.10). Every save snapshots what it replaced, server-side.
   const [showHistory, setShowHistory] = useState(false);
@@ -300,8 +377,8 @@ export default function ManuscriptBuilder() {
   const [generateError, setGenerateError] = useState('');
   const [unverifiedWarning, setUnverifiedWarning] = useState('');
   const [unverifiedNumbers, setUnverifiedNumbers] = useState([]);
-  const [revisePanelOpen, setRevisePanelOpen] = useState(false);
-  const [refsOpen, setRefsOpen] = useState(false);
+  // Toolbar edits made without execCommand, which the native undo cannot see.
+  const fallbackUndoRef = useRef([]);
   // Revision scope. `editScope` is null (whole section), {kind:'selection'} or
   // {kind:'diagram', index}. Diagram spans are resolved against live content at
   // send time rather than stored, so editing the section cannot make them stale.
@@ -316,9 +393,15 @@ export default function ManuscriptBuilder() {
   const [autoStatus, setAutoStatus] = useState('');
   
   const [gapAnalysis, setGapAnalysis] = useState(null);
-  const [gapPanelOpen, setGapPanelOpen] = useState(false);
-  const [gapTab, setGapTab] = useState('consensus');
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  // SD-5 (Direction B): outline left, document centre, AI & evidence on demand
+  // in a right panel that docks beside the document or floats as a sheet.
+  const [outlineOpen, setOutlineOpen] = useState(() => readPref('ms-outline-open', true));
+  const [toolsOpen, setToolsOpen] = useState(() => readPref('ms-tools-open', false));
+  const [toolsDocked, setToolsDocked] = useState(() => readPref('ms-tools-docked', true));
+  const [toolsTab, setToolsTab] = useState('revise');
+  const canDock = useMediaQuery('(min-width: 1100px)');
+  const [lastSavedAt, setLastSavedAt] = useState(null);
+  const [nowTick, setNowTick] = useState(() => Date.now());
   const [customContext, setCustomContext] = useState('');
   const [streamSources, setStreamSources] = useState([]);
   const [sourcesResolved, setSourcesResolved] = useState(false);
@@ -358,11 +441,24 @@ export default function ManuscriptBuilder() {
     flushStreamBuffer(sectionId);
   };
 
-  const processForUnverified = (text) => {
+  const processForUnverified = (text, sectionLabel = '') => {
     if (!text) return '';
     // Banner-only for unverified stats — substring replace used to rewrite
     // chart/math source (C9).
-    return text.replace(/^#\s+[^\n]+\n?/, '').trim();
+    // A leading H1 is dropped only when it repeats the section's own name
+    // (the model opens with "# Abstract", which the preview already labels).
+    // It used to drop *any* first H1, so an author's own heading vanished
+    // from every preview (ME-3, B4).
+    const lead = text.match(/^#\s+([^\n]+)\n?/);
+    if (lead && sectionLabel) {
+      const norm = (s) => s.toLowerCase().replace(/[^a-z]/g, '');
+      const heading = norm(lead[1]);
+      const label = norm(sectionLabel);
+      if (heading && (heading === label || label.includes(heading))) {
+        return text.slice(lead[0].length).trim();
+      }
+    }
+    return text.trim();
   };
 
   const formatPaperTitle = (text) => {
@@ -380,6 +476,37 @@ export default function ManuscriptBuilder() {
   };
 
   const done = STEPS.filter(s => content[s.id]?.trim()).map(s => s.id);
+
+  // E11: the active section and the whole paper (References excluded — it is
+  // a generated list, not prose the author is counting toward a limit).
+  const countWords = (text) => (text && text.trim() ? text.trim().split(/\s+/).length : 0);
+  const sectionWords = countWords(content[active]);
+  const paperWords = STEPS.filter(s => s.id !== 'references')
+    .reduce((sum, s) => sum + countWords(content[s.id]), 0);
+
+  // Keeps "Saved n min ago" current without re-rendering every second.
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, []);
+
+  // E9: one polite live region, so a screen reader hears what sighted users
+  // see change — generation starting and finishing, saves, provider status.
+  const [announcement, setAnnouncement] = useState('');
+  const wasGeneratingRef = useRef(false);
+  useEffect(() => {
+    const label = STEPS.find(s => s.id === active)?.label || 'Section';
+    if (generating && !wasGeneratingRef.current) setAnnouncement(`Generating ${label}…`);
+    if (!generating && wasGeneratingRef.current && !generateError) setAnnouncement(`${label} finished generating.`);
+    wasGeneratingRef.current = generating;
+  }, [generating, generateError, active]);
+  useEffect(() => {
+    if (saveStatus === 'saved') setAnnouncement('Draft saved.');
+    else if (saveStatus === 'error') setAnnouncement('Save failed.');
+  }, [saveStatus]);
+  useEffect(() => {
+    if (autoStatus) setAnnouncement(autoStatus);
+  }, [autoStatus]);
 
   // Warm the research corpus as soon as the topic settles (1.5). The corpus is
   // the same for every section, so building it while the user is still picking
@@ -414,7 +541,10 @@ export default function ManuscriptBuilder() {
   }, [topic, generating, api]);
 
   const generate = async (opts = {}) => {
-    if (!topic.trim()) return;
+    // `opts.topic`: a caller that has just called setTopic() passes the new
+    // value, because this closure still holds the old one (ME-3, B1).
+    const topicText = (opts.topic ?? topic).trim();
+    if (!topicText) return;
     const sectionId = active;
     const continueSection = Boolean(opts.continueSection) && Boolean((content[sectionId] || '').trim());
     setGenerating(true);
@@ -461,7 +591,7 @@ export default function ManuscriptBuilder() {
       setAutoStatus('');
       
       const payload = { 
-        topic, 
+        topic: topicText, 
         section: sectionId, 
         context: payloadContext, 
         citation_style: citationStyle, 
@@ -621,11 +751,14 @@ export default function ManuscriptBuilder() {
     textarea.focus();
     const replacement = `${prefix}${selected}${suffix}`;
     
-    // If the browser supports execCommand for insertText
-    if (document.queryCommandSupported('insertText')) {
-      document.execCommand('insertText', false, replacement);
-    } else {
-      // Fallback for older browsers (will break undo stack)
+    // execCommand keeps the native undo stack. Its *result* is what counts:
+    // queryCommandSupported can say yes while the insert still fails, and
+    // that used to fall through silently (ME-3, B5).
+    const inserted = document.queryCommandSupported?.('insertText')
+      && document.execCommand('insertText', false, replacement);
+    if (!inserted) {
+      // The native stack cannot see this edit, so keep our own for Undo.
+      fallbackUndoRef.current = [...fallbackUndoRef.current.slice(-49), { section: active, text }];
       const newText = text.substring(0, start) + replacement + text.substring(end);
       setContent(prev => ({ ...prev, [active]: newText }));
     }
@@ -636,18 +769,32 @@ export default function ManuscriptBuilder() {
     }, 0);
   };
 
-  const handleFormat = (e, prefix, suffix = '') => {
-    e.preventDefault(); // Prevent button click from stealing focus
-    insertMarkdown(prefix, suffix);
-  };
+  // Mousedown on a toolbar button would move focus off the textarea and lose
+  // its selection; the action itself runs on click (keyboard works too).
+  const keepEditorSelection = (e) => e.preventDefault();
 
   const handleUndo = (e) => {
     e.preventDefault();
+    const textarea = document.getElementById('manuscript-textarea');
+    const before = textarea?.value;
+    // From the keyboard, focus is on the button; native undo acts on the
+    // focused editor, so hand focus back first.
+    textarea?.focus();
     document.execCommand('undo');
+    // Native undo changed nothing: step back through edits it never saw.
+    if (textarea && textarea.value === before) {
+      const stack = fallbackUndoRef.current;
+      const last = stack[stack.length - 1];
+      if (last && last.section === active) {
+        fallbackUndoRef.current = stack.slice(0, -1);
+        setContent(prev => ({ ...prev, [active]: last.text }));
+      }
+    }
   };
 
   const handleRedo = (e) => {
     e.preventDefault();
+    document.getElementById('manuscript-textarea')?.focus();
     document.execCommand('redo');
   };
 
@@ -822,7 +969,6 @@ export default function ManuscriptBuilder() {
     }
     setPendingEdit(null);
     setPendingEditFlags(null);
-    setRevisePanelOpen(false);
   };
 
   const undoLastEdit = () => {
@@ -836,7 +982,6 @@ export default function ManuscriptBuilder() {
   const rejectEdit = () => {
     setPendingEdit(null);
     setPendingEditFlags(null);
-    setRevisePanelOpen(false);
   };
 
   const buildDraftSnapshot = useCallback(() => ({
@@ -861,6 +1006,7 @@ export default function ManuscriptBuilder() {
         if (body.id) setLoadedDraftId(body.id);
         // Only the payload that actually persisted is clean. In-flight edits stay dirty.
         lastSavedContentRef.current = snapshot;
+        setLastSavedAt(Date.now());
         if (!silent) {
           setSaveStatus('saved');
           setTimeout(() => setSaveStatus(''), 3000);
@@ -993,6 +1139,7 @@ export default function ManuscriptBuilder() {
     setUnverifiedNumbers([]);
     setLoadedDraftId(null);
     lastSavedContentRef.current = {};
+    setLastSavedAt(null);
   };
 
   const confirmNewPaper = () => {
@@ -1023,9 +1170,6 @@ export default function ManuscriptBuilder() {
         setGapAnalysis(loadedGap);
         setManuscriptRefs(loadedRefs);
         setCitationStyle(loadedStyle);
-        if (loadedGap) {
-          setGapPanelOpen(false);
-        }
         setLoadedDraftId(loaded.id || draftId || null);
         lastSavedContentRef.current = {
           topic: (loadedTopic || '').trim(),
@@ -1034,43 +1178,55 @@ export default function ManuscriptBuilder() {
           manuscript_refs: loadedRefs,
           citation_style: loadedStyle,
         };
+        setLastSavedAt(loaded.updated_at ? Date.parse(loaded.updated_at) : Date.now());
         setShowLoad(false);
         setDraftFilter('');
       } else { setLoadError('No draft found for this topic.'); }
     } catch { setLoadError('Could not connect.'); }
   };
 
+  const isCurrentDraft = (draft) =>
+    Boolean((loadedDraftId && draft?.id && loadedDraftId === draft.id)
+      || (topic && draft?.topic && topic === draft.topic));
+
+  /** Confirmed by SavedItemMenu's dialog; a throw keeps the dialog open with it. */
   const deleteDraft = async (draft) => {
     const draftId = draft?.id;
     const rawTopic = draft?.topic || '';
     if (!draftId && rawTopic == null) return;
-    const deletingKey = draftId || rawTopic;
-    setDeletingTopic(deletingKey);
     setLoadError('');
+    const params = new URLSearchParams();
+    if (draftId) params.set('draft_id', draftId);
+    else params.set('topic', rawTopic);
+    let res;
     try {
-      const params = new URLSearchParams();
-      if (draftId) params.set('draft_id', draftId);
-      else params.set('topic', rawTopic);
-      const res = await api.raw(
-        `/api/manuscript/delete?${params.toString()}`,
-        { method: 'DELETE' }
-      );
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        setLoadError(body.detail || 'Could not delete draft.');
-        return;
-      }
-      setDrafts(prev => prev.filter(d => (draftId ? d.id !== draftId : d.topic !== rawTopic)));
-      setDraftToDelete(null);
-      const isCurrent = (loadedDraftId && draftId && loadedDraftId === draftId)
-        || (topic && rawTopic && topic === rawTopic);
-      if (isCurrent) {
-        clearEditor();
-      }
+      res = await api.raw(`/api/manuscript/delete?${params.toString()}`, { method: 'DELETE' });
     } catch {
-      setLoadError('Could not delete draft.');
-    } finally {
-      setDeletingTopic('');
+      throw new Error('Could not reach the server. Try again.');
+    }
+    // 404: already gone, which is what was asked for.
+    if (!res.ok && res.status !== 404) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail || 'Could not delete draft.');
+    }
+    const wasCurrent = isCurrentDraft(draft);
+    setDrafts(prev => prev.filter(d => (draftId ? d.id !== draftId : d.topic !== rawTopic)));
+    if (wasCurrent) clearEditor();
+  };
+
+  /** Pin / rename (ROW-1), applied at once and rolled back if the server refuses. */
+  const patchDraft = async (draft, changes) => {
+    setLoadError('');
+    const before = drafts;
+    const apply = (patch) => setDrafts(prev =>
+      orderPinned(prev.map(d => (d.id === draft.id ? { ...d, ...patch } : d))));
+    apply(changes);
+    try {
+      const data = await api.patch(`/api/manuscript/drafts/${draft.id}`, changes);
+      apply({ pinned: data.pinned, title: data.title });
+    } catch {
+      setDrafts(before);
+      setLoadError('title' in changes ? 'That draft could not be renamed.' : 'That draft could not be pinned.');
     }
   };
 
@@ -1094,17 +1250,22 @@ export default function ManuscriptBuilder() {
   const [latexExporting, setLatexExporting] = useState(false);
   const [latexError, setLatexError] = useState('');
 
-  const exportLatex = async () => {
-    if (!topic || !Object.keys(content).length) return;
+  const exportLatex = async (venue = latexVenue) => {
+    if (!topic.trim() || !Object.keys(content).length) return;
+    setLatexVenue(venue);
     setLatexExporting(true);
     setLatexError('');
     try {
+      // The server exports the *saved* draft, looked up by topic, so unsaved
+      // edits (autosave waits 5s) used to be missing from the zip (ME-3, B2).
+      const saved = await save({ silent: true });
+      if (!saved) throw new Error('Could not save the draft before exporting. Try again.');
       const res = await api.raw(
         `/api/manuscript/export-latex`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ topic, venue: latexVenue }),
+          body: JSON.stringify({ topic: topic.trim(), venue }),
         }
       );
       if (!res.ok) {
@@ -1115,7 +1276,7 @@ export default function ManuscriptBuilder() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${topic.replace(/\s+/g, '-')}-${latexVenue}.zip`;
+      a.download = `${topic.replace(/\s+/g, '-')}-${venue}.zip`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -1154,476 +1315,510 @@ export default function ManuscriptBuilder() {
 }, [printPending, viewMode]);
 
   const currentStep = STEPS.find(s => s.id === active);
-  const draftTitle = (draft) => {
-    const name = (draft?.topic || '').trim();
-    return name || 'Untitled draft';
-  };
+  // A rename (ROW-1) is display-only; the topic stays the draft's key.
+  const draftTitle = (draft) => displayName(draft, 'topic') || 'Untitled draft';
   const visibleDrafts = drafts.filter(draft =>
     draftTitle(draft).toLowerCase().includes(draftFilter.trim().toLowerCase())
   );
+  const draftGroups = splitPinned(visibleDrafts);
+
+  const refsCount = Object.keys(manuscriptRefs || {}).length;
+  const gapsCount = gapAnalysis && gapAnalysis.status !== 'insufficient_literature'
+    ? (gapAnalysis.gaps?.length || 0) : 0;
+  const verifyCount = unverifiedNumbers.length + (unverifiedWarning ? 1 : 0);
+  const hasContent = Object.values(content).some(t => (t || '').trim());
+  const toolsAsPanel = toolsOpen && toolsDocked && canDock;
+  const saveLabel = saveStatus === 'saving' ? 'Saving…'
+    : saveStatus === 'error' ? 'Save failed'
+      : lastSavedAt ? `Saved ${savedAgo(lastSavedAt, nowTick)}`
+        : topic.trim() ? 'Not saved yet' : '';
+
+  const openTools = (tab) => {
+    setToolsTab(tab);
+    setToolsOpen(true);
+    writePref('ms-tools-open', true);
+  };
+  const closeTools = () => {
+    setToolsOpen(false);
+    writePref('ms-tools-open', false);
+  };
+  const toggleOutline = () => {
+    setOutlineOpen(o => { writePref('ms-outline-open', !o); return !o; });
+  };
+  const toggleDock = () => {
+    setToolsDocked(d => { writePref('ms-tools-docked', !d); return !d; });
+  };
+
+  const toolsBody = (
+    <Tabs value={toolsTab} onValueChange={setToolsTab} className="manuscript-tools-tabs">
+      <TabsList variant="line" className="manuscript-tools-tablist">
+        <TabsTrigger value="revise">Revise</TabsTrigger>
+        <TabsTrigger value="gaps">
+          Gaps{gapsCount > 0 && <span className="manuscript-tools-count">{gapsCount}</span>}
+        </TabsTrigger>
+        <TabsTrigger value="sources">Sources</TabsTrigger>
+        <TabsTrigger value="references">
+          References{refsCount > 0 && <span className="manuscript-tools-count">{refsCount}</span>}
+        </TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="revise" className="manuscript-tools-pane">
+        <p className="manuscript-tools-lede">
+          Rewrite <strong>{currentStep?.label}</strong> with AI. You review every change before it is applied.
+        </p>
+        {/* Revision scope. Choosing anything but "Whole section" means the
+            server rewrites only that span and splices the reply back, so the
+            rest of the section is copied rather than regenerated. */}
+        <div className="revise-scope" role="group" aria-labelledby="revise-scope-label">
+          <span className="revise-scope-label" id="revise-scope-label">Revise:</span>
+          <button
+            type="button"
+            aria-pressed={!editScope}
+            className={`revise-scope-chip${editScope ? '' : ' active'}`}
+            onClick={() => setEditScope(null)}
+            disabled={editing || generating}
+          >
+            Whole section
+          </button>
+          <button
+            type="button"
+            aria-pressed={editScope?.kind === 'selection'}
+            className={`revise-scope-chip${editScope?.kind === 'selection' ? ' active' : ''}`}
+            onClick={() => setEditScope({ kind: 'selection' })}
+            disabled={editing || generating || !editorSelection}
+            title={
+              editorSelection
+                ? `“${editorSelection.text.slice(0, 80)}${editorSelection.text.length > 80 ? '…' : ''}”`
+                : 'Select text in the editor first'
+            }
+          >
+            Selected text
+          </button>
+          {diagramBlocks.map((block, i) => (
+            <button
+              key={i}
+              type="button"
+              aria-pressed={editScope?.kind === 'diagram' && editScope.index === i}
+              className={`revise-scope-chip${editScope?.kind === 'diagram' && editScope.index === i ? ' active' : ''}`}
+              onClick={() => setEditScope({ kind: 'diagram', index: i })}
+              disabled={editing || generating}
+              title={block.body.slice(0, 120)}
+            >
+              {diagramBlocks.length > 1 ? `Diagram ${i + 1}` : 'Diagram'}
+            </button>
+          ))}
+        </div>
+        <p className="revise-scope-hint">
+          {editScope
+            ? 'Only the targeted text is sent for rewriting — everything else is preserved exactly as written.'
+            : 'The whole section is rewritten. Target a selection or a diagram to leave the rest untouched.'}
+        </p>
+        <div className="manuscript-revise-row">
+          <textarea
+            rows={3}
+            placeholder={
+              editScope?.kind === 'diagram'
+                ? 'e.g. Fix the axis labels, use the numbers from [2]...'
+                : 'e.g. Make this shorter, add bullet points, fix grammar...'
+            }
+            aria-label="Revision instructions"
+            value={editPrompt}
+            onChange={e => setEditPrompt(e.target.value)}
+            disabled={editing || generating || !content[active]}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); applyEdit(); } }}
+          />
+          <Button onClick={applyEdit} disabled={editing || generating || !editPrompt.trim() || !content[active]}>
+            {editing ? <Spinner size={14} /> : <Send size={14} aria-hidden="true" />} Apply revision
+          </Button>
+        </div>
+        {!content[active] && (
+          <p className="manuscript-tools-empty">Write or generate this section first, then revise it here.</p>
+        )}
+        {editError && <div className="manuscript-inline-error" role="alert">{editError}</div>}
+      </TabsContent>
+
+      <TabsContent value="gaps" className="manuscript-tools-pane">
+        {!gapAnalysis ? (
+          <div className="manuscript-tools-empty">
+            <p>Where the literature agrees, conflicts and leaves gaps. It is produced when you generate the Literature Review.</p>
+            {active !== 'lit_review' && (
+              <Button variant="outline" size="sm" onClick={() => setActive('lit_review')}>Go to Literature Review</Button>
+            )}
+          </div>
+        ) : gapAnalysis.status === 'insufficient_literature' ? (
+          <p className="manuscript-tools-empty">{gapAnalysis.message}</p>
+        ) : (
+          <div className="manuscript-gaps">
+            <p className="manuscript-tools-lede">From the Literature Review generation.</p>
+            {[
+              ['Consensus', gapAnalysis.consensus, (item) => (
+                <>{item.claim} <span className="manuscript-gap-refs">[{item.supporting_papers?.join(', ')}]</span></>
+              )],
+              ['Conflicts', gapAnalysis.conflicts, (item) => (
+                <>
+                  {item.claim_a} <strong>vs</strong> {item.claim_b} <span className="manuscript-gap-refs">[{item.papers?.join(', ')}]</span>
+                  {item.note && <span className="manuscript-gap-note">{item.note}</span>}
+                </>
+              )],
+              ['Gaps', gapAnalysis.gaps, (item) => (
+                <>{item.description} <span className="manuscript-gap-refs">[{item.informed_by?.join(', ')}]</span></>
+              )],
+            ].filter(([, items]) => items && items.length > 0).map(([title, items, render]) => (
+              <section key={title} className="manuscript-gap-group">
+                <h3>{title} <span className="manuscript-tools-count">{items.length}</span></h3>
+                <ul>{items.map((item, i) => <li key={i}>{render(item)}</li>)}</ul>
+              </section>
+            ))}
+            {gapAnalysis.suggested_direction && (
+              <section className="manuscript-gap-direction">
+                <h3>Suggested direction</h3>
+                <p>{gapAnalysis.suggested_direction}</p>
+                {gapAnalysis.vagueness_warning && (
+                  <p className="manuscript-gap-warning">{gapAnalysis.vagueness_warning}</p>
+                )}
+                <Button
+                  size="sm"
+                  disabled={generating}
+                  onClick={() => {
+                    const direction = gapAnalysis.suggested_direction;
+                    setTopic(direction);
+                    generate({ topic: direction });
+                  }}
+                >
+                  Use this direction
+                </Button>
+              </section>
+            )}
+          </div>
+        )}
+      </TabsContent>
+
+      <TabsContent value="sources" className="manuscript-tools-pane">
+        <section className="manuscript-sources-used">
+          <h3>Cited in the last generation</h3>
+          {!sourcesResolved ? (
+            <p className="manuscript-tools-empty">Sources appear here after you generate a section.</p>
+          ) : streamSources.length === 0 ? (
+            <p className="manuscript-tools-empty">No specific sources were cited; it was written from general context.</p>
+          ) : (
+            <ol className="manuscript-source-list">
+              {streamSources.map((src) => (
+                <li key={src.index}>
+                  <span className="manuscript-source-index">{src.index}</span>
+                  <span className="manuscript-source-main">
+                    <span className="manuscript-source-title">{src.title}</span>
+                    <span className="manuscript-source-meta">{src.authors}{src.year ? ` (${src.year})` : ''}</span>
+                  </span>
+                  {src.url && (
+                    <a href={src.url} target="_blank" rel="noopener noreferrer" aria-label={`Open source ${src.index}`}>
+                      <ExternalLink size={13} aria-hidden="true" />
+                    </a>
+                  )}
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
+        <section className="manuscript-ground-truth">
+          <SourcesPanel topic={topic} />
+        </section>
+      </TabsContent>
+
+      <TabsContent value="references" className="manuscript-tools-pane">
+        {refsCount === 0 ? (
+          <p className="manuscript-tools-empty">References collect here as generated sections cite sources.</p>
+        ) : (
+          <ol className="manuscript-ref-list">
+            {Object.entries(manuscriptRefs).map(([idx, refString]) => (
+              <li key={idx} value={Number(idx) || undefined}>{refString}</li>
+            ))}
+          </ol>
+        )}
+      </TabsContent>
+    </Tabs>
+  );
 
   return (
-    <div className="animate-fade-in">
-      {/* Header */}
-      <header className="page-header manuscript-page-header">
-        <div className="manuscript-masthead">
-          <h1>Manuscript Builder</h1>
-          <p className="text-muted">Write your research paper section by section with AI assistance.</p>
-          <p className="manuscript-ai-note">
-            <strong>Note:</strong> AI can make mistakes — review before proceeding.
-          </p>
+    <div className="manuscript-page animate-fade-in">
+      <TopBar crumbs={[{ label: 'Write' }, { label: 'Manuscript' }]} context={topic.trim() || undefined} />
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">{announcement}</div>
+      <h1 className="sr-only">Manuscript Builder</h1>
+
+      {/* Command bar: draft actions and save state on the left; the evidence
+          summary, settings, export, the tools panel and Generate on the right.
+          The evidence counts are always visible, so nothing the paper rests on
+          is hidden behind the on-demand panel. */}
+      <div className="manuscript-commandbar">
+        <div className="manuscript-commandbar-group">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={toggleOutline}
+            aria-label={outlineOpen ? 'Hide outline' : 'Show outline'}
+            aria-expanded={outlineOpen}
+            aria-controls="manuscript-outline"
+            title={outlineOpen ? 'Hide outline' : 'Show outline'}
+          >
+            <PanelLeft aria-hidden="true" />
+          </Button>
+          <Button variant="ghost" size="sm" onClick={handleNewPaper}>
+            <Plus aria-hidden="true" /> New
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => { setShowLoad(true); setLoadError(''); setDraftFilter(''); setRenamingDraftId(null); }}>
+            <FolderOpen aria-hidden="true" /> Open
+          </Button>
+          <Button variant="ghost" size="sm" onClick={openHistory} disabled={!topic.trim() && !loadedDraftId} title="Earlier versions of this draft">
+            <History aria-hidden="true" /> History
+          </Button>
+          <span className="manuscript-commandbar-sep" aria-hidden="true" />
+          {saveLabel && (
+            <span className={`manuscript-save-state${saveStatus === 'error' ? ' is-error' : ''}`}>{saveLabel}</span>
+          )}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => { void save(); }}
+            disabled={!topic.trim() || saveStatus === 'saving'}
+            aria-label="Save now"
+            title="Save now (drafts also save automatically)"
+          >
+            <Save aria-hidden="true" />
+          </Button>
         </div>
 
-        <div className="manuscript-toolbar">
-          <div className="manuscript-toolbar-start">
-            <div className="manuscript-format-badge">
-              {citationStyle.toUpperCase()} Format
-            </div>
-            <div className="manuscript-action-cluster">
-              <button className="btn btn-secondary" onClick={handleNewPaper}>
-                <Plus size={14} /> New Paper
+        <div className="manuscript-commandbar-group">
+          <div className="manuscript-evidence" role="group" aria-label="Evidence summary">
+            <button type="button" className="manuscript-evidence-item" onClick={() => openTools('references')}>
+              <BookOpen size={13} aria-hidden="true" /> {refsCount} {refsCount === 1 ? 'reference' : 'references'}
+            </button>
+            <button type="button" className="manuscript-evidence-item" onClick={() => openTools('gaps')}>
+              <Search size={13} aria-hidden="true" /> {gapAnalysis ? `${gapsCount} ${gapsCount === 1 ? 'gap' : 'gaps'}` : 'No gap analysis'}
+            </button>
+            {verifyCount > 0 && (
+              <button type="button" className="manuscript-evidence-item is-warn" onClick={() => document.getElementById('manuscript-verify')?.scrollIntoView({ block: 'center' })}>
+                <AlertTriangle size={13} aria-hidden="true" /> {verifyCount} to verify
               </button>
-              <button className="btn btn-secondary" onClick={() => { setShowLoad(true); setLoadError(''); setDraftFilter(''); setDraftToDelete(null); }}>
-                <FolderOpen size={14} /> Load Draft
-              </button>
-              <button
-                className="btn btn-secondary"
-                onClick={openHistory}
-                disabled={!topic.trim() && !loadedDraftId}
-                title="Earlier versions of this draft"
-              >
-                <History size={14} /> History
-              </button>
-            </div>
+            )}
           </div>
 
-          <div className="manuscript-action-cluster manuscript-export-cluster">
-            <span className="manuscript-cluster-label">Export</span>
-            <button className="btn btn-secondary" onClick={exportMarkdown} disabled={!Object.keys(content).length}>
-              <FileText size={14} /> Markdown
-            </button>
-            <div className="manuscript-latex-control">
-              <select
-                className="manuscript-venue-select"
-                value={latexVenue}
-                onChange={(e) => setLatexVenue(e.target.value)}
-                aria-label="Target venue for LaTeX export"
-                title="Target venue for LaTeX export"
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                aria-label={`Paper settings: ${citationStyle.toUpperCase()} citations, ${autoMode ? 'automatic' : 'specific'} model`}
+                title={`${citationStyle.toUpperCase()} citations · ${autoMode ? 'Auto' : 'Specific'} model`}
               >
-                <option value="ieee">IEEE</option>
-                <option value="acm">ACM</option>
-                <option value="springer">Springer LNCS</option>
-                <option value="elsevier">Elsevier</option>
-              </select>
-              <button
-                className="btn btn-secondary manuscript-latex-btn"
-                onClick={exportLatex}
-                disabled={!Object.keys(content).length || latexExporting}
-                title="Export as LaTeX (.tex + .bib) for the selected venue"
-              >
-                <FileText size={14} /> {latexExporting ? 'Exporting…' : 'LaTeX'}
-              </button>
-            </div>
-            <button
-              className="btn btn-primary"
-              onClick={exportPDF}
-              disabled={!Object.keys(content).length}
-              title="Export as PDF (uncheck 'Headers and footers' in the print dialog for a clean file)"
-            >
-              <Printer size={14} /> PDF
-            </button>
-          </div>
+                <Settings2 aria-hidden="true" /> {citationStyle.toUpperCase()}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="manuscript-settings">
+              <div className="manuscript-settings-field">
+                <span id="manuscript-citation-label">Citation style</span>
+                <Select value={citationStyle} onValueChange={setCitationStyle}>
+                  <SelectTrigger aria-labelledby="manuscript-citation-label" className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {CITATION_STYLES.map(([id, label]) => <SelectItem key={id} value={id}>{label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="manuscript-settings-field">
+                <span id="manuscript-model-label">Generation model</span>
+                <div className="manuscript-segmented" role="group" aria-labelledby="manuscript-model-label">
+                  <button type="button" aria-pressed={autoMode} className={autoMode ? 'is-on' : ''} onClick={() => setAutoMode(true)}>Auto</button>
+                  <button type="button" aria-pressed={!autoMode} className={!autoMode ? 'is-on' : ''} onClick={() => setAutoMode(false)}>Specific</button>
+                </div>
+                {!autoMode && (
+                  <Select value={selectedModelId} onValueChange={setSelectedModelId}>
+                    <SelectTrigger aria-label="Specific model" className="w-full"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {Array.from(new Set(MODELS.map(m => m.group))).map(group => (
+                        <SelectGroup key={group}>
+                          <SelectLabel>{group}</SelectLabel>
+                          {MODELS.filter(m => m.group === group).map(m => (
+                            <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
+                          ))}
+                        </SelectGroup>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
+
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" disabled={!hasContent || latexExporting}>
+                <Download aria-hidden="true" /> {latexExporting ? 'Exporting…' : 'Export'}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-auto min-w-44">
+              <DropdownMenuItem onSelect={exportMarkdown}><FileText /> Markdown (.md)</DropdownMenuItem>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger><FileText /> LaTeX (.zip)</DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  {LATEX_VENUES.map(([id, label]) => (
+                    <DropdownMenuItem key={id} onSelect={() => exportLatex(id)}>{label} template</DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={exportPDF}><Printer /> Print or save as PDF</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <Button
+            variant={toolsOpen ? 'secondary' : 'outline'}
+            size="sm"
+            onClick={() => (toolsOpen ? closeTools() : openTools(toolsTab))}
+            aria-pressed={toolsOpen}
+            aria-controls="manuscript-tools"
+          >
+            <PanelRight aria-hidden="true" /> AI &amp; evidence
+          </Button>
+
+          {generating ? (
+            <Button variant="destructive" size="sm" onClick={stopGeneration}>
+              <Spinner size={14} /> Stop
+            </Button>
+          ) : (
+            <Button size="sm" onClick={() => generate({ continueSection: sectionTruncated })} disabled={!topic.trim() || rateLimitWait > 0}>
+              <Sparkles aria-hidden="true" /> {rateLimitWait ? `Wait ${rateLimitWait}s` : sectionTruncated ? 'Continue' : 'Generate'}
+            </Button>
+          )}
         </div>
-      </header>
-      {latexError && (
-        <div className="manuscript-error-banner" role="alert" style={{ padding: 'var(--space-2) var(--space-4)', color: 'var(--danger, #b00020)' }}>
-          {latexError}
-        </div>
-      )}
+      </div>
 
-      <div className="manuscript-layout">
+      {latexError && <div className="manuscript-banner is-error" role="alert">{latexError}</div>}
 
-        {/* Sidebar Column */}
-        <div className="manuscript-sidebar-column">
-          
-          <SectionsList 
-            sections={STEPS} 
-            activeSectionId={active} 
-            onSelectSection={setActive} 
-            doneIds={done} 
-            generating={generating} 
-          />
-
-          {/* Configuration Block */}
-          <div className="manuscript-config-block">
-            
-            {/* Topic Input - Always Visible */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-              <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Research Topic</span>
-              <input
-                placeholder="Enter research topic..."
+      <div className={`manuscript-workspace${outlineOpen ? '' : ' is-outline-hidden'}${toolsAsPanel ? ' has-tools' : ''}`}>
+        {outlineOpen && (
+          <aside id="manuscript-outline" className="manuscript-outline" aria-label="Paper outline">
+            <div className="manuscript-topic-field">
+              <label htmlFor="manuscript-topic">Research topic</label>
+              <textarea
+                id="manuscript-topic"
+                rows={3}
+                placeholder="What is the paper about?"
                 value={topic}
                 onChange={e => { topicTypedRef.current = true; setTopic(e.target.value); }}
-                style={{ padding: 'var(--space-2)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: 'var(--fs-sm)', width: '100%', outline: 'none' }}
               />
-            </div>
-
-            {/* Settings Accordion */}
-            <div style={{ borderTop: '1px solid var(--border)', paddingTop: 'var(--space-3)', marginTop: 'var(--space-4)' }}>
-              <button
-                onClick={() => setSettingsOpen(!settingsOpen)}
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-              >
-                <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Settings</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-                  {!settingsOpen && (
-                    <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--primary)', fontWeight: 500 }}>
-                      {citationStyle.toUpperCase()} · {autoMode ? 'Auto' : 'Specific'}
-                    </span>
-                  )}
-                  <ChevronDown size={14} style={{ color: 'var(--text-muted)', transform: settingsOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s ease' }} />
-                </div>
-              </button>
-
-              {settingsOpen && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', marginTop: 'var(--space-4)' }}>
-                  
-                  {/* Citation Format */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-                    <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-subtle)' }}>Citation Format</span>
-                    <select 
-                      value={citationStyle} 
-                      onChange={e => setCitationStyle(e.target.value)}
-                      style={{ padding: 'var(--space-2)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: 'var(--fs-sm)', width: '100%' }}
-                    >
-                      <option value="ieee">IEEE Citation Format</option>
-                      <option value="apa">APA Citation Format</option>
-                      <option value="chicago">Chicago Style</option>
-                      <option value="oxford">Oxford Style</option>
-                    </select>
-                  </div>
-
-                  {/* Model Selection */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-                    <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-subtle)' }}>Generation Model</span>
-                    
-                    <div style={{ display: 'flex', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
-                      <button
-                        onClick={() => setAutoMode(true)}
-                        style={{ flex: 1, padding: 'var(--space-2)', background: autoMode ? 'var(--primary)' : 'transparent', color: autoMode ? 'var(--on-primary)' : 'var(--text)', border: 'none', cursor: 'pointer', fontSize: 'var(--fs-xs)', fontWeight: autoMode ? 600 : 400, transition: 'background-color var(--transition), color var(--transition)' }}
-                      >
-                        Auto
-                      </button>
-                      <button
-                        onClick={() => setAutoMode(false)}
-                        style={{ flex: 1, padding: 'var(--space-2)', background: !autoMode ? 'var(--primary)' : 'transparent', color: !autoMode ? 'var(--on-primary)' : 'var(--text)', border: 'none', cursor: 'pointer', fontSize: 'var(--fs-xs)', fontWeight: !autoMode ? 600 : 400, transition: 'background-color var(--transition), color var(--transition)' }}
-                      >
-                        Specific
-                      </button>
-                    </div>
-
-                    {!autoMode && (
-                      <select 
-                        value={selectedModelId} 
-                        onChange={e => setSelectedModelId(e.target.value)}
-                        style={{ padding: 'var(--space-2)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: 'var(--fs-sm)', width: '100%', marginTop: 'var(--space-1)' }}
-                      >
-                        {Array.from(new Set(MODELS.map(m => m.group))).map(group => (
-                          <optgroup key={group} label={group}>
-                            {MODELS.filter(m => m.group === group).map(m => (
-                              <option key={m.id} value={m.id}>{m.label}</option>
-                            ))}
-                          </optgroup>
-                        ))}
-                      </select>
-                    )}
-                  </div>
-
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Editor */}
-        <div className="manuscript-editor-panel">
-          <div className="manuscript-section-header">
-            <h2>{currentStep?.label}</h2>
-            <div className="manuscript-section-actions responsive-actions">
-              {autoStatus && <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', width: '100%' }}>{autoStatus}</span>}
               {!generating && researchReady && topic.trim() && (
-                <span
-                  style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-subtle)', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
-                  title="The literature for this topic is already searched, screened and read, so generating starts immediately."
-                >
-                  <CheckCircle size={12} /> Research ready
+                <span className="manuscript-research-ready" title="The literature for this topic is already searched, screened and read, so generating starts immediately.">
+                  <CheckCircle size={12} aria-hidden="true" /> Research ready
                 </span>
               )}
-              {generating ? (
-                <button className="btn btn-secondary" onClick={stopGeneration} style={{ background: 'var(--danger)', color: 'white', borderColor: 'var(--danger)' }}>
-                  <Spinner size={14} /> Stop
-                </button>
-              ) : (
-                <button className="btn btn-secondary" onClick={() => generate({ continueSection: sectionTruncated })} disabled={!topic.trim() || rateLimitWait > 0}>
-                  <Sparkles size={14} /> {rateLimitWait ? `Wait ${rateLimitWait}s` : sectionTruncated ? 'Continue' : 'Generate'}
-                </button>
-              )}
-              <button
-                className="btn btn-ghost"
-                onClick={() => { void save(); }}
-                disabled={!topic.trim() || saveStatus === 'saving'}
-                style={saveStatus === 'error' ? { color: 'var(--danger)' } : undefined}
-              >
-                <Save size={14} /> {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : saveStatus === 'error' ? 'Save failed' : 'Save'}
-              </button>
             </div>
+            <SectionsList
+              sections={STEPS}
+              activeSectionId={active}
+              onSelectSection={setActive}
+              doneIds={done}
+              generating={generating}
+            />
+          </aside>
+        )}
+
+        <main className="manuscript-document" aria-labelledby="manuscript-section-title">
+          {/* SD-5b: title, mode switch and counts in one fixed row, so switching
+              Write / Preview / Paper never moves anything. */}
+          <div className="manuscript-doc-head">
+            <h2 id="manuscript-section-title">{currentStep?.label}</h2>
+            <div className="manuscript-mode-tabs" role="tablist" aria-label="Editor modes">
+              {[
+                { id: 'write', label: 'Write' },
+                { id: 'preview', label: 'Preview' },
+                { id: 'paper', label: 'Paper' },
+              ].map((mode) => (
+                <button
+                  key={mode.id}
+                  type="button"
+                  role="tab"
+                  id={`manuscript-tab-${mode.id}`}
+                  aria-controls="manuscript-mode-panel"
+                  data-mode={mode.id}
+                  aria-selected={viewMode === mode.id}
+                  className={`manuscript-mode-tab${viewMode === mode.id ? ' is-active' : ''}`}
+                  onClick={() => setViewMode(mode.id)}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
+            <div className="manuscript-word-count" title="This section · whole paper">
+              {sectionWords} words
+              <span className="manuscript-word-count-total"> · {paperWords} in paper</span>
+            </div>
+            {autoStatus && <span className="manuscript-auto-status">{autoStatus}</span>}
           </div>
 
-          {/* Research pipeline stages (1.5). Replaced by the source strip the
-              moment the corpus resolves, so the two never stack. */}
+          {/* Research pipeline stages (1.5): what Generate is doing before the
+              first token, so the wait reads as work, not a hang. */}
           {researchStages.length > 0 && !sourcesResolved && (
             <div className="manuscript-research-stages">
               <div className="manuscript-research-stages-title">
-                <Search size={12} /> Preparing research
+                <Search size={12} aria-hidden="true" /> Preparing research
               </div>
-              {researchStages.map((s) => (
-                <div key={s.stage} className={`manuscript-research-stage is-${s.status}`}>
-                  {s.status === 'running' ? <Spinner size={12} /> : <CheckCircle size={12} />}
-                  <span>{s.detail || s.stage}</span>
+              {researchStages.map((st) => (
+                <div key={st.stage} className={`manuscript-research-stage is-${st.status}`}>
+                  {st.status === 'running' ? <Spinner size={12} /> : <CheckCircle size={12} aria-hidden="true" />}
+                  <span>{st.detail || st.stage}</span>
                 </div>
               ))}
             </div>
           )}
 
-          {/* Source Cards Strip */}
-          {sourcesResolved && (
-            <div style={{ marginBottom: 'var(--space-4)' }}>
-              {streamSources.length > 0 ? (
-                <>
-                  <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-subtle)', marginBottom: 'var(--space-2)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-                    <BookOpen size={12} /> {streamSources.length} Sources Used
-                  </div>
-                  <div style={{ display: 'flex', gap: 'var(--space-2)', overflowX: 'auto', paddingBottom: 'var(--space-2)' }}>
-                    {streamSources.map((src, i) => (
-                      <div
-                        key={src.index}
-                        className="source-card"
-                        style={{
-                          animationDelay: `${i * 100}ms`,
-                          minWidth: '200px', maxWidth: '260px', padding: 'var(--space-3)',
-                          background: 'var(--bg-elevated)', border: '1px solid var(--border)',
-                          borderRadius: 'var(--radius-md)', fontSize: 'var(--fs-xs)',
-                          display: 'flex', flexDirection: 'column', gap: 'var(--space-1)',
-                          transition: 'border-color var(--transition), box-shadow var(--transition)',
-                          cursor: 'default', flexShrink: 0,
-                        }}
-                    onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--primary)'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(43,94,168,0.1)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.boxShadow = 'none'; }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
-                      <span style={{ background: 'var(--primary)', color: 'var(--on-primary)', borderRadius: '50%', width: '18px', height: '18px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 'var(--fs-2xs)', fontWeight: 700, flexShrink: 0 }}>{src.index}</span>
-                      <span style={{ fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{src.title}</span>
-                    </div>
-                    <div style={{ color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {src.authors} {src.year && `(${src.year})`}
-                    </div>
-                    {src.url && (
-                      <a href={src.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)', display: 'inline-flex', alignItems: 'center', gap: '2px', fontSize: 'var(--fs-2xs)', textDecoration: 'none', marginTop: 'auto' }}>
-                        <ExternalLink size={10} /> View source
-                      </a>
-                    )}
-                  </div>
-                ))}
-              </div>
-              </>
-              ) : (
-                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-                  <BookOpen size={14} /> No specific sources cited — generated from general context.
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Gap Analysis Panel */}
-          {gapAnalysis && (
-            <div className="manuscript-gap-panel">
-              <button type="button" className="manuscript-gap-toggle" onClick={() => setGapPanelOpen(o => !o)}>
-                <Search size={16} color="var(--primary)" style={{ marginTop: 3, flexShrink: 0 }} />
-                <span className="manuscript-gap-toggle-copy">
-                  <span className="manuscript-gap-toggle-title">Research Gaps Analysis</span>
-                  <span className="manuscript-gap-toggle-meta">
-                    {gapAnalysis.conflicts?.length || 0} conflicts · {gapAnalysis.gaps?.length || 0} gaps
-                  </span>
-                </span>
-                <ChevronDown size={16} style={{ marginTop: 3, flexShrink: 0, transform: gapPanelOpen ? 'rotate(180deg)' : 'none', transition: 'transform 150ms ease' }} />
-              </button>
-              
-              <div className={`gap-panel-body${gapPanelOpen ? ' open' : ''}`}>
-                <div className="inner">
-                  <div style={{ paddingTop: gapPanelOpen ? 'var(--space-4)' : '0', transition: 'padding-top var(--transition)' }}>
-                  {gapAnalysis.status === 'insufficient_literature' ? (
-                    <div style={{ textAlign: 'center', padding: 'var(--space-4)', color: 'var(--text-muted)' }}>
-                      <p style={{ margin: 0 }}>{gapAnalysis.message}</p>
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-                      <div className="manuscript-gap-tabs" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', borderBottom: '1px solid var(--border)', paddingBottom: 'var(--space-2)', position: 'relative' }}>
-                        {['consensus', 'conflicts', 'gaps'].map(tab => (
-                          <button
-                            key={tab}
-                            onClick={() => setGapTab(tab)}
-                            style={{ background: 'none', border: 'none', padding: 'var(--space-1) var(--space-3)', color: gapTab === tab ? 'var(--primary)' : 'var(--text-subtle)', fontWeight: gapTab === tab ? 600 : 400, cursor: 'pointer', transition: 'color var(--transition)', fontSize: 'var(--fs-sm)', textTransform: 'capitalize', textAlign: 'center' }}
-                          >
-                            {tab}
-                          </button>
-                        ))}
-                        <div style={{
-                          position: 'absolute', bottom: 0, height: '2px', background: 'var(--primary)',
-                          transition: 'transform var(--transition)',
-                          width: 'calc(100% / 3)',
-                          transform: `translateX(${['consensus', 'conflicts', 'gaps'].indexOf(gapTab) * 100}%)`
-                        }} />
-                      </div>
-
-                      {gapTab === 'consensus' && gapAnalysis.consensus && gapAnalysis.consensus.length > 0 && (
-                        <div>
-                          <ul style={{ margin: 0, paddingLeft: 'var(--space-5)', fontSize: 'var(--fs-sm)', color: 'var(--text)' }}>
-                            {(gapAnalysis.consensus || []).map((item, i) => (
-                              <li key={i} style={{ marginBottom: 'var(--space-1)' }}>
-                                {item.claim} <span style={{color: 'var(--text-subtle)'}}>[{item.supporting_papers?.join(', ')}]</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      
-                      {gapTab === 'conflicts' && gapAnalysis.conflicts && gapAnalysis.conflicts.length > 0 && (
-                        <div>
-                          <ul style={{ margin: 0, paddingLeft: 'var(--space-5)', fontSize: 'var(--fs-sm)', color: 'var(--text)' }}>
-                            {(gapAnalysis.conflicts || []).map((item, i) => (
-                              <li key={i} style={{ marginBottom: 'var(--space-1)' }}>
-                                {item.claim_a} <strong>vs</strong> {item.claim_b} <span style={{color: 'var(--text-subtle)'}}>[{item.papers?.join(', ')}]</span><br/>
-                                <span style={{fontSize: 'var(--fs-sm)', color: 'var(--text-subtle)'}}>{item.note}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-
-                      {gapTab === 'gaps' && gapAnalysis.gaps && gapAnalysis.gaps.length > 0 && (
-                        <div>
-                          <ul style={{ margin: 0, paddingLeft: 'var(--space-5)', fontSize: 'var(--fs-sm)', color: 'var(--text)' }}>
-                            {(gapAnalysis.gaps || []).map((item, i) => (
-                              <li key={i} style={{ marginBottom: 'var(--space-1)' }}>
-                                {item.description} <span style={{color: 'var(--text-subtle)'}}>[{item.informed_by?.join(', ')}]</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-
-                      <div style={{ background: 'rgba(0, 87, 255, 0.05)', padding: 'var(--space-4)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(0, 87, 255, 0.15)' }}>
-                        <h4 style={{ margin: '0 0 var(--space-2) 0', fontSize: 'var(--fs-sm)', color: 'var(--primary)' }}>Suggested Direction</h4>
-                        <p style={{ margin: 0, fontSize: 'var(--fs-sm)', color: 'var(--text)' }}>{gapAnalysis.suggested_direction}</p>
-                        <button className="btn btn-primary" style={{marginTop:'var(--space-3)'}}
-                          onClick={() => { setTopic(gapAnalysis.suggested_direction); generate(); }}>
-                          Use this direction →
-                        </button>
-                        {gapAnalysis.vagueness_warning && (
-                          <div style={{ marginTop: 'var(--space-2)', padding: 'var(--space-2)', background: 'rgba(255, 152, 0, 0.1)', color: 'var(--warning)', borderRadius: '4px', fontSize: 'var(--fs-sm)' }}>
-                            {gapAnalysis.vagueness_warning}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
           {generateError && (
-            <div style={{ marginTop: 'var(--space-4)', marginBottom: 'var(--space-4)', padding: 'var(--space-3) var(--space-4)', background: 'rgba(229,28,35,0.08)', border: '1px solid rgba(229,28,35,0.2)', borderRadius: 'var(--radius-md)', color: 'var(--danger)', fontSize: 'var(--fs-sm)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-              <X size={15} /> {generateError}
+            <div className="manuscript-banner is-error" role="alert">
+              <AlertTriangle size={15} aria-hidden="true" /> {generateError}
             </div>
           )}
           {sectionTruncated && !generating && !generateError && (
-            <div style={{ marginTop: 'var(--space-4)', marginBottom: 'var(--space-4)', padding: 'var(--space-3) var(--space-4)', background: 'rgba(255,152,0,0.08)', border: '1px solid rgba(255,152,0,0.25)', borderRadius: 'var(--radius-md)', color: 'var(--warning)', fontSize: 'var(--fs-sm)' }}>
-              This section was cut off mid-sentence. Click Continue to keep writing from here.
+            <div className="manuscript-banner is-warn">
+              This section was cut off mid-sentence. Press Continue to keep writing from here.
             </div>
           )}
-          {/* Unverified Stats Toast */}
-          {(unverifiedWarning || unverifiedNumbers.length > 0) && (
-            <div style={{
-              position: 'fixed', bottom: 'var(--space-5)', right: 'var(--space-5)',
-              zIndex: 100, maxWidth: '360px', width: '100%',
-              background: 'var(--bg-card)', border: '1px solid rgba(229,28,35,0.25)',
-              borderRadius: 'var(--radius-lg)',
-              boxShadow: '0 8px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(229,28,35,0.08)',
-              padding: 'var(--space-4)',
-              animation: 'slideUp 0.3s ease-out both',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 'var(--space-3)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', minWidth: 0 }}>
-                  <span style={{ fontSize: 'var(--fs-md)', flexShrink: 0 }}>⚠️</span>
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: 'var(--fs-sm)', color: 'var(--text)' }}>
-                      {unverifiedNumbers.length} stat{unverifiedNumbers.length !== 1 ? 's' : ''} may need verification
-                    </div>
-                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: '2px' }}>
-                      Not found in source papers
-                    </div>
-                  </div>
-                </div>
-                <button
-                  onClick={() => { setUnverifiedWarning(''); setUnverifiedNumbers([]); }}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: 'var(--text-subtle)', flexShrink: 0 }}
-                >
-                  <X size={14} />
-                </button>
+          {/* Verification checks sit in the document, next to the text they
+              are about — they used to float bottom-right over the AI button. */}
+          {verifyCount > 0 && !generating && (
+            <div id="manuscript-verify" className="manuscript-banner is-warn manuscript-verify">
+              <AlertTriangle size={15} aria-hidden="true" />
+              <div className="manuscript-verify-body">
+                <strong>
+                  {unverifiedNumbers.length > 0
+                    ? `${unverifiedNumbers.length} stat${unverifiedNumbers.length !== 1 ? 's' : ''} may need verification`
+                    : 'Citations may need verification'}
+                </strong>
+                <span>
+                  {unverifiedNumbers.length > 0
+                    ? `Not found in source papers${unverifiedWarning ? '; some citations could not be verified either' : ''}.`
+                    : 'Some citations could not be matched to the provided sources. Check them independently.'}
+                </span>
+                {unverifiedNumbers.length > 0 && (
+                  <span className="manuscript-verify-values">
+                    {unverifiedNumbers.map((num, i) => <code key={i}>{num}</code>)}
+                  </span>
+                )}
               </div>
-              {unverifiedNumbers.length > 0 && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-1)', marginTop: 'var(--space-3)' }}>
-                  {unverifiedNumbers.map((num, i) => (
-                    <span key={i} style={{
-                      padding: '2px 8px', borderRadius: '999px',
-                      background: 'rgba(229,28,35,0.08)', color: 'var(--danger)',
-                      fontSize: 'var(--fs-xs)', fontWeight: 600, fontFamily: "'IBM Plex Mono', monospace",
-                      border: '1px solid rgba(229,28,35,0.15)',
-                    }}>{num}</span>
-                  ))}
-                </div>
-              )}
+              <Button variant="ghost" size="sm" onClick={() => { setUnverifiedWarning(''); setUnverifiedNumbers([]); }}>
+                Dismiss
+              </Button>
             </div>
           )}
 
-          {generating && (
-            <div style={{ marginTop: 'var(--space-6)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', marginBottom: 'var(--space-5)', background: 'rgba(0, 87, 255, 0.04)', border: '1px solid rgba(0, 87, 255, 0.1)', padding: 'var(--space-4)', borderRadius: 'var(--radius-lg)' }}>
-                <div style={{ animation: 'spin 3s linear infinite' }}>
-                  <Sparkles size={24} style={{ color: 'var(--primary)' }} />
-                </div>
-                <div>
-                  <h2 style={{ fontSize: 'var(--fs-md)', fontWeight: 600, margin: '0 0 var(--space-1) 0', color: 'var(--primary)' }}>
-                    Generating your manuscript...
-                  </h2>
-                  <div style={{ margin: 0, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-                    <Spinner size={12} /> Synthesizing evidence and structuring content...
-                  </div>
-                </div>
-              </div>
+          {generating ? (
+            <div className="manuscript-generating" aria-busy="true">
+              <p className="manuscript-generating-title"><Spinner size={14} /> Writing {currentStep?.label}…</p>
               <SkeletonText lines={12} />
             </div>
-          )}
-
-          {pendingEdit ? (
+          ) : pendingEdit ? (
             <div className="manuscript-diff-view">
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--space-4)', marginBottom: 'var(--space-4)' }}>
-                <h3 style={{ margin: 0, fontSize: 'var(--fs-base)', color: 'var(--primary)' }}>Review AI Revisions</h3>
-                <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-                  <button className="btn btn-ghost" onClick={rejectEdit} style={{ color: 'var(--danger)' }}><X size={16} /> Discard</button>
-                  <button className="btn btn-primary" onClick={acceptEdit}><CheckCircle size={16} /> Accept Changes</button>
+              <div className="manuscript-diff-head">
+                <h3>Review AI revisions</h3>
+                <div className="manuscript-diff-actions">
+                  <Button variant="ghost" size="sm" onClick={rejectEdit}>Discard</Button>
+                  <Button size="sm" onClick={acceptEdit}><CheckCircle aria-hidden="true" /> Accept changes</Button>
                 </div>
               </div>
               <RevisionChecks flags={pendingEditFlags} />
@@ -1635,76 +1830,73 @@ export default function ManuscriptBuilder() {
                 ))}
               </div>
             </div>
-          ) : !generating && (
-            <div className={`manuscript-editor-surface${viewMode === 'write' || viewMode === 'preview' ? '' : ' is-wide'}`} key={active}>
+          ) : (
+            <div className={`manuscript-editor-surface is-${viewMode}`} key={active}>
               <div className="manuscript-toolbar">
-                <div className="manuscript-toolbar-top">
-                  <div className="manuscript-mode-tabs" role="tablist" aria-label="Editor modes">
-                    {[
-                      { id: 'write', label: 'Write', short: 'Write' },
-                      { id: 'preview', label: 'Preview', short: 'Preview' },
-                      { id: 'paper', label: 'Paper Preview', short: 'Paper' },
-                      { id: 'sources', label: 'Sources', short: 'Sources' },
-                    ].map((mode) => (
-                      <button
-                        key={mode.id}
-                        type="button"
-                        role="tab"
-                        data-mode={mode.id}
-                        aria-selected={viewMode === mode.id}
-                        className={`manuscript-mode-tab${viewMode === mode.id ? ' is-active' : ''}`}
-                        onClick={() => setViewMode(mode.id)}
-                      >
-                        <span className="mode-label-full">{mode.label}</span>
-                        <span className="mode-label-short">{mode.short}</span>
-                      </button>
-                    ))}
-                    <div
-                      className="manuscript-mode-indicator"
-                      style={{ transform: `translateX(${['write', 'preview', 'paper', 'sources'].indexOf(viewMode) * 100}%)` }}
-                    />
-                  </div>
-                  <div className="manuscript-word-count">
-                    {content[active] ? content[active].trim().split(/\s+/).length : 0} words
-                  </div>
-                </div>
 
+                {viewMode === 'preview' && (
+                  <p className="manuscript-bar-hint">Preview — how headings, maths, tables and charts will render.</p>
+                )}
+                {viewMode === 'paper' && (
+                  <p className="manuscript-bar-hint">
+                    {citationStyle.toUpperCase()} layout of this section. For the whole paper use Export › Print or save as PDF.
+                  </p>
+                )}
                 {viewMode === 'write' && (
-                  <div className="manuscript-format-toolbar" aria-label="Formatting">
+                  // ME-1 (E2, E4, E12): a real toolbar. Every button is named,
+                  // acts on click so Enter/Space work, and only uses mousedown to
+                  // keep the editor's selection from moving to the button.
+                  <div
+                    className="manuscript-format-toolbar"
+                    role="toolbar"
+                    aria-label="Formatting"
+                    aria-controls="manuscript-textarea"
+                  >
+                    {FORMAT_GROUPS.map((group, g) => (
+                      <div className="format-group" key={g}>
+                        {group.map(([label, Icon, prefix, suffix = '']) => (
+                          <button
+                            key={label}
+                            type="button"
+                            className="format-btn"
+                            title={label}
+                            aria-label={label}
+                            onMouseDown={keepEditorSelection}
+                            onClick={() => insertMarkdown(prefix, suffix)}
+                          >
+                            <Icon size={15} aria-hidden="true" />
+                          </button>
+                        ))}
+                      </div>
+                    ))}
                     <div className="format-group">
-                      <button className="format-btn" onMouseDown={(e) => handleFormat(e, '# ')} title="Heading 1"><Heading1 size={15} /></button>
-                      <button className="format-btn" onMouseDown={(e) => handleFormat(e, '## ')} title="Heading 2"><Heading2 size={15} /></button>
-                      <button className="format-btn" onMouseDown={(e) => handleFormat(e, '### ')} title="Heading 3"><Heading3 size={15} /></button>
-                    </div>
-                    <div className="format-group">
-                      <button className="format-btn" onMouseDown={(e) => handleFormat(e, '**', '**')} title="Bold"><Bold size={15} /></button>
-                      <button className="format-btn" onMouseDown={(e) => handleFormat(e, '*', '*')} title="Italic"><Italic size={15} /></button>
-                      <button className="format-btn" onMouseDown={(e) => handleFormat(e, '~~', '~~')} title="Strikethrough"><Strikethrough size={15} /></button>
-                      <button className="format-btn" onMouseDown={(e) => handleFormat(e, '[', '](url)')} title="Link"><Link size={15} /></button>
-                    </div>
-                    <div className="format-group">
-                      <button className="format-btn" onMouseDown={(e) => handleFormat(e, '- ')} title="Bulleted List"><List size={15} /></button>
-                      <button className="format-btn" onMouseDown={(e) => handleFormat(e, '1. ')} title="Numbered List"><ListOrdered size={15} /></button>
-                      <button className="format-btn" onMouseDown={(e) => handleFormat(e, '- [ ] ')} title="Checklist"><CheckSquare size={15} /></button>
-                      <button className="format-btn" onMouseDown={(e) => handleFormat(e, '\n| Column 1 | Column 2 |\n| -------- | -------- |\n| Text     | Text     |\n')} title="Table"><Table size={15} /></button>
-                    </div>
-                    <div className="format-group">
-                      <button className="format-btn" onMouseDown={(e) => handleFormat(e, '> ')} title="Blockquote"><Quote size={15} /></button>
-                      <button className="format-btn" onMouseDown={(e) => handleFormat(e, '```\n', '\n```')} title="Code Block"><Code size={15} /></button>
-                    </div>
-                    <div className="format-group">
-                      <button className="format-btn" onMouseDown={handleUndo} title="Undo"><Undo size={15} /></button>
-                      <button className="format-btn" onMouseDown={handleRedo} title="Redo"><Redo size={15} /></button>
+                      <button type="button" className="format-btn" title="Undo" aria-label="Undo" onMouseDown={keepEditorSelection} onClick={handleUndo}>
+                        <Undo size={15} aria-hidden="true" />
+                      </button>
+                      <button type="button" className="format-btn" title="Redo" aria-label="Redo" onMouseDown={keepEditorSelection} onClick={handleRedo}>
+                        <Redo size={15} aria-hidden="true" />
+                      </button>
                     </div>
                   </div>
                 )}
               </div>
               
+              {/* E8: the panel the mode tabs control. display: contents keeps
+                  the existing layout rules, which target its children. */}
+              <div
+                id="manuscript-mode-panel"
+                role="tabpanel"
+                aria-labelledby={`manuscript-tab-${viewMode}`}
+                className="manuscript-mode-panel"
+              >
               {viewMode === 'write' ? (
                 <textarea
                   id="manuscript-textarea"
-                  placeholder={`Write your ${currentStep?.label.toLowerCase()} here, or click Generate for AI assistance...\nUse LaTeX for math (e.g. $E = mc^2$ for inline, $$x^2$$ for block).`}
-                  value={(content[active] || '') + (generating ? '▋' : '')}
+                  aria-label={`${currentStep?.label} text`}
+                  spellCheck
+                  lang="en"
+                  placeholder={`Write your ${currentStep?.label.toLowerCase()} here, or click Generate for AI assistance...\nMaths: $...$ inline, $$...$$ on its own line.`}
+                  value={content[active] || ''}
                   onChange={e => setContent(prev => ({ ...prev, [active]: e.target.value }))}
                   // Captured so "AI Revise" can scope to it — clicking into the
                   // revise input drops the browser selection, so it is held here.
@@ -1731,10 +1923,10 @@ export default function ManuscriptBuilder() {
                         code: MarkdownCode
                       }}
                     >
-                      {normalizeLatexDelimiters(processForUnverified((content[active] || '') + (generating ? ' <span class="write-cursor">▋</span>' : '')))}
+                      {normalizeLatexDelimiters(processForUnverified(content[active], currentStep?.label))}
                     </ReactMarkdown>
                   ) : (
-                    <p style={{ color: 'var(--text-subtle)', fontStyle: 'italic', margin: 0 }}>Nothing to preview.</p>
+                    <p className="manuscript-empty-note">Nothing to preview yet.</p>
                   )}
                 </div>
               ) : viewMode === 'paper' ? (
@@ -1744,7 +1936,7 @@ export default function ManuscriptBuilder() {
                   <div className={`paper-preview format-${citationStyle} paper-preview-screen`}>
                     <div className="paper-header">
                       <div className="paper-section-label">{currentStep?.label}</div>
-                       <h1 className="paper-title" title={topic}>{formatPaperTitle(topic)}</h1>
+                       <h2 className="paper-title" title={topic}>{formatPaperTitle(topic)}</h2>
                     </div>
                     <div className="paper-body">
                       {content[active] ? (
@@ -1762,12 +1954,10 @@ export default function ManuscriptBuilder() {
                             code: MarkdownCode
                           }}
                         >
-                          {normalizeLatexDelimiters(processForUnverified(content[active]))}
+                          {normalizeLatexDelimiters(processForUnverified(content[active], currentStep?.label))}
                         </ReactMarkdown>
                       ) : (
-                        <p style={{ color: '#999', fontStyle: 'italic', textAlign: 'center', marginTop: 'var(--space-7)' }}>
-                          No content to preview for this section.
-                        </p>
+                        <p className="manuscript-empty-note">No content to preview for this section.</p>
                       )}
                     </div>
                   </div>
@@ -1779,11 +1969,9 @@ export default function ManuscriptBuilder() {
                     </div>
                     <div className="paper-body">
                       {STEPS.map(step => content[step.id] ? (
-                        <div key={step.id} className="paper-section" style={{ marginBottom: 'var(--space-6)' }}>
+                        <div key={step.id} className="paper-section">
                           {step.id !== 'abstract' && (
-                            <h2 style={{ textTransform: 'uppercase', fontSize: 'var(--fs-md)', marginBottom: 'var(--space-4)', borderBottom: '1px solid #eee', paddingBottom: 'var(--space-2)' }}>
-                              {step.label}
-                            </h2>
+                            <h2 className="paper-section-title">{step.label}</h2>
                           )}
                           <ReactMarkdown
                             remarkPlugins={[remarkGfm, remarkMath]}
@@ -1799,348 +1987,200 @@ export default function ManuscriptBuilder() {
                               code: MarkdownCode
                             }}
                           >
-                            {normalizeLatexDelimiters(processForUnverified(content[step.id]))}
+                            {normalizeLatexDelimiters(processForUnverified(content[step.id], step.label))}
                           </ReactMarkdown>
                         </div>
                       ) : null)}
                     </div>
                   </div>
                 </>
-              ) : (
-                <SourcesPanel topic={topic} />
-              )}
-
-              {content[active] && !generating && (
-                <div className="manuscript-editor-footer">
-                  {editHistory[active] && editHistory[active].length > 0 && (
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      onClick={undoLastEdit}
-                    >
-                      <Undo size={16} /> Undo AI Edit
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={() => setRevisePanelOpen(true)}
-                  >
-                    <Sparkles size={16} /> AI Revise
-                  </button>
-                </div>
-              )}
-
-              <div className="manuscript-revise-panel-container">
-                <div className={`manuscript-revise-panel ${revisePanelOpen ? 'open' : ''}`}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)' }}>
-                    <p style={{ margin: 0, fontSize: 'var(--fs-sm)', fontWeight: 600, color: 'var(--primary)' }}><Sparkles size={14} style={{ display: 'inline', verticalAlign: 'text-bottom' }}/> Revise Section</p>
-                    <button type="button" onClick={() => setRevisePanelOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)' }}><X size={16} /></button>
-                  </div>
-                  {/* Revision scope. Choosing anything but "Whole section" means
-                      the server rewrites only that span and splices the reply back,
-                      so the rest of the section is copied rather than regenerated. */}
-                  <div className="revise-scope">
-                    <span className="revise-scope-label">Revise:</span>
-                    <button
-                      type="button"
-                      className={`revise-scope-chip${editScope ? '' : ' active'}`}
-                      onClick={() => setEditScope(null)}
-                      disabled={editing || generating}
-                    >
-                      Whole section
-                    </button>
-                    <button
-                      type="button"
-                      className={`revise-scope-chip${editScope?.kind === 'selection' ? ' active' : ''}`}
-                      onClick={() => setEditScope({ kind: 'selection' })}
-                      disabled={editing || generating || !editorSelection}
-                      title={
-                        editorSelection
-                          ? `“${editorSelection.text.slice(0, 80)}${editorSelection.text.length > 80 ? '…' : ''}”`
-                          : 'Select text in the editor first'
-                      }
-                    >
-                      Selected text
-                    </button>
-                    {diagramBlocks.map((block, i) => (
-                      <button
-                        key={i}
-                        type="button"
-                        className={`revise-scope-chip${editScope?.kind === 'diagram' && editScope.index === i ? ' active' : ''}`}
-                        onClick={() => setEditScope({ kind: 'diagram', index: i })}
-                        disabled={editing || generating}
-                        title={block.body.slice(0, 120)}
-                      >
-                        {diagramBlocks.length > 1 ? `Diagram ${i + 1}` : 'Diagram'}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="revise-scope-hint">
-                    {editScope
-                      ? 'Only the targeted text is sent for rewriting — everything else is preserved exactly as written.'
-                      : 'The whole section is rewritten. Target a selection or a diagram to leave the rest untouched.'}
-                  </p>
-                  <div className="manuscript-revise-row">
-                    <input
-                      placeholder={
-                        editScope?.kind === 'diagram'
-                          ? 'e.g. Fix the axis labels, use the numbers from [2]...'
-                          : 'e.g. Make this shorter, add bullet points, fix grammar...'
-                      }
-                      value={editPrompt}
-                      onChange={e => setEditPrompt(e.target.value)}
-                      disabled={editing || generating}
-                      onKeyDown={e => { if (e.key === 'Enter') applyEdit(); }}
-                    />
-                    <button className="btn btn-primary" onClick={applyEdit} disabled={editing || generating || !editPrompt.trim()}>
-                      {editing ? <Spinner size={14} /> : <Send size={14} />} Apply Revision
-                    </button>
-                  </div>
-                  {editError && <div style={{ color: 'var(--danger)', fontSize: 'var(--fs-sm)', marginTop: 'var(--space-2)' }}>{editError}</div>}
-                </div>
+              ) : null}
               </div>
+
             </div>
           )}
 
-          {/* References Drawer & Toggle */}
-          {manuscriptRefs && Object.keys(manuscriptRefs).length > 0 && (
-            <>
-              <button 
-                className="manuscript-refs-toggle" 
-                onClick={() => setRefsOpen(!refsOpen)}
-              >
-                <BookOpen size={16} /> References ({Object.keys(manuscriptRefs).length})
-              </button>
-              
-              <div className={`manuscript-refs-drawer ${refsOpen ? 'open' : ''}`}>
-                <div className="manuscript-refs-drawer-header">
-                  <h3 style={{ margin: 0, fontSize: 'var(--fs-md)', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-                    <BookOpen size={16} color="var(--primary)" /> References
-                  </h3>
-                  <button onClick={() => setRefsOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)' }}><X size={16} /></button>
-                </div>
-                <div className="manuscript-refs-drawer-content">
-                  <ol style={{ margin: 0, paddingLeft: 'var(--space-5)', fontSize: 'var(--fs-sm)', color: 'var(--text-subtle)', lineHeight: 1.6 }}>
-                    {Object.entries(manuscriptRefs).map(([idx, refString]) => (
-                      <li key={idx} style={{ marginBottom: 'var(--space-2)' }}>{refString}</li>
-                    ))}
-                  </ol>
-                </div>
-              </div>
-              
-              {refsOpen && (
-                <div
-                  className="manuscript-refs-overlay"
-                  onClick={() => setRefsOpen(false)}
-                  aria-hidden="true"
-                />
+          {content[active] && !generating && !pendingEdit && (
+            <div className="manuscript-doc-footer">
+              {editHistory[active] && editHistory[active].length > 0 && (
+                <Button variant="ghost" size="sm" onClick={undoLastEdit}>
+                  <Undo aria-hidden="true" /> Undo AI edit
+                </Button>
               )}
-            </>
+              <Button variant="outline" size="sm" onClick={() => openTools('revise')}>
+                <Sparkles aria-hidden="true" /> Revise with AI
+              </Button>
+            </div>
           )}
-        </div>
+        </main>
+
+        {toolsAsPanel && (
+          <aside id="manuscript-tools" className="manuscript-tools" aria-label="AI and evidence">
+            <div className="manuscript-tools-head">
+              <h2>AI &amp; evidence</h2>
+              <Button variant="ghost" size="icon-sm" onClick={toggleDock} aria-label="Float the panel over the document" title="Float the panel">
+                <PinIcon aria-hidden="true" />
+              </Button>
+              <Button variant="ghost" size="icon-sm" onClick={closeTools} aria-label="Close AI and evidence panel" title="Close">
+                <X aria-hidden="true" />
+              </Button>
+            </div>
+            {toolsBody}
+          </aside>
+        )}
       </div>
 
-      {/* New Paper Confirm Modal */}
-      {showNewPaperConfirm && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' }} onClick={() => setShowNewPaperConfirm(false)}>
-          <div className="animate-scale-in" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 'var(--space-6)', width: '100%', maxWidth: '400px' }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
-              <h3 style={{ margin: 0, color: 'var(--danger)' }}>Start New Paper?</h3>
-              <button onClick={() => setShowNewPaperConfirm(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', display: 'flex' }}><X size={17} /></button>
-            </div>
-            <p style={{ fontSize: 'var(--fs-sm)', marginBottom: 'var(--space-6)' }}>Are you sure you want to start a new paper? Any unsaved changes in your current manuscript will be lost.</p>
-            <div style={{ display: 'flex', gap: 'var(--space-3)', justifyContent: 'flex-end' }}>
-              <button className="btn btn-ghost" onClick={() => setShowNewPaperConfirm(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={confirmNewPaper} style={{ background: 'var(--danger)' }}>Yes, Start Fresh</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Narrow screens, or when the panel is undocked: the same tools as a sheet. */}
+      <Sheet open={toolsOpen && !toolsAsPanel} onOpenChange={(open) => (open ? openTools(toolsTab) : closeTools())}>
+        <SheetContent side="right" className="manuscript-tools-sheet">
+          <SheetHeader className="manuscript-tools-head">
+            <SheetTitle>AI &amp; evidence</SheetTitle>
+            <SheetDescription className="sr-only">Revise the section, read the gap analysis, sources and references.</SheetDescription>
+            {canDock && (
+              <Button variant="ghost" size="sm" onClick={() => { toggleDock(); }}>
+                <PinIcon aria-hidden="true" /> Dock beside the document
+              </Button>
+            )}
+          </SheetHeader>
+          <div id={toolsAsPanel ? undefined : 'manuscript-tools'} className="manuscript-tools-sheet-body">{toolsBody}</div>
+        </SheetContent>
+      </Sheet>
+
+      {/* New paper: the shared confirm, not a hand-built overlay. */}
+      <AlertDialog open={showNewPaperConfirm} onOpenChange={setShowNewPaperConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Start a new paper?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The editor will be cleared. Saved drafts stay in Open; changes since the last save are lost.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep editing</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={confirmNewPaper}>Start new paper</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Version history (1.10) */}
-      {showHistory && (
-        <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' }}
-          onClick={() => { if (!restoringVersion) setShowHistory(false); }}
-        >
-          <div className="animate-scale-in" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 'var(--space-6)', width: '100%', maxWidth: '520px' }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
-              <h3 style={{ margin: 0 }}>Version History</h3>
-              <button
-                onClick={() => { if (!restoringVersion) setShowHistory(false); }}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', display: 'flex' }}
-              >
-                <X size={17} />
-              </button>
-            </div>
-            <p style={{ fontSize: 'var(--fs-sm)', marginBottom: 'var(--space-3)' }}>
-              Each entry is what this draft looked like <em>before</em> a save. Restoring one keeps
-              your current text as a new entry, so a restore is undoable too.
-            </p>
-            {versionError && <p style={{ color: 'var(--danger)', fontSize: 'var(--fs-sm)', marginBottom: 'var(--space-3)' }}>{versionError}</p>}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', maxHeight: '340px', overflowY: 'auto', marginBottom: 'var(--space-4)', paddingRight: 'var(--space-1)' }}>
-              {versionsLoading && <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 'var(--fs-sm)' }}>Loading history...</p>}
-              {!versionsLoading && versions.length === 0 && !versionError && (
-                <div className="empty-state" style={{ padding: 'var(--space-4)', fontSize: 'var(--fs-sm)' }}>
-                  No earlier versions yet — one is kept every time a save replaces existing text.
-                </div>
-              )}
-              {!versionsLoading && versions.map((version) => {
-                const summary = version.summary || {};
-                const when = version.created_at ? new Date(version.created_at) : null;
-                return (
-                  <div key={version.id} className="manuscript-draft-row">
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div className="manuscript-draft-title">
-                        {when ? when.toLocaleString() : 'Earlier version'}
-                        {version.reason === 'restore' && ' · before a restore'}
-                      </div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-subtle)', marginTop: '2px' }}>
-                        {(summary.sections || []).length} section{(summary.sections || []).length === 1 ? '' : 's'}
-                        {typeof summary.total_chars === 'number' && ` · ${summary.total_chars.toLocaleString()} characters`}
-                      </div>
-                    </div>
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      disabled={Boolean(restoringVersion)}
-                      onClick={() => restoreVersion(version)}
-                      style={{ flexShrink: 0, height: 'auto', minHeight: '30px', padding: '0.35rem 0.75rem', fontSize: 'var(--fs-xs)' }}
-                    >
-                      {restoringVersion === version.id
-                        ? <Spinner size={14} />
-                        : <><RotateCcw size={13} /> Restore</>}
-                    </button>
+      <Dialog open={showHistory} onOpenChange={(open) => { if (!open && !restoringVersion) setShowHistory(false); }}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Version history</DialogTitle>
+            <DialogDescription>
+              Each entry is what this draft looked like before a save. Restoring one keeps your current
+              text as a new entry, so a restore can be undone too.
+            </DialogDescription>
+          </DialogHeader>
+          {versionError && <div className="manuscript-draft-error" role="alert">{versionError}</div>}
+          <div className="manuscript-draft-list">
+            {versionsLoading && <div className="manuscript-draft-meta">Loading history...</div>}
+            {!versionsLoading && versions.length === 0 && !versionError && (
+              <p className="manuscript-empty-note">No earlier versions yet — one is kept every time a save replaces existing text.</p>
+            )}
+            {!versionsLoading && versions.map((version) => {
+              const summary = version.summary || {};
+              const when = version.created_at ? new Date(version.created_at) : null;
+              const sectionCount = (summary.sections || []).length;
+              return (
+                <div key={version.id} className="manuscript-draft-row">
+                  <div className="manuscript-draft-main is-static">
+                    <span className="manuscript-draft-title">
+                      {when ? when.toLocaleString() : 'Earlier version'}
+                      {version.reason === 'restore' && ' · before a restore'}
+                    </span>
+                    <span className="manuscript-draft-meta">
+                      {sectionCount} section{sectionCount === 1 ? '' : 's'}
+                      {typeof summary.total_chars === 'number' && ` · ${summary.total_chars.toLocaleString()} characters`}
+                    </span>
                   </div>
-                );
-              })}
-            </div>
-            <div style={{ display: 'flex', gap: 'var(--space-3)', justifyContent: 'flex-end' }}>
-              <button className="btn btn-ghost" disabled={Boolean(restoringVersion)} onClick={() => setShowHistory(false)}>Close</button>
-            </div>
+                  <Button variant="outline" size="sm" disabled={Boolean(restoringVersion)} onClick={() => restoreVersion(version)}>
+                    {restoringVersion === version.id ? <Spinner size={14} /> : <><RotateCcw aria-hidden="true" /> Restore</>}
+                  </Button>
+                </div>
+              );
+            })}
           </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
 
       {/* Load modal */}
-      {showLoad && (
-        <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' }}
-          onClick={() => {
-            if (draftToDelete) return;
-            setShowLoad(false);
-          }}
+      {/* Load draft (ROW-2): a shadcn Dialog, so the row menu and the delete
+          confirm stack above it — the old z-index 1000 overlay hid them. */}
+      <Dialog open={showLoad} onOpenChange={(open) => { if (!open) setShowLoad(false); }}>
+        <DialogContent
+          className="sm:max-w-lg"
+          onEscapeKeyDown={(e) => { if (renamingDraftId) e.preventDefault(); }}
         >
-          <div className="animate-scale-in" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 'var(--space-6)', width: '100%', maxWidth: '480px' }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
-              <h3 style={{ margin: 0 }}>Load Draft</h3>
-              <button
-                onClick={() => { setShowLoad(false); setDraftToDelete(null); }}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', display: 'flex' }}
-              >
-                <X size={17} />
-              </button>
-            </div>
-            <p style={{ fontSize: 'var(--fs-sm)', marginBottom: 'var(--space-3)' }}>Choose one of your saved manuscript drafts.</p>
-            <div style={{ position: 'relative', marginBottom: 'var(--space-4)' }}>
-              <Search size={15} style={{ position: 'absolute', left: '0.9rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-subtle)', pointerEvents: 'none' }} />
-              <input placeholder="Filter saved drafts..." value={draftFilter} onChange={e => setDraftFilter(e.target.value)} style={{ paddingLeft: '2.4rem' }} />
-            </div>
-            {loadError && <p style={{ color: 'var(--danger)', fontSize: 'var(--fs-sm)', marginBottom: 'var(--space-3)' }}>{loadError}</p>}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', maxHeight: '320px', overflowY: 'auto', marginBottom: 'var(--space-4)', paddingRight: 'var(--space-1)' }}>
-              {draftLoading && <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 'var(--fs-sm)' }}>Loading drafts...</p>}
-              {!draftLoading && visibleDrafts.length === 0 && (
-                <div className="empty-state" style={{ padding: 'var(--space-4)', fontSize: 'var(--fs-sm)' }}>
-                  {drafts.length ? 'No drafts match your filter.' : 'No saved drafts yet.'}
-                </div>
-              )}
-              {!draftLoading && visibleDrafts.map((draft) => (
-                <div
-                  key={draft.id || draft.topic}
-                  className="manuscript-draft-row"
-                  onClick={() => load(draft)}
-                >
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <div className="manuscript-draft-title" title={draftTitle(draft)}>
-                      {draftTitle(draft)}
-                    </div>
-                    {draft.updated_at && (
-                      <div style={{ fontSize: '11px', color: 'var(--text-subtle)', marginTop: '2px' }}>
-                        Updated {new Date(draft.updated_at).toLocaleDateString()}
+          <DialogHeader>
+            <DialogTitle>Open draft</DialogTitle>
+            <DialogDescription>Choose one of your saved manuscript drafts.</DialogDescription>
+          </DialogHeader>
+          <div className="manuscript-draft-filter">
+            <Search size={15} />
+            <input aria-label="Filter saved drafts" placeholder="Filter saved drafts..." value={draftFilter} onChange={e => setDraftFilter(e.target.value)} />
+          </div>
+          {loadError && <div className="manuscript-draft-error" role="alert">{loadError}</div>}
+          <div className="manuscript-draft-list">
+            {draftLoading && <div className="manuscript-draft-meta">Loading drafts...</div>}
+            {!draftLoading && visibleDrafts.length === 0 && (
+              <div className="empty-state" style={{ padding: 'var(--space-4)', fontSize: 'var(--fs-sm)' }}>
+                {drafts.length ? 'No drafts match your filter.' : 'No saved drafts yet.'}
+              </div>
+            )}
+            {!draftLoading && [['Pinned', draftGroups.pinned], ['Drafts', draftGroups.rest]]
+              .filter(([, rows]) => rows.length > 0)
+              .map(([label, rows]) => (
+                <section key={label} className="manuscript-draft-section" aria-label={label}>
+                  {draftGroups.pinned.length > 0 && <h4 className="manuscript-draft-group">{label}</h4>}
+                  {rows.map((draft) => {
+                    const name = draftTitle(draft);
+                    return (
+                      <div key={draft.id || draft.topic} className="manuscript-draft-row group">
+                        {renamingDraftId && renamingDraftId === draft.id ? (
+                          <RenameField
+                            className="manuscript-draft-rename"
+                            initial={name}
+                            label={`Rename ${name}`}
+                            onSubmit={(value) => { setRenamingDraftId(null); patchDraft(draft, { title: value }); }}
+                            onCancel={() => setRenamingDraftId(null)}
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            className="manuscript-draft-main"
+                            onClick={() => load(draft)}
+                            title={draft.title ? `${name} (${draft.topic})` : name}
+                          >
+                            <span className="manuscript-draft-title">
+                              {draft.pinned && <Pin size={12} aria-label="Pinned" />} {name}
+                            </span>
+                            {draft.updated_at && (
+                              <span className="manuscript-draft-meta">
+                                Updated {new Date(draft.updated_at).toLocaleDateString()}
+                              </span>
+                            )}
+                          </button>
+                        )}
+                        <SavedItemMenu
+                          name={name}
+                          kind="draft"
+                          pinned={draft.pinned === true}
+                          onTogglePin={draft.id ? () => patchDraft(draft, { pinned: !draft.pinned }) : undefined}
+                          onRename={draft.id ? () => setRenamingDraftId(draft.id) : undefined}
+                          onDelete={() => deleteDraft(draft)}
+                          deleteDetail={isCurrentDraft(draft)
+                            ? 'and its version history will be removed, and the editor will be cleared because this is the paper you are editing.'
+                            : 'and its version history will be removed.'}
+                        />
                       </div>
-                    )}
-                  </div>
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    onClick={(e) => { e.stopPropagation(); load(draft); }}
-                    style={{ flexShrink: 0, height: 'auto', minHeight: '30px', padding: '0.35rem 0.75rem', fontSize: 'var(--fs-xs)' }}
-                  >
-                    Load
-                  </button>
-                  <button
-                    type="button"
-                    className="manuscript-draft-delete"
-                    aria-label={`Delete draft ${draftTitle(draft)}`}
-                    title="Delete draft"
-                    disabled={Boolean(deletingTopic)}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setLoadError('');
-                      setDraftToDelete(draft);
-                    }}
-                  >
-                    {deletingTopic && (deletingTopic === draft.id || deletingTopic === draft.topic) ? <Spinner size={14} /> : <Trash2 size={14} />}
-                  </button>
-                </div>
+                    );
+                  })}
+                </section>
               ))}
-            </div>
-            <div style={{ display: 'flex', gap: 'var(--space-3)', justifyContent: 'flex-end' }}>
-              <button className="btn btn-ghost" onClick={() => { setShowLoad(false); setDraftToDelete(null); }}>Cancel</button>
-            </div>
           </div>
-        </div>
-      )}
-
-      {draftToDelete && (
-        <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, backdropFilter: 'blur(4px)' }}
-          onClick={() => { if (!deletingTopic) setDraftToDelete(null); }}
-        >
-          <div className="animate-scale-in" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 'var(--space-6)', width: '100%', maxWidth: '400px' }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
-              <h3 style={{ margin: 0, color: 'var(--danger)' }}>Delete Draft?</h3>
-              <button
-                onClick={() => { if (!deletingTopic) setDraftToDelete(null); }}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', display: 'flex' }}
-              >
-                <X size={17} />
-              </button>
-            </div>
-            <p style={{ fontSize: 'var(--fs-sm)', marginBottom: (loadedDraftId && draftToDelete.id && loadedDraftId === draftToDelete.id) || topic === draftToDelete.topic ? 'var(--space-3)' : 'var(--space-6)' }}>
-              Delete <strong>{draftTitle(draftToDelete)}</strong>? This cannot be undone.
-            </p>
-            {((loadedDraftId && draftToDelete.id && loadedDraftId === draftToDelete.id) || topic === draftToDelete.topic) && (
-              <p style={{ fontSize: 'var(--fs-sm)', marginBottom: 'var(--space-6)', color: 'var(--text-muted)' }}>
-                This is the paper you are currently editing. Deleting it will also clear the editor.
-              </p>
-            )}
-            {loadError && (
-              <p style={{ color: 'var(--danger)', fontSize: 'var(--fs-sm)', marginBottom: 'var(--space-4)' }}>{loadError}</p>
-            )}
-            <div style={{ display: 'flex', gap: 'var(--space-3)', justifyContent: 'flex-end' }}>
-              <button className="btn btn-ghost" onClick={() => setDraftToDelete(null)} disabled={Boolean(deletingTopic)}>Cancel</button>
-              <button
-                className="btn btn-primary"
-                onClick={() => deleteDraft(draftToDelete)}
-                disabled={Boolean(deletingTopic)}
-                style={{ background: 'var(--danger)' }}
-              >
-                {deletingTopic ? <Spinner size={14} /> : 'Yes, Delete Draft'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

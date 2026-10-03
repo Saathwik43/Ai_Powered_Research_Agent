@@ -231,6 +231,19 @@ export default function SourcesPanel({ topic }) {
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           onClick={() => fileInputRef.current?.click()}
+          // ME-1 (E6): stays a div so the drag handlers keep working, but it
+          // is announced and operable as the button it behaves like.
+          role="button"
+          tabIndex={uploading ? -1 : 0}
+          aria-disabled={uploading || undefined}
+          aria-label="Upload a source file: PDF, CSV, JSON, text, Markdown or image"
+          onKeyDown={(e) => {
+            if (uploading) return;
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              fileInputRef.current?.click();
+            }
+          }}
           style={{
             border: `2px dashed ${dragActive ? 'var(--primary)' : 'var(--border)'}`,
             borderRadius: 'var(--radius-lg)',
@@ -347,8 +360,10 @@ export default function SourcesPanel({ topic }) {
                     </span>
                   </div>
                   <button
+                    type="button"
                     onClick={() => handleDelete(sid)}
                     title="Delete source"
+                    aria-label={`Delete source ${source.filename}`}
                     style={{
                       background: 'none',
                       border: 'none',

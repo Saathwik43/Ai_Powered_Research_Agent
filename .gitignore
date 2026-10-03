@@ -36,3 +36,6 @@ backend.log
 # backend/integrations/ on 2026-08-24 - delete it and rotate the credential.
 client_secret*.json
 *client_secret*.json
+
+# Local agent memory and rules - never committed
+CLAUDE.md

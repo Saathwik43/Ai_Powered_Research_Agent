@@ -3,25 +3,51 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, BookOpen, PenTool, LayoutList, LogOut, X, ChevronLeft, ChevronRight, FileText, Shield, Moon, Sun } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import DailyUsageCard from './DailyUsageCard';
 import './Sidebar.css';
+
+// Grouped by where you are in the research workflow rather than as five peers.
+// Routes are unchanged — only the labelling and order of the same paths.
+const NAV_GROUPS = [
+  {
+    label: 'Discover',
+    items: [
+      { name: 'Topic Discovery', path: '/dashboard', icon: LayoutDashboard },
+      { name: 'Literature Survey', path: '/literature-survey', icon: BookOpen },
+    ],
+  },
+  {
+    label: 'Analyze',
+    items: [
+      { name: 'PDF & Evidence', path: '/pdf-analysis', icon: FileText },
+    ],
+  },
+  {
+    label: 'Write',
+    items: [
+      { name: 'Manuscript', path: '/manuscript-builder', icon: PenTool },
+    ],
+  },
+  {
+    label: 'Publish',
+    items: [
+      { name: 'Venues', path: '/venue-recommendations', icon: LayoutList },
+    ],
+  },
+];
+
+const ADMIN_GROUP = {
+  label: 'Admin',
+  items: [{ name: 'Administration', path: '/admin', icon: Shield }],
+};
 
 const Sidebar = ({ open, onClose, collapsed, onToggleCollapse }) => {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
 
-  const navItems = [
-    { name: 'Dashboard', path: '/dashboard', icon: <LayoutDashboard size={18} /> },
-    { name: 'Literature Survey', path: '/literature-survey', icon: <BookOpen size={18} /> },
-    { name: 'PDF Analysis', path: '/pdf-analysis', icon: <FileText size={18} /> },
-    { name: 'Manuscript Builder', path: '/manuscript-builder', icon: <PenTool size={18} /> },
-    { name: 'Venue Recommendations', path: '/venue-recommendations', icon: <LayoutList size={18} /> },
-  ];
-
-  if (user?.role === 'admin') {
-    navItems.push({ name: 'Admin Dashboard', path: '/admin', icon: <Shield size={18} /> });
-  }
+  const groups = user?.role === 'admin' ? [...NAV_GROUPS, ADMIN_GROUP] : NAV_GROUPS;
 
   const handleLogout = () => {
     logout();
@@ -32,6 +58,41 @@ const Sidebar = ({ open, onClose, collapsed, onToggleCollapse }) => {
     ? user.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
     : 'U';
 
+  // Collapsed, the group labels are hidden and every rail is icon-only, so the
+  // name has to come back on hover — otherwise the regrouping costs legibility.
+  const renderLink = (item) => {
+    const link = (
+      // A *string* className, not the usual `({ isActive }) => …` function.
+      // Collapsed, each link is wrapped in `TooltipTrigger asChild`, and Radix's
+      // Slot merges className by string-joining it — so the function was handed
+      // to the DOM stringified, and every link carried the literal text
+      // "({ isActive }) => `nav-link ${…}`" as its class. Measured in the page:
+      // `.sidebar .nav-link` matched 0 elements while collapsed and 6 while
+      // expanded, which is why the collapsed rail had no padding, no centring,
+      // no hover and no active marker. react-router already sets
+      // aria-current="page" on the active link, so the selected state is read
+      // from that instead and nothing has to be computed here.
+      <NavLink
+        key={item.path}
+        to={item.path}
+        className="nav-link"
+        onClick={onClose}
+      >
+        <item.icon size={16} className="nav-link-icon" />
+        <span className="nav-link-text">{item.name}</span>
+      </NavLink>
+    );
+
+    if (!collapsed) return link;
+
+    return (
+      <Tooltip key={item.path}>
+        <TooltipTrigger asChild>{link}</TooltipTrigger>
+        <TooltipContent side="right">{item.name}</TooltipContent>
+      </Tooltip>
+    );
+  };
+
   return (
     <>
       {/* Mobile overlay */}
@@ -39,10 +100,10 @@ const Sidebar = ({ open, onClose, collapsed, onToggleCollapse }) => {
 
       <aside className={`sidebar ${open ? 'open' : ''} ${collapsed ? 'collapsed' : ''}`}>
         <div className="sidebar-header">
-          <img src="/9672704.webp" alt="Logo" style={{ width: 34, height: 34, borderRadius: '6px', objectFit: 'cover' }} />
+          <img src="/9672704.webp" alt="Logo" className="sidebar-mark" />
           <div className="sidebar-brand-text">
             <h2>Research Agent</h2>
-            <span>AI Publishing Platform</span>
+            <span>Research workspace</span>
           </div>
           <button
             type="button"
@@ -52,58 +113,61 @@ const Sidebar = ({ open, onClose, collapsed, onToggleCollapse }) => {
           >
             <X size={18} />
           </button>
-          <button className="sidebar-toggle-btn hide-mobile" onClick={onToggleCollapse} aria-label="Collapse sidebar">
-            {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+          <button
+            type="button"
+            className="sidebar-toggle-btn hide-mobile"
+            onClick={onToggleCollapse}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {collapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
           </button>
         </div>
 
-        <nav className="sidebar-nav">
-          <div className="nav-section-label">Navigation</div>
-          {navItems.map((item) => (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-              onClick={onClose}
+        {/* Scroll lives here, not on the aside: the seam toggle sits at
+            right: -13px and was half-clipped by overflow:auto on .sidebar. */}
+        <div className="sidebar-body">
+          <nav className="sidebar-nav">
+            {groups.map((group) => (
+              <div className="nav-group" key={group.label}>
+                <div className="nav-section-label">{group.label}</div>
+                {group.items.map(renderLink)}
+              </div>
+            ))}
+          </nav>
+
+          {!collapsed && <DailyUsageCard />}
+
+          <div className="sidebar-footer">
+            {user && (
+              <div className="user-info">
+                <div className="user-avatar">
+                  {user.picture ? (
+                    <img src={user.picture} alt={user.name} referrerPolicy="no-referrer" />
+                  ) : (
+                    initials
+                  )}
+                </div>
+                <div className="user-details">
+                  <div className="user-name">{user.name}</div>
+                  <div className="user-email">{user.email}</div>
+                </div>
+              </div>
+            )}
+            <button
+              type="button"
+              className="theme-toggle-btn"
+              onClick={toggleTheme}
+              aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+              title={theme === 'dark' ? 'Light theme' : 'Dark theme'}
             >
-              {item.icon}
-              <span className="nav-link-text">{item.name}</span>
-            </NavLink>
-          ))}
-        </nav>
-
-        {!collapsed && <DailyUsageCard />}
-
-        <div className="sidebar-footer">
-          {user && (
-            <div className="user-info">
-              <div className="user-avatar" style={{ overflow: 'hidden' }}>
-                {user.picture ? (
-                  <img src={user.picture} alt={user.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} referrerPolicy="no-referrer" />
-                ) : (
-                  initials
-                )}
-              </div>
-              <div className="user-details">
-                <div className="user-name">{user.name}</div>
-                <div className="user-email">{user.email}</div>
-              </div>
-            </div>
-          )}
-          <button
-            type="button"
-            className="theme-toggle-btn"
-            onClick={toggleTheme}
-            aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-            title={theme === 'dark' ? 'Light theme' : 'Dark theme'}
-          >
-            {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
-            <span className="theme-toggle-text">{theme === 'dark' ? 'Light theme' : 'Dark theme'}</span>
-          </button>
-          <button className="logout-btn" onClick={handleLogout}>
-            <LogOut size={15} />
-            <span className="logout-text">Sign Out</span>
-          </button>
+              {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+              <span className="theme-toggle-text">{theme === 'dark' ? 'Light theme' : 'Dark theme'}</span>
+            </button>
+            <button className="logout-btn" onClick={handleLogout}>
+              <LogOut size={15} />
+              <span className="logout-text">Sign Out</span>
+            </button>
+          </div>
         </div>
       </aside>
     </>

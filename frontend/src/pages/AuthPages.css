@@ -212,7 +212,7 @@
 }
 
 .auth-subtitle {
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--font-sans);
   font-style: normal;
   color: rgba(103, 232, 249, 0.92);
   font-size: 1.05rem;
@@ -357,7 +357,7 @@
 }
 
 .auth-form-wrapper p.auth-form-subtitle {
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--font-sans);
   font-style: normal;
   color: var(--text-muted);
   margin-bottom: clamp(0.75rem, 2vh, 1.25rem);

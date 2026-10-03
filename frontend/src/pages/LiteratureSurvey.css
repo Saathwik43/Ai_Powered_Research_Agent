@@ -1,9 +1,12 @@
 /* Literature Survey — curved surfaces + soft motion */
 
 .lit-page {
-  --lit-radius: 6px;
-  --lit-radius-sm: 6px;
-  --lit-ease: 180ms ease;
+  /* Aliases, not a fork: these three names are used throughout this file and
+     now resolve to the shared tokens. 6px was a third radius between the
+     system's 5 and 8, and 180ms ease a second curve beside --transition. */
+  --lit-radius: var(--radius-md);
+  --lit-radius-sm: var(--radius-sm);
+  --lit-ease: var(--transition);
   width: 100%;
   max-width: var(--content-narrow);
   min-width: 0;
@@ -34,7 +37,7 @@
 .lit-masthead p {
   margin: 0;
   max-width: min(42rem, 100%);
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--font-sans);
   font-style: normal;
   font-size: 0.98rem;
   font-weight: 500;
@@ -108,14 +111,15 @@
   gap: 0.65rem;
   margin-bottom: 1.25rem;
   padding: 0.35rem 0.35rem 0.35rem 0.15rem;
-  border: var(--border-width) solid var(--border-strong);
-  border-radius: var(--lit-radius);
-  background: var(--bg-card, var(--bg-elevated));
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--paper);
+  box-shadow: var(--shadow-md);
 }
 
 .lit-search-desk:focus-within {
-  border-color: var(--text);
-  box-shadow: 0 0 0 1px var(--text);
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .lit-search-field {
@@ -135,13 +139,13 @@
 
 .lit-search-field input {
   border: 0 !important;
-  border-radius: calc(var(--lit-radius) - 4px) !important;
+  border-radius: var(--radius-md) !important;
   box-shadow: none !important;
   background: transparent !important;
   padding-left: 2.6rem !important;
   padding-right: 2.4rem !important;
   height: 100%;
-  min-height: 46px;
+  min-height: 38px;
 }
 
 .lit-search-field input:focus {
@@ -159,75 +163,24 @@
   width: 28px;
   height: 28px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-subtle);
   cursor: pointer;
 }
 
 .lit-search-clear:hover {
-  background: var(--bg-elevated, rgba(15, 17, 21, 0.05));
+  background: var(--hover-tint);
   color: var(--text);
 }
 
-.lit-search-desk .lit-search-go {
+/* The primary action was ink-black at rest and only turned blue on hover,
+   forced with seven !important declarations onto InteractiveHoverButton - the
+   app's third button system. Both are gone; the desk uses the shared Button. */
+.lit-search-desk .lit-search-go,
+.lit-search-desk .lit-search-stop {
   flex: 0 0 auto;
-  border: 0 !important;
-  border-radius: calc(var(--lit-radius) - 4px) !important;
-  width: auto;
-  min-width: 7.25rem;
-  height: auto;
-  padding: 0 1.15rem;
-  background: var(--text) !important;
-  color: var(--on-ink);
-  overflow: hidden;
-  transition: background var(--lit-ease), transform var(--lit-ease);
-}
-
-.lit-search-desk .lit-search-go:hover:not(:disabled) {
-  background: var(--primary) !important;
-  color: var(--on-primary);
-  transform: scale(1.02);
-}
-
-.lit-search-desk .lit-search-go:disabled {
-  opacity: 0.65;
-  cursor: wait;
-}
-
-.lit-search-desk .lit-search-go > div.absolute {
-  display: none;
-}
-
-.lit-search-desk .lit-search-go > span {
-  transform: none !important;
-  opacity: 1 !important;
-  color: inherit;
-}
-
-.lit-search-stop {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 46px;
-  height: 46px;
-  min-width: 46px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: var(--danger);
-  color: #fff;
-  font-weight: 700;
-  font-size: 0.9rem;
-  cursor: pointer;
-  transition: background var(--lit-ease), transform var(--lit-ease);
-}
-
-.lit-search-stop:hover {
-  background: #b91c1c;
-  color: #fff;
-  transform: scale(1.04);
+  align-self: center;
 }
 
 .lit-search-alert {
@@ -237,15 +190,15 @@
   gap: 0.75rem;
   margin-bottom: var(--space-5);
   padding: var(--space-3) var(--space-4);
-  background: rgba(229, 28, 35, 0.08);
-  border: 1px solid rgba(229, 28, 35, 0.2);
+  background: var(--bad-soft);
+  border: 1px solid var(--bad);
   border-radius: var(--radius-md);
   color: var(--danger);
   font-size: var(--fs-sm);
 }
 
 .lit-search-alert.is-muted {
-  background: var(--bg-elevated, rgba(15, 17, 21, 0.04));
+  background: var(--inset);
   border-color: var(--border);
   color: var(--text-muted);
 }
@@ -265,7 +218,7 @@
   height: 28px;
   padding: 0 0.55rem;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: inherit;
   font-size: 0.72rem;
@@ -279,7 +232,7 @@
 
 .lit-search-alert-dismiss:hover {
   opacity: 1;
-  background: rgba(15, 17, 21, 0.06);
+  background: var(--hover-tint);
 }
 
 .lit-filter-bar {
@@ -394,18 +347,21 @@
   font-size: var(--fs-sm);
 }
 
-.lit-result-card {
+/* Scoped under .lit-page so this beats the global `[class*="-card"]` rule —
+   these are hairline list rows, not elevated panels. */
+.lit-page .lit-result-card {
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
   padding: 1.1rem 0;
   background: transparent;
   border: 0;
+  border-radius: 0;
   border-bottom: var(--border-width) solid var(--border);
   min-width: 0;
 }
 
-.lit-result-card:hover {
+.lit-page .lit-result-card:hover {
   background: transparent;
 }
 
@@ -482,15 +438,15 @@
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   padding: 0.2rem 0.5rem;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   white-space: nowrap;
   text-decoration: none;
 }
 
 .lit-badge-oa {
-  color: #16a34a;
-  background: rgba(22, 163, 74, 0.08);
-  border-color: rgba(22, 163, 74, 0.22);
+  color: var(--ok);
+  background: var(--ok-soft);
+  border-color: var(--ok);
 }
 
 /* Why a snowballed row is in the list at all — it does not have to match the
@@ -590,8 +546,8 @@
   align-items: center;
   gap: 0.3rem;
   padding: 0.2rem 0.5rem;
-  border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.28));
-  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-subtle);
   font-size: var(--fs-2xs);
@@ -632,51 +588,108 @@
 }
 
 .lit-link-oa {
-  color: #16a34a !important;
+  color: var(--ok) !important;
 }
 
-.lit-saved-card {
+/* Must beat `.lit-page .lit-result-card { flex-direction: column }` —
+   that pair left saved rows as a centred column stack. Same one-line
+   shelf as the Dashboard: index · title · meta · actions. */
+.lit-page .lit-result-card.lit-saved-card {
   flex-direction: row;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
+  justify-content: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
 }
 
-.lit-saved-copy h3 {
-  margin: 0 0 0.25rem;
-  font-size: var(--fs-md);
-  font-weight: 600;
-  color: var(--text);
+.lit-saved-idx {
+  flex-shrink: 0;
+  width: 1.75rem;
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-subtle);
 }
 
-.lit-saved-copy p {
+.lit-saved-title {
+  flex: 1;
+  min-width: 0;
   margin: 0;
+  font-size: var(--fs-base);
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.lit-saved-meta {
+  flex-shrink: 0;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-subtle);
+  white-space: nowrap;
+}
+
+.lit-saved-sep {
+  color: var(--ink-subtle);
+}
+
+.lit-saved-actions {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+/* ROW-2: the row's ⋯ menu (SavedItemActions) replaced the trash button and
+   its window.confirm. Layout only below. */
+.lit-saved-rename {
+  flex: 1;
+  padding-block: 0.25rem;
+}
+
+.lit-saved-group {
+  margin: var(--space-3) 0 var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-subtle);
+}
+
+.lit-saved-error {
+  padding: var(--space-2) 0;
   font-size: var(--fs-sm);
-  color: var(--text-muted);
+  color: var(--bad);
 }
 
-.lit-delete-btn {
-  color: var(--danger) !important;
-  background: rgba(229, 28, 35, 0.1) !important;
-  border: none !important;
-}
-
+/* Same empty state as the rest of the app: a panel that explains the area,
+   not a 224px centred void. 14rem of min-height with centred text was the
+   single largest element on the page before a search had even run. */
 .lit-empty {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  gap: 0.65rem;
-  min-height: 14rem;
-  margin-top: 0.5rem;
-  padding: 3rem 1.5rem;
-  border: 1.5px dashed var(--border-strong, var(--border));
-  border-radius: var(--lit-radius);
-  background: var(--bg-elevated);
-  color: var(--text-muted);
-  font-size: var(--fs-sm);
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding: var(--space-6) var(--space-5);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-xl);
+  background: var(--panel);
+  color: var(--ink-muted);
+  font-size: var(--fs-base);
   animation: litSoftIn 0.35s var(--lit-ease) both;
 }
 
@@ -695,9 +708,9 @@
   gap: 1rem;
   margin-bottom: 1rem;
   padding: 1rem 1.1rem;
-  background: rgba(0, 87, 255, 0.04);
-  border: 1px solid rgba(0, 87, 255, 0.12);
-  border-radius: var(--lit-radius);
+  background: var(--focus-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
 }
 
 .lit-loading-icon {
@@ -720,27 +733,6 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-}
-
-.lit-loading-bar {
-  width: 100%;
-  height: 4px;
-  background: var(--border);
-  border-radius: 2px;
-  overflow: hidden;
-  margin-bottom: 1rem;
-}
-
-.lit-loading-bar-fill {
-  height: 100%;
-  width: 0%;
-  background: var(--primary);
-  animation: litProgress 15s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
-}
-
-@keyframes litProgress {
-  from { width: 0%; }
-  to { width: 95%; }
 }
 
 .lit-load-more {
@@ -851,8 +843,8 @@
     flex: 1 1 0;
   }
 
-  .lit-result-card {
-    padding: 0.9rem 1rem;
+  .lit-page .lit-result-card {
+    padding: 0.9rem 0;
   }
 
   .lit-result-title {
@@ -869,17 +861,14 @@
     width: 100%;
   }
 
-  .lit-saved-card {
-    flex-direction: column;
-    align-items: stretch;
+  .lit-page .lit-result-card.lit-saved-card {
+    flex-direction: row;
+    align-items: center;
+    padding: var(--space-3) 0;
   }
 
   .lit-saved-actions {
-    width: 100%;
-  }
-
-  .lit-saved-actions .btn-secondary {
-    flex: 1 1 auto;
+    width: auto;
   }
 }
 
@@ -902,6 +891,12 @@
   }
 
   .lit-tab span.lit-tab-label-full {
+    display: none;
+  }
+
+  /* Drop the date on the narrowest width so title + count + actions stay one row. */
+  .lit-saved-meta .lit-saved-sep,
+  .lit-saved-meta .lit-saved-sep + span {
     display: none;
   }
 }
@@ -984,7 +979,7 @@
 }
 
 .lit-source-outcomes-warn {
-  color: var(--danger, #b00020);
+  color: var(--bad);
 }
 
 .lit-source-outcomes ul {
@@ -1008,7 +1003,7 @@
 
 .lit-source-outcomes .is-timeout .lit-source-stat,
 .lit-source-outcomes .is-error .lit-source-stat {
-  color: var(--danger, #b00020);
+  color: var(--bad);
 }
 
 .lit-source-outcomes .is-empty .lit-source-stat,

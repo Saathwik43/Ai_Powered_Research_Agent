@@ -125,17 +125,17 @@ function DiagramLightbox({ svgHtml, onClose }) {
         <header className="mermaid-lightbox-toolbar">
           <span className="mermaid-lightbox-title">Diagram preview</span>
           <div className="mermaid-lightbox-actions">
-            <button type="button" className="mermaid-lightbox-btn" onClick={() => setZoom((z) => Math.max(0.4, z - 0.2))} title="Zoom out">
+            <button type="button" className="mermaid-lightbox-btn" onClick={() => setZoom((z) => Math.max(0.4, z - 0.2))} title="Zoom out" aria-label="Zoom out">
               <ZoomOut size={16} />
             </button>
             <span className="mermaid-lightbox-zoom">{Math.round(zoom * 100)}%</span>
-            <button type="button" className="mermaid-lightbox-btn" onClick={() => setZoom((z) => Math.min(3, z + 0.2))} title="Zoom in">
+            <button type="button" className="mermaid-lightbox-btn" onClick={() => setZoom((z) => Math.min(3, z + 0.2))} title="Zoom in" aria-label="Zoom in">
               <ZoomIn size={16} />
             </button>
-            <button type="button" className="mermaid-lightbox-btn" onClick={() => setZoom(1)} title="Reset zoom">
+            <button type="button" className="mermaid-lightbox-btn" onClick={() => setZoom(1)} title="Reset zoom" aria-label="Reset zoom">
               <RotateCcw size={15} />
             </button>
-            <button type="button" className="mermaid-lightbox-btn" onClick={onClose} title="Close">
+            <button type="button" className="mermaid-lightbox-btn" onClick={onClose} title="Close" aria-label="Close diagram preview">
               <X size={16} />
             </button>
           </div>

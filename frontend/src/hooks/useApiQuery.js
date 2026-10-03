@@ -41,11 +41,21 @@ export function useApiQuery(key, fetcher, { ttl, enabled = true } = {}) {
     [key, enabled, ttl],
   );
 
+  const loadRef = useRef(load);
+  loadRef.current = load;
+
   useEffect(() => {
     if (!key) return undefined;
-    // An invalidation elsewhere (a save, a delete) drops the entry; re-read so
-    // the mounted list is not showing something that was just removed.
-    return subscribe(key, (value) => setData(value));
+    // An invalidation elsewhere (a save, a delete, a pin) drops the entry;
+    // re-read so the mounted list is not showing something that was just
+    // removed. It used to only set `data` to undefined, which blanked the
+    // Dashboard's saved surveys after any delete until the next visit. The
+    // rows on screen stay until the fresh ones land; a disabled query
+    // refetches when it is next enabled, since the cache is now empty.
+    return subscribe(key, (value) => {
+      if (value === undefined) void loadRef.current(true);
+      else setData(value);
+    });
   }, [key]);
 
   useEffect(() => {

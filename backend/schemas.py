@@ -133,6 +133,12 @@ class PdfChatSavePayload(BaseModel):
     messages: List[Dict[str, Any]]
     file_id: Optional[str] = None
 
+class SavedItemPatch(BaseModel):
+    """Pin or rename a saved PDF chat, survey or draft (ROW-1). A field left
+    out is unchanged; `title: ""` drops the display name."""
+    pinned: Optional[bool] = None
+    title: Optional[str] = Field(None, max_length=400)
+
 class VenuePayload(BaseModel):
     abstract: str = ""
     domain: str = ""

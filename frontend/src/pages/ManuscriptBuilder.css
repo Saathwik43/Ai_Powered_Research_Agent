@@ -1,206 +1,5 @@
 /* Manuscript Builder — layout, toolbar, drawers */
 
-.manuscript-page-header {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-}
-
-.manuscript-masthead h1 {
-  margin: 0 0 0.35rem;
-}
-
-.manuscript-masthead .text-muted {
-  margin: 0;
-  font-family: 'Inter', system-ui, sans-serif;
-  font-style: normal;
-  font-size: 0.98rem;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-  color: var(--text-muted);
-  line-height: 1.55;
-}
-
-.manuscript-ai-note {
-  margin: 0.65rem 0 0;
-  font-family: 'Inter', system-ui, sans-serif;
-  font-style: normal;
-  font-size: 0.92rem;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-  color: var(--text-muted);
-  line-height: 1.5;
-}
-
-.manuscript-ai-note strong {
-  font-weight: 600;
-}
-
-.manuscript-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.65rem 0.85rem;
-  min-width: 0;
-  padding: 0.65rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-card);
-}
-
-.manuscript-toolbar-start {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 0.65rem;
-  min-width: 0;
-}
-
-/* Keep related controls together so wrapping never splits a group mid-way */
-.manuscript-action-cluster {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: nowrap;
-}
-
-.manuscript-export-cluster {
-  padding: 0.35rem 0.5rem 0.35rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: calc(var(--radius-md) + 0.35rem);
-  background: var(--bg-card-alt, var(--bg-elevated));
-}
-
-.manuscript-cluster-label {
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-subtle, var(--text-muted));
-  white-space: nowrap;
-}
-
-/* Venue select + LaTeX button read as one segmented control */
-.manuscript-latex-control {
-  display: flex;
-  align-items: stretch;
-}
-
-.manuscript-venue-select {
-  width: auto;
-  min-width: 7.5rem;
-  padding: 0 2rem 0 0.75rem;
-  min-height: 38px;
-  font-size: var(--fs-sm);
-  font-weight: 650;
-  border: 1px solid var(--border-strong);
-  border-right: none;
-  border-radius: var(--radius-md) 0 0 var(--radius-md);
-  background-color: var(--bg-card);
-  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
-    linear-gradient(135deg, currentColor 50%, transparent 50%);
-  background-position: right 1.05rem center, right 0.7rem center;
-  background-size: 0.35rem 0.35rem, 0.35rem 0.35rem;
-  background-repeat: no-repeat;
-  appearance: none;
-  -webkit-appearance: none;
-  box-shadow: none;
-  cursor: pointer;
-}
-
-.manuscript-venue-select:focus {
-  box-shadow: none;
-  border-color: var(--border-focus);
-  position: relative;
-  z-index: 1;
-}
-
-.manuscript-latex-btn {
-  border-radius: 0 var(--radius-md) var(--radius-md) 0;
-}
-
-.manuscript-format-badge {
-  padding: 0.4rem 0.75rem;
-  background: var(--bg-card-alt, var(--bg-elevated));
-  border-radius: var(--radius-md);
-  font-size: var(--fs-sm);
-  font-weight: 500;
-  color: var(--text-muted);
-  border: 1px solid var(--border);
-  white-space: nowrap;
-}
-
-.manuscript-layout {
-  display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
-  gap: 1rem;
-  align-items: start;
-}
-
-@media (min-width: 1440px) {
-  .manuscript-layout {
-    grid-template-columns: 280px minmax(0, 1fr);
-    gap: 1.35rem;
-  }
-}
-
-@media (min-width: 1800px) {
-  .manuscript-layout {
-    grid-template-columns: 300px minmax(0, 1fr);
-    gap: 1.5rem;
-  }
-}
-
-.manuscript-sidebar-column {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  position: sticky;
-  top: 1.5rem;
-  min-width: 0;
-}
-
-.manuscript-config-block {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 1rem;
-}
-
-.manuscript-editor-panel {
-  position: relative;
-  min-width: 0;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 1.25rem;
-  padding-right: 2.25rem;
-}
-
-.manuscript-section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 1rem;
-  flex-wrap: wrap;
-}
-
-.manuscript-section-header h2 {
-  margin: 0;
-  font-size: var(--fs-md);
-  min-width: 0;
-}
-
-.manuscript-section-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
 .manuscript-editor-surface {
   max-width: var(--content-reading);
   margin: 0 auto;
@@ -214,12 +13,6 @@
   width: 100%;
 }
 
-.manuscript-editor-surface:has(.paper-preview),
-.manuscript-editor-surface:has(.sources-panel-container),
-.manuscript-editor-surface.is-wide {
-  max-width: none;
-}
-
 @keyframes stepFadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -230,19 +23,23 @@
   font-size: inherit;
   line-height: inherit;
   width: 100%;
-  min-height: 420px;
-  padding: 1rem;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
+  min-height: 60vh;
+  padding: var(--space-6) var(--space-7, 2.5rem);
+  background: var(--paper);
+  border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  color: var(--text);
+  color: var(--ink);
   box-sizing: border-box;
 }
 
+/* SD-5: the sheet grows with its text (field-sizing), so the page has one
+   scrollbar, not a scrolling box inside a scrolling page. Writing is set in
+   the serif the paper preview uses. */
 .manuscript-editor-surface textarea {
-  font-family: inherit;
-  font-size: var(--fs-sm);
-  resize: vertical;
+  font-family: var(--font-serif);
+  font-size: var(--fs-base);
+  field-sizing: content;
+  resize: none;
   outline: none;
   line-height: 1.75;
   transition: border-color var(--transition), box-shadow var(--transition), opacity var(--transition);
@@ -258,44 +55,45 @@
 }
 
 .manuscript-editor-surface .pdf-markdown-body {
-  overflow-y: auto;
+  overflow: visible;
+  font-family: var(--font-serif);
 }
 
 /* Toolbar */
+/* SD-5b: one slim bar above the sheet, the same height in every mode, sticky
+   just below the top bar + command bar (it used to stick at top: 0, sliding
+   underneath them). */
 .manuscript-toolbar {
   position: sticky;
-  top: 0;
+  top: calc(var(--topbar-height) + var(--ms-commandbar-h));
   z-index: 5;
   display: flex;
-  flex-direction: column;
-  gap: 0.65rem;
-  margin: 0 0 0.25rem;
-  padding: 0.5rem 0 0.65rem;
-  background: var(--bg-card);
-  border-bottom: 1px solid var(--border);
-}
-
-.manuscript-toolbar-top {
-  display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 0.75rem;
-  min-width: 0;
+  min-height: 2.75rem;
+  margin: 0;
+  padding: 0.25rem 0;
+  background: var(--canvas);
 }
 
+.manuscript-bar-hint {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--ink-subtle);
+}
+
+/* Compact tabs at their natural width (the grid had 4 columns for 3 tabs). */
 .manuscript-mode-tabs {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  position: relative;
-  flex: 1;
+  display: inline-flex;
+  align-items: stretch;
+  gap: var(--space-1);
   min-width: 0;
-  border-bottom: 1px solid var(--border);
 }
 
 .manuscript-mode-tab {
   background: none;
   border: none;
-  padding: 0.45rem 0.4rem;
+  box-shadow: inset 0 -2px 0 transparent;
+  padding: 0.35rem 0.6rem;
   color: var(--text-subtle);
   font-weight: 500;
   cursor: pointer;
@@ -311,16 +109,7 @@
   font-weight: 700;
 }
 
-.manuscript-mode-indicator {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  height: 2px;
-  background: var(--primary);
-  width: 25%;
-  transition: transform var(--transition);
-  pointer-events: none;
-}
+
 
 .manuscript-word-count {
   font-size: var(--fs-sm);
@@ -379,96 +168,7 @@
   background: var(--border);
 }
 
-.mode-label-short {
-  display: none;
-}
-
 /* Editor footer actions (replaces overlapping absolute FABs) */
-.manuscript-editor-footer {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.65rem;
-  padding-top: 0.25rem;
-}
-
-.manuscript-editor-footer .btn {
-  border-radius: 999px;
-  padding: 0.65rem 1rem;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-.manuscript-gap-toggle {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.55rem;
-  width: 100%;
-  background: none;
-  border: none;
-  cursor: pointer;
-  text-align: left;
-  padding: 0;
-  font-family: inherit;
-}
-
-.manuscript-gap-toggle-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  min-width: 0;
-  flex: 1;
-}
-
-.manuscript-gap-toggle-title {
-  font-size: var(--fs-md);
-  font-weight: 700;
-  color: var(--text);
-}
-
-.manuscript-gap-toggle-meta {
-  font-size: var(--fs-sm);
-  color: var(--text-subtle);
-  font-weight: 400;
-}
-
-.manuscript-gap-panel {
-  margin-bottom: 1.25rem;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 1.25rem;
-}
-
-/* AI Revise Panel */
-.manuscript-revise-panel-container {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  overflow: hidden;
-  pointer-events: none;
-  z-index: 10;
-}
-
-.manuscript-revise-panel {
-  background: var(--bg-card);
-  border-top: 1px solid var(--border);
-  border-left: 1px solid var(--border);
-  border-right: 1px solid var(--border);
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08);
-  padding: 1.25rem;
-  transform: translateY(100%);
-  transition: transform 0.25s cubic-bezier(0.32, 0.72, 0, 1);
-  pointer-events: auto;
-}
-
-.manuscript-revise-panel.open {
-  transform: translateY(0);
-}
-
-/* Revision scope picker — which span of the section the model may rewrite. */
 .revise-scope {
   display: flex;
   gap: 0.4rem;
@@ -609,76 +309,41 @@
   border-radius: 2px;
 }
 
-/* References Drawer */
-.manuscript-refs-drawer {
-  position: fixed;
-  right: 0;
-  top: 64px;
-  bottom: 0;
-  width: 320px;
-  background: var(--bg-card);
-  border-left: 1px solid var(--border);
-  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.05);
-  transform: translateX(100%);
-  transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
-  z-index: 40;
-  display: flex;
-  flex-direction: column;
+/* An insertion was colour-only (green); underline it so it survives colour
+   blindness and forced colours (WCAG 1.4.1). ME-1. */
+.manuscript-diff-view ins {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
-.manuscript-refs-drawer.open {
-  transform: translateX(0);
+/* E8: the tabpanel wrapper must not become a layout box. */
+.manuscript-mode-panel {
+  display: contents;
 }
 
-.manuscript-refs-overlay {
-  display: none;
-}
-
-.manuscript-refs-drawer-header {
-  padding: 1rem;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.manuscript-refs-drawer-content {
-  padding: 1rem;
-  overflow-y: auto;
-  flex: 1;
-}
-
-.manuscript-refs-toggle {
-  position: absolute;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-right: none;
-  border-radius: var(--radius-md) 0 0 var(--radius-md);
-  padding: 0.75rem 0.5rem;
-  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.05);
-  z-index: 5;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+.manuscript-word-count-total {
   color: var(--text-subtle);
-  transition: color 0.2s, background 0.2s;
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
 }
 
-.manuscript-refs-toggle:hover {
-  color: var(--primary);
-  background: var(--bg-input);
-}
+/* E14: Windows High Contrast / forced colours drops backgrounds and box
+   shadows, which is how the active tab, chips and focus were shown. */
+@media (forced-colors: active) {
+  .manuscript-mode-tab.is-active,
+  .revise-scope-chip.active {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
 
-.manuscript-step-active {
-  border-left: 3px solid var(--gold) !important;
-  padding-left: calc(0.75rem - 3px) !important;
-  background: var(--gold-light) !important;
+  .format-btn:focus-visible,
+  .manuscript-mode-tab:focus-visible,
+  .revise-scope-chip:focus-visible {
+    outline: 2px solid CanvasText;
+    outline-offset: 2px;
+  }
+
+  .manuscript-diff-view del {
+    text-decoration: line-through;
+  }
 }
 
 .unverified-stat {
@@ -686,284 +351,83 @@
   cursor: help;
 }
 
-@keyframes sourceCardIn {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
+/* Load-draft dialog (ROW-2) — a shadcn Dialog; layout only. Rows open the
+   draft; the ⋯ menu (SavedItemActions) pins, renames and deletes. */
+.manuscript-draft-filter {
+  position: relative;
 }
 
-.source-card {
-  animation: sourceCardIn 250ms var(--ease-standard, cubic-bezier(0.2, 0.8, 0.2, 1)) backwards;
+.manuscript-draft-filter svg {
+  position: absolute;
+  left: 0.9rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-subtle);
+  pointer-events: none;
 }
 
-@media (max-width: 1024px) {
-  .manuscript-refs-drawer {
-    z-index: 50;
-    top: var(--mobile-header-height, 0px);
-  }
+.manuscript-draft-filter input {
+  padding-left: 2.4rem;
 }
 
-@media (max-width: 960px) {
-  .manuscript-layout {
-    grid-template-columns: 1fr;
-    gap: 0.85rem;
-  }
-
-  .manuscript-page-header {
-    margin-bottom: 1rem;
-    gap: 0.75rem;
-  }
-
-  .manuscript-page-header h1 {
-    font-size: 1.45rem;
-  }
-
-  .manuscript-page-header .text-muted {
-    font-size: 1.1rem;
-  }
-
-  .manuscript-sidebar-column {
-    position: static;
-    width: 100%;
-    max-width: 100%;
-  }
-
-  .manuscript-editor-panel {
-    width: 100%;
-    padding: 0.85rem;
-    border-radius: var(--radius-lg);
-  }
-
-  .manuscript-outline-panel {
-    padding: 0.75rem;
-  }
-
-  /* Sections become a horizontal chip scroller */
-  .manuscript-outline-panel > div:last-child {
-    display: flex !important;
-    flex-direction: row !important;
-    gap: 0.45rem !important;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    padding-bottom: 0.15rem;
-  }
-
-  .manuscript-outline-panel > div:last-child::-webkit-scrollbar {
-    display: none;
-  }
-
-  .manuscript-outline-panel > div:last-child > div {
-    flex: 0 0 auto !important;
-    white-space: nowrap;
-  }
-
-  .manuscript-config-block {
-    padding: 0.85rem;
-  }
-
-  .manuscript-mode-tabs {
-    display: flex;
-    grid-template-columns: none;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    border-bottom: 1.5px solid var(--border);
-    gap: 0;
-  }
-
-  .manuscript-mode-tabs::-webkit-scrollbar {
-    display: none;
-  }
-
-  .manuscript-mode-tab {
-    flex: 0 0 auto;
-    padding: 0.55rem 0.85rem;
-    font-size: 0.78rem;
-    font-weight: 650;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-  }
-
-  .manuscript-mode-indicator {
-    display: none;
-  }
-
-  .manuscript-mode-tab.is-active {
-    color: var(--text);
-    box-shadow: inset 0 -2px 0 var(--primary);
-  }
-
-  .mode-label-full {
-    display: none;
-  }
-
-  .mode-label-short {
-    display: inline;
-  }
-
-  .manuscript-toolbar-top {
-    flex-wrap: wrap;
-  }
-
-  .manuscript-word-count {
-    font-size: 0.72rem;
-    font-family: 'IBM Plex Mono', monospace;
-  }
-
-  .manuscript-format-toolbar {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    gap: 0.35rem;
-    padding-bottom: 0.15rem;
-  }
-
-  .manuscript-format-toolbar::-webkit-scrollbar {
-    display: none;
-  }
-
-  .format-group {
-    flex-shrink: 0;
-    padding-right: 0.45rem;
-  }
-
-  .format-btn {
-    width: 36px;
-    height: 36px;
-  }
-
-  .manuscript-gap-tabs {
-    display: flex !important;
-    grid-template-columns: none !important;
-    gap: 0;
-    overflow-x: auto;
-  }
-
-  .manuscript-gap-tabs > button {
-    flex: 1 1 0;
-    min-width: 0;
-  }
-
-  .manuscript-gap-panel {
-    padding: 0.85rem;
-  }
-
-  .manuscript-section-actions {
-    width: 100%;
-  }
-
-  .manuscript-section-actions .btn {
-    flex: 1 1 auto;
-    justify-content: center;
-    min-height: 42px;
-  }
-
-  .manuscript-editor-footer {
-    justify-content: stretch;
-  }
-
-  .manuscript-editor-footer .btn {
-    flex: 1 1 auto;
-    justify-content: center;
-  }
-
-  .manuscript-refs-drawer {
-    width: min(320px, 100vw);
-    top: var(--mobile-header-height, 58px);
-  }
-
-  .manuscript-refs-overlay {
-    display: block;
-    position: fixed;
-    inset: 0;
-    top: var(--mobile-header-height, 58px);
-    background: rgba(0, 0, 0, 0.4);
-    z-index: 45;
-  }
-
-  .manuscript-refs-toggle {
-    top: auto;
-    bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
-    right: 0.85rem;
-    transform: none;
-    writing-mode: horizontal-tb;
-    text-orientation: initial;
-    border-radius: var(--radius-md);
-    border: 1px solid var(--border);
-    padding: 0.65rem 0.85rem;
-    box-shadow: var(--shadow-sm);
-  }
-
-  .manuscript-editor-surface {
-    max-width: none;
-  }
-
-  .manuscript-editor-surface textarea {
-    min-height: 55vh;
-    font-size: 16px;
-  }
+.manuscript-draft-error {
+  font-size: var(--fs-sm);
+  color: var(--danger);
 }
 
-@media (max-width: 520px) {
-  .manuscript-refs-drawer {
-    width: 100vw;
-    left: 0;
-    right: 0;
-  }
+.manuscript-draft-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 320px;
+  overflow-y: auto;
+}
 
-  .manuscript-toolbar {
-    width: 100%;
-  }
+.manuscript-draft-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
 
-  .manuscript-toolbar-start,
-  .manuscript-action-cluster {
-    width: 100%;
-  }
-
-  .manuscript-action-cluster .btn {
-    flex: 1 1 0;
-  }
-
-  .manuscript-export-cluster {
-    flex-wrap: wrap;
-  }
-
-  .manuscript-export-cluster .manuscript-cluster-label {
-    flex: 1 0 100%;
-  }
-
-  .manuscript-latex-control {
-    flex: 1 1 100%;
-  }
-
-  .manuscript-venue-select {
-    flex: 1 1 auto;
-    min-width: 0;
-  }
-
-  .manuscript-format-badge {
-    width: 100%;
-    text-align: center;
-  }
+.manuscript-draft-group {
+  margin: var(--space-1) 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-subtle);
 }
 
 .manuscript-draft-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
-  background: var(--bg-muted, rgba(255, 255, 255, 0.03));
-  cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 
 .manuscript-draft-row:hover {
   border-color: var(--primary);
-  background: rgba(99, 102, 241, 0.08);
+  background: var(--hover-tint);
+}
+
+.manuscript-draft-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: var(--space-1) 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .manuscript-draft-title {
@@ -979,29 +443,13 @@
   word-break: break-word;
 }
 
-.manuscript-draft-delete {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  border: none;
-  border-radius: var(--radius-md);
-  background: transparent;
+.manuscript-draft-meta {
+  font-size: var(--fs-2xs);
   color: var(--text-subtle);
-  cursor: pointer;
 }
 
-.manuscript-draft-delete:hover:not(:disabled) {
-  background: rgba(229, 28, 35, 0.12);
-  color: var(--danger);
-}
-
-.manuscript-draft-delete:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
+.manuscript-draft-rename {
+  flex: 1;
 }
 
 /* Research pipeline progress (1.5). Shown between pressing Generate and the
@@ -1038,3 +486,851 @@
 .manuscript-research-stage.is-done { color: var(--text); }
 .manuscript-research-stage.is-failed { color: var(--danger); }
 .manuscript-research-stage.is-skipped { opacity: 0.65; }
+
+/* ── SD-5 · Direction B: outline · document · AI & evidence on demand ──────
+   Layout only; colours are tokens. Buttons, tabs, selects, popover, sheet and
+   dialogs are the shadcn primitives. */
+.manuscript-commandbar {
+  position: sticky;
+  top: var(--topbar-height);
+  z-index: 15;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  margin: calc(var(--space-5) * -1) 0 var(--space-4);
+  padding-block: var(--space-2);
+  background: var(--canvas);
+  border-bottom: 1px solid var(--line);
+}
+
+.manuscript-commandbar-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
+}
+
+.manuscript-commandbar-sep {
+  width: 1px;
+  height: 1.25rem;
+  margin-inline: var(--space-1);
+  background: var(--line);
+}
+
+.manuscript-save-state {
+  font-size: var(--fs-xs);
+  color: var(--ink-subtle);
+  white-space: nowrap;
+}
+
+.manuscript-save-state.is-error {
+  color: var(--bad);
+}
+
+/* Always visible: what the paper rests on, one click from the panel. */
+.manuscript-evidence {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding-right: var(--space-2);
+  margin-right: var(--space-1);
+  border-right: 1px solid var(--line);
+}
+
+.manuscript-evidence-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 1.75rem;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  font: inherit;
+  font-size: var(--fs-xs);
+  color: var(--ink-muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.manuscript-evidence-item:hover {
+  background: var(--hover-tint);
+  color: var(--ink);
+}
+
+.manuscript-evidence-item.is-warn {
+  color: var(--warn);
+}
+
+.manuscript-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: 18rem;
+}
+
+.manuscript-settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--fs-xs);
+  color: var(--ink-muted);
+}
+
+.manuscript-segmented {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--inset);
+}
+
+.manuscript-segmented button {
+  min-height: 1.75rem;
+  border: 0;
+  border-radius: calc(var(--radius-md) - 2px);
+  background: transparent;
+  font: inherit;
+  font-size: var(--fs-xs);
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.manuscript-segmented button.is-on {
+  background: var(--paper);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+.manuscript-workspace {
+  display: grid;
+  grid-template-columns: 15rem minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.manuscript-workspace.is-outline-hidden {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.manuscript-workspace.has-tools {
+  grid-template-columns: 15rem minmax(0, 1fr) 21rem;
+}
+
+.manuscript-workspace.is-outline-hidden.has-tools {
+  grid-template-columns: minmax(0, 1fr) 21rem;
+}
+
+.manuscript-outline,
+.manuscript-tools {
+  position: sticky;
+  top: calc(var(--topbar-height) + 3.75rem);
+  max-height: calc(100dvh - var(--topbar-height) - 4.75rem);
+  overflow-y: auto;
+  min-width: 0;
+}
+
+.manuscript-outline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.manuscript-topic-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.manuscript-topic-field label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-subtle);
+}
+
+.manuscript-topic-field textarea {
+  resize: none;
+  field-sizing: content;
+  min-height: 3.5rem;
+  font-size: var(--fs-sm);
+}
+
+.manuscript-research-ready {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: var(--fs-xs);
+  color: var(--ok);
+}
+
+.manuscript-document {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* One measure for everything in the document column — heading, banners,
+   sheet and footer share a left edge. Paper Preview may use the full width. */
+.manuscript-document > * {
+  width: 100%;
+  max-width: var(--content-reading);
+  margin-inline: auto;
+}
+
+.manuscript-doc-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-4);
+}
+
+.manuscript-doc-head h2 {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.manuscript-auto-status {
+  font-size: var(--fs-xs);
+  color: var(--ink-subtle);
+}
+
+.manuscript-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  font-size: var(--fs-sm);
+  color: var(--ink);
+}
+
+.manuscript-banner > svg {
+  flex-shrink: 0;
+  margin-top: 0.15rem;
+}
+
+.manuscript-banner.is-error {
+  border-color: var(--bad);
+  background: var(--bad-soft);
+}
+
+.manuscript-banner.is-error > svg {
+  color: var(--bad);
+}
+
+.manuscript-banner.is-warn {
+  border-color: var(--warn);
+  background: var(--warn-soft);
+}
+
+.manuscript-banner.is-warn > svg {
+  color: var(--warn);
+}
+
+.manuscript-verify-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.manuscript-verify-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+}
+
+.manuscript-verify-values code {
+  padding: 0 0.35rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+
+.manuscript-generating {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+}
+
+.manuscript-generating-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--ink-muted);
+}
+
+.manuscript-diff-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.manuscript-diff-head h3 {
+  margin: 0;
+  font-size: var(--fs-base);
+}
+
+.manuscript-diff-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.manuscript-doc-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.manuscript-empty-note {
+  margin: 0;
+  font-style: italic;
+  color: var(--ink-subtle);
+}
+
+.paper-section {
+  margin-bottom: var(--space-6);
+}
+
+.paper-section-title {
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-md);
+  text-transform: uppercase;
+}
+
+/* AI & evidence: docked beside the document, or the same body in a sheet. */
+.manuscript-tools {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+}
+
+.manuscript-tools-head {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.manuscript-tools-head h2,
+.manuscript-tools-head [data-slot="sheet-title"] {
+  flex: 1;
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.manuscript-tools-sheet {
+  width: min(100vw, 26rem);
+  max-width: none;
+}
+
+.manuscript-tools-sheet-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 var(--space-4) var(--space-4);
+}
+
+.manuscript-tools-tablist {
+  width: 100%;
+  justify-content: flex-start;
+  border-bottom: 1px solid var(--line);
+}
+
+.manuscript-tools-count {
+  margin-left: 0.3rem;
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  color: var(--ink-subtle);
+}
+
+.manuscript-tools-pane {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+  font-size: var(--fs-sm);
+}
+
+.manuscript-tools-pane h3 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+.manuscript-tools-lede {
+  margin: 0;
+  color: var(--ink-muted);
+}
+
+.manuscript-tools-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin: 0;
+  color: var(--ink-subtle);
+}
+
+.manuscript-tools-empty p {
+  margin: 0;
+}
+
+.manuscript-revise-row {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.manuscript-revise-row textarea {
+  resize: vertical;
+  min-height: 4.5rem;
+  font-size: var(--fs-sm);
+}
+
+.manuscript-inline-error {
+  font-size: var(--fs-sm);
+  color: var(--bad);
+}
+
+.manuscript-gaps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.manuscript-gap-group ul,
+.manuscript-ref-list,
+.manuscript-source-list {
+  margin: 0;
+  padding-left: var(--space-5);
+}
+
+.manuscript-gap-group li,
+.manuscript-ref-list li {
+  margin-bottom: var(--space-2);
+  line-height: 1.5;
+}
+
+.manuscript-gap-refs {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  color: var(--ink-subtle);
+}
+
+.manuscript-gap-note {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--ink-subtle);
+}
+
+.manuscript-gap-direction {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--focus-soft);
+}
+
+.manuscript-gap-direction p {
+  margin: 0;
+  color: var(--ink);
+}
+
+.manuscript-gap-warning {
+  font-size: var(--fs-xs);
+  color: var(--warn) !important;
+}
+
+.manuscript-ref-list {
+  list-style: decimal;
+  color: var(--ink-muted);
+  overflow-wrap: anywhere;
+}
+
+.manuscript-ref-list li::marker {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  color: var(--ink-subtle);
+}
+
+.manuscript-gap-group ul {
+  list-style: disc;
+}
+
+.manuscript-tools,
+.manuscript-tools-sheet-body {
+  overflow-x: hidden;
+}
+
+/* With the panel docked the column is narrower; tighter format buttons keep
+   the toolbar on one line instead of wrapping Undo/Redo underneath. */
+.manuscript-workspace.has-tools .format-btn {
+  width: 28px;
+}
+
+.manuscript-workspace.has-tools .format-group {
+  gap: 0;
+  padding-right: var(--space-1);
+  margin-right: var(--space-1);
+}
+
+.manuscript-source-list {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.manuscript-source-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.manuscript-source-index {
+  flex-shrink: 0;
+  min-width: 1.4rem;
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  color: var(--ink-subtle);
+}
+
+.manuscript-source-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.manuscript-source-title {
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.manuscript-source-meta {
+  font-size: var(--fs-xs);
+  color: var(--ink-subtle);
+}
+
+.manuscript-ground-truth {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line);
+}
+
+.manuscript-sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.manuscript-sections-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.manuscript-sections-title {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-subtle);
+}
+
+.manuscript-sections-progress {
+  font-size: var(--fs-xs);
+  color: var(--ink-subtle);
+}
+
+.manuscript-sections-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.manuscript-section-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.manuscript-section-row:hover {
+  background: var(--hover-tint);
+}
+
+.manuscript-section-row.is-active {
+  background: var(--focus-soft);
+  color: var(--ink);
+}
+
+.manuscript-section-dot {
+  grid-row: 1 / span 2;
+  align-self: center;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  border: 1.5px solid var(--line-strong);
+}
+
+.manuscript-section-row.is-written .manuscript-section-dot {
+  border-color: var(--ok);
+  background: var(--ok);
+}
+
+.manuscript-section-row.is-writing .manuscript-section-dot {
+  border-color: var(--focus);
+  background: var(--focus);
+}
+
+.manuscript-section-name {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+}
+
+.manuscript-section-row.is-active .manuscript-section-name {
+  font-weight: 600;
+}
+
+.manuscript-section-status {
+  grid-column: 2;
+  font-size: var(--fs-2xs);
+  color: var(--ink-subtle);
+}
+
+.manuscript-draft-main.is-static {
+  cursor: default;
+}
+
+@media (max-width: 1100px) {
+  .manuscript-workspace.has-tools,
+  .manuscript-workspace.is-outline-hidden.has-tools {
+    grid-template-columns: 15rem minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 960px) {
+  .manuscript-workspace,
+  .manuscript-workspace.has-tools {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* The outline sits above the document; sections scroll sideways. */
+  .manuscript-outline {
+    position: static;
+    max-height: none;
+  }
+
+  .manuscript-outline nav {
+    flex-direction: row !important;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .manuscript-outline nav > button {
+    flex: 0 0 auto;
+    width: auto !important;
+    white-space: nowrap;
+  }
+
+  .manuscript-evidence {
+    border-right: 0;
+    padding-right: 0;
+  }
+
+  .manuscript-editor-surface textarea,
+  .manuscript-editor-surface .pdf-markdown-body {
+    padding: var(--space-4);
+    font-size: 16px;
+  }
+
+  .manuscript-mode-tabs {
+    display: flex;
+    grid-template-columns: none;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    border-bottom: 1.5px solid var(--border);
+    gap: 0;
+  }
+
+  .manuscript-mode-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .manuscript-mode-tab {
+    flex: 0 0 auto;
+  }
+
+  .manuscript-mode-tab.is-active {
+    color: var(--text);
+    box-shadow: inset 0 -2px 0 var(--primary);
+  }
+
+  .manuscript-word-count {
+    font-size: 0.72rem;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+  .manuscript-format-toolbar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    gap: 0.35rem;
+    padding-bottom: 0.15rem;
+  }
+
+  .manuscript-format-toolbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .format-group {
+    flex-shrink: 0;
+    padding-right: 0.45rem;
+  }
+
+  .format-btn {
+    width: 36px;
+    height: 36px;
+  }
+
+}
+
+/* The sheet's own close (×) sits absolute top-right; keep the header clear of it. */
+.manuscript-tools-sheet .manuscript-tools-head {
+  padding-right: 3rem;
+}
+
+/* ── SD-5b · one writing frame across Write / Preview / Paper ──────────────── */
+.manuscript-page {
+  --ms-commandbar-h: 3.25rem;
+  --ms-measure: 46rem;
+}
+
+.manuscript-commandbar {
+  min-height: var(--ms-commandbar-h);
+}
+
+.manuscript-document > * {
+  max-width: var(--ms-measure);
+}
+
+.manuscript-doc-head {
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+}
+
+.manuscript-doc-head h2 {
+  flex: 1;
+  min-width: 0;
+}
+
+.manuscript-doc-head .manuscript-auto-status {
+  flex-basis: 100%;
+}
+
+.manuscript-mode-tab.is-active {
+  color: var(--ink);
+  box-shadow: inset 0 -2px 0 var(--primary);
+}
+
+.manuscript-word-count {
+  white-space: nowrap;
+}
+
+.manuscript-editor-surface {
+  gap: 0;
+  animation: none;
+}
+
+/* Write and Preview are the same sheet with the same type, so switching
+   modes does not reflow the text: serif, 1rem/1.75, full ink. */
+.manuscript-editor-surface textarea,
+.manuscript-editor-surface .pdf-markdown-body {
+  font-family: var(--font-serif);
+  font-size: var(--fs-md);
+  line-height: 1.75;
+  color: var(--ink);
+  padding: var(--space-6) 3.5rem;
+}
+
+.manuscript-editor-surface .pdf-markdown-body p,
+.manuscript-editor-surface .pdf-markdown-body li {
+  color: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.manuscript-editor-surface .pdf-markdown-body p {
+  margin: 0 0 1.75em;
+}
+
+.manuscript-editor-surface .pdf-markdown-body > :last-child {
+  margin-bottom: 0;
+}
+
+/* Paper: the print imitation keeps its own page, inside the same measure. */
+.manuscript-editor-surface.is-paper .paper-preview-screen {
+  max-width: 100%;
+  margin: 0;
+}
+
+@media (max-width: 960px) {
+  .manuscript-toolbar {
+    position: static;
+  }
+
+  .manuscript-editor-surface textarea,
+  .manuscript-editor-surface .pdf-markdown-body {
+    padding: var(--space-4);
+  }
+}

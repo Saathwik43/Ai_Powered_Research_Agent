@@ -6,13 +6,18 @@
 }
 
 .pdf-analysis-layout {
-  --pdf-radius: 16px;
-  --pdf-radius-sm: 12px;
-  --pdf-radius-xs: 8px;
-  --pdf-ease: 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  /* Aliases onto the shared tokens, so the ~90 uses in this file do not each
+     have to be rewritten. 16/12/8 was a third radius ladder beside the
+     system's 12/10/8, and --pdf-ease a second curve beside --transition. */
+  --pdf-radius: var(--radius-xl);
+  --pdf-radius-sm: var(--radius-lg);
+  --pdf-radius-xs: var(--radius-md);
+  --pdf-ease: var(--transition);
   display: flex;
-  height: 100%;
-  min-height: calc(100dvh - var(--mobile-header-height, 0px));
+  /* A definite height, not a minimum: with only min-height the studio grew
+     with its content, so the whole document scrolled instead of the reader
+     pane and the page controls drifted below the fold (PDF-1). */
+  height: calc(100dvh - var(--mobile-header-height, 0px));
   width: 100%;
   background: var(--bg);
   color: var(--text);
@@ -84,9 +89,9 @@
 }
 
 .pdf-new-chat-btn {
-  border: 1.5px solid var(--text);
-  background: var(--text);
-  color: var(--on-ink);
+  border: 1px solid var(--focus);
+  background: var(--focus);
+  color: var(--on-focus);
   font-family: 'IBM Plex Mono', monospace;
   font-size: 0.7rem;
   font-weight: 700;
@@ -138,21 +143,69 @@
   font-size: var(--fs-sm);
 }
 
+/* A row is a container: the open button fills it and the ⋯ menu
+   (SavedItemActions, ROW-2) sits at its end. Nothing in a row deletes on
+   one click any more. */
 .pdf-history-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.35rem;
-  padding: 0.65rem 0.7rem;
+  padding: 0.5rem 0.4rem 0.5rem 0.7rem;
   border: 1px solid transparent;
   border-radius: var(--pdf-radius-sm);
-  cursor: pointer;
-  transition: background var(--pdf-ease), border-color var(--pdf-ease), transform var(--pdf-ease);
+  transition: background var(--pdf-ease), border-color var(--pdf-ease);
 }
 
 .pdf-history-item:hover {
   background: var(--bg-elevated);
-  transform: translateX(2px);
+}
+
+.pdf-history-item-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.15rem 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pdf-history-item em {
+  flex-shrink: 0;
+  font-style: normal;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.7rem;
+  color: var(--text-subtle);
+}
+
+.pdf-history-item-editing {
+  flex: 1;
+}
+
+.pdf-history-rename {
+  padding: 0.2rem 0.45rem;
+  font-size: var(--fs-sm);
+}
+
+.pdf-history-group + .pdf-history-group {
+  margin-top: 0.5rem;
+}
+
+.pdf-history-group-label {
+  margin: 0.35rem 0.7rem 0.25rem;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.65rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 
 .pdf-history-item.active {
@@ -165,6 +218,11 @@
   gap: 0.45rem;
   min-width: 0;
   color: var(--text-muted);
+}
+
+/* A long name must not squeeze the file mark into a dot. */
+.pdf-history-item-content svg {
+  flex-shrink: 0;
 }
 
 .pdf-history-item.active .pdf-history-item-content {
@@ -180,22 +238,6 @@
   color: var(--text);
 }
 
-.pdf-history-item-delete {
-  border: 0;
-  background: transparent;
-  color: var(--text-subtle);
-  cursor: pointer;
-  padding: 0.2rem;
-  opacity: 0;
-}
-
-.pdf-history-item:hover .pdf-history-item-delete {
-  opacity: 1;
-}
-
-.pdf-history-item-delete:hover {
-  color: var(--danger);
-}
 
 /* ── Studio shell ── */
 .pdf-studio {
@@ -206,14 +248,19 @@
   height: 100%;
 }
 
+/* Deliberately not the shared TopBar: this is a full-height three-pane reader
+   and the document gets the vertical space. Matched to TopBar instead - same
+   min-height, panel surface and hairline - so the chrome still reads as one
+   system across pages. */
 .pdf-studio-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.7rem 1rem;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-card);
+  gap: var(--space-3);
+  min-height: var(--topbar-height);
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
   flex-wrap: wrap;
 }
 
@@ -288,19 +335,20 @@
 }
 
 .pdf-mode-tab.is-active {
-  background: var(--text);
-  color: var(--on-ink);
-  transform: scale(1.02);
+  background: var(--paper);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: 0 0 0 1px var(--line), var(--shadow-sm);
 }
 
 .pdf-mode-count {
   font-size: 0.62rem;
-  background: var(--accent);
-  color: #fff;
+  background: var(--focus);
+  color: var(--on-focus);
   padding: 0.1rem 0.35rem;
   min-width: 1.1rem;
   text-align: center;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
 }
 
 .pdf-studio-title {
@@ -349,7 +397,9 @@
   transform: translateY(-1px);
 }
 
-.pdf-attach-btn.danger:hover {
+
+/* A state, not a hover: the chat is not in the account until this is gone. */
+.pdf-attach-btn.is-error {
   border-color: var(--danger);
   color: var(--danger);
 }
@@ -369,16 +419,31 @@
   animation: pdfSoftIn 0.3s var(--pdf-ease) both;
 }
 
+/* Read stays mounted while another mode shows; `display: flex` above would
+   otherwise beat the hidden attribute. */
+.pdf-mode-panel[hidden] {
+  display: none;
+}
+
 /* ── Empty / upload ── */
 .pdf-empty-stage {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: safe center;
   padding: 2rem 1.25rem;
   text-align: center;
-  gap: 0.5rem;
+  gap: 0.75rem;
+}
+
+/* Column flex shrinks the main size. The icon's height is larger than its
+   content, so a short stage flattened the circle into an oval (56×31) and
+   packed the title, lede and dropzone. Scroll the stage instead. */
+.pdf-empty-stage > * {
+  flex-shrink: 0;
 }
 
 .pdf-empty-stage.compact {
@@ -395,48 +460,13 @@
 .pdf-empty-stage p {
   margin: 0;
   max-width: 28rem;
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--font-sans);
   font-style: normal;
   font-size: 0.95rem;
   font-weight: 500;
   letter-spacing: -0.01em;
   color: var(--text-muted);
   line-height: 1.5;
-}
-
-.pdf-empty-icon {
-  width: 56px;
-  height: 56px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1.5px solid var(--text);
-  border-radius: 50%;
-  color: var(--primary);
-  background: var(--primary-light);
-}
-
-.pdf-dropzone {
-  margin-top: 1rem;
-  width: min(420px, 100%);
-  border: 1.5px dashed var(--border-strong, var(--border));
-  border-radius: var(--pdf-radius);
-  background: var(--bg-card);
-  padding: 2rem 1.5rem;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.35rem;
-  cursor: pointer;
-  transition: border-color var(--pdf-ease), background var(--pdf-ease), transform var(--pdf-ease), box-shadow var(--pdf-ease);
-}
-
-.pdf-dropzone:hover,
-.pdf-dropzone.dragging {
-  border-color: var(--primary);
-  background: var(--primary-light);
-  transform: translateY(-2px);
-  box-shadow: 0 12px 28px rgba(15, 17, 21, 0.06);
 }
 
 .pdf-error-banner,
@@ -448,20 +478,115 @@
   font-size: var(--fs-sm);
 }
 
-.pdf-dropzone-icon {
+/* ── Landing (PDF-5) — composer-first, the ChatGPT / Claude home pattern ──
+   Layout only. The composer is the Ask composer (.pdf-input-wrapper,
+   .pdf-textarea, .pdf-send-btn) stacked as a column; the chips are
+   .pdf-suggestion-chip; recent rows are .pdf-history-item. */
+.pdf-home {
+  position: relative;
+  gap: 1.25rem;
+}
+
+.pdf-empty-stage h1.pdf-home-title {
+  margin: 0;
+  font-size: 1.75rem;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.pdf-home-column {
+  width: min(100%, 680px);
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  text-align: left;
+}
+
+.pdf-home-composer {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.25rem;
+  padding: 0.65rem 0.6rem 0.55rem 0.85rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.pdf-home-composer .pdf-textarea {
+  min-height: 3.1rem;
+}
+
+.pdf-home-composer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.pdf-home-file {
+  align-self: flex-start;
+  max-width: 100%;
+}
+
+.pdf-home-file span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pdf-home-file button {
+  display: inline-flex;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.pdf-home-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.pdf-home .pdf-recent {
+  width: 100%;
+  margin-top: 0.75rem;
+}
+
+.pdf-recent-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.pdf-recent-head button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.pdf-recent-head button:hover {
   color: var(--primary);
-  margin-bottom: 0.35rem;
 }
 
-.pdf-dropzone h3 {
-  margin: 0;
-  font-size: var(--fs-md);
-}
-
-.pdf-dropzone p {
-  margin: 0;
-  color: var(--text-subtle);
-  font-size: var(--fs-sm);
+/* The whole landing is the drop target, like ChatGPT; this is the cue. */
+.pdf-home-drop {
+  position: absolute;
+  inset: 0.75rem;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 1.5px dashed var(--primary);
+  border-radius: var(--pdf-radius);
+  /* Opaque: --primary-light is translucent and let the chips show through. */
+  background: color-mix(in srgb, var(--primary) 8%, var(--bg));
+  color: var(--primary);
+  font-weight: 600;
+  pointer-events: none;
 }
 
 /* ── Read mode ── */
@@ -497,10 +622,18 @@
 
 .pdf-viewer-scroll {
   flex: 1;
+  min-height: 0;
   overflow: auto;
-  display: flex;
-  justify-content: center;
+  /* Block, not a centring flexbox: a zoomed page wider than the pane must
+     scroll from its left edge, and centred flex overflow cannot be reached.
+     Positioned so each sheet's offsetTop is measured against this box. */
+  position: relative;
   padding: 1rem;
+}
+
+.pdf-viewer-scroll:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
 }
 
 .pdf-viewer-loading,
@@ -520,23 +653,23 @@
   align-items: center;
   gap: 1.25rem;
   width: max-content;
-  max-width: 100%;
-  padding-bottom: 2rem;
+  margin-inline: auto;
+  padding-bottom: 1rem;
 }
 
+/* #fff on purpose, in both themes: this frames a rendered PDF page, and the
+   page canvas itself is white. --paper would put a dark frame around it. */
 .pdf-page-sheet {
   position: relative;
   background: #fff;
   border: 1px solid var(--border);
   border-radius: var(--pdf-radius-sm);
-  box-shadow: 0 4px 16px rgba(15, 17, 21, 0.04);
+  box-shadow: var(--shadow-sm);
   overflow: hidden;
-  margin-top: 0.35rem;
-  transition: box-shadow var(--pdf-ease), transform var(--pdf-ease);
-}
-
-.pdf-page-sheet:hover {
-  box-shadow: 0 10px 28px rgba(15, 17, 21, 0.07);
+  flex-shrink: 0;
+  /* The reader sets width and height to the page's exact canvas size; the
+     border goes outside that, or the canvas would be clipped by 2px. */
+  box-sizing: content-box;
 }
 
 .pdf-page-label {
@@ -602,6 +735,63 @@
   color: var(--text-muted);
   min-width: 4.5rem;
   text-align: center;
+}
+
+/* The zoom percentage doubles as "fit to width". */
+button.pdf-control-reset {
+  border: 0;
+  background: transparent;
+  padding: 0.35rem 0;
+  border-radius: var(--pdf-radius-xs);
+  cursor: pointer;
+}
+
+button.pdf-control-reset:hover {
+  color: var(--text);
+}
+
+.pdf-viewer-missing {
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.pdf-viewer-missing p {
+  margin: 0;
+}
+
+/* ── Recent papers (empty stage) — layout only; rows reuse .pdf-history-item ── */
+.pdf-recent {
+  width: min(100%, 520px);
+  margin-top: 1.5rem;
+  text-align: left;
+}
+
+.pdf-recent h3 {
+  margin: 0 0 0.4rem;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.pdf-recent ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--border);
+}
+
+.pdf-recent li {
+  border-bottom: 1px solid var(--border);
+}
+
+.pdf-recent .pdf-history-item {
+  border-radius: 0;
+}
+
+.pdf-recent + .pdf-recent {
+  margin-top: 0.25rem;
 }
 
 .pdf-toc-rail {
@@ -692,7 +882,7 @@
 .pdf-avatar {
   width: 30px;
   height: 30px;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -740,7 +930,7 @@
   border-color: var(--primary);
   color: var(--primary);
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(15, 17, 21, 0.05);
+  box-shadow: var(--shadow-md);
 }
 
 .pdf-suggestion-chip:disabled {
@@ -816,7 +1006,7 @@
 .pdf-context-track {
   height: 6px;
   background: var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
   display: flex;
 }
@@ -876,7 +1066,7 @@
 .pdf-context-tag {
   font-size: var(--fs-2xs);
   padding: 0 0.3rem;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   color: var(--text-subtle);
 }
@@ -959,7 +1149,7 @@
 
 .pdf-input-wrapper:focus-within {
   border-color: var(--text);
-  box-shadow: 0 8px 24px rgba(15, 17, 21, 0.06);
+  box-shadow: var(--shadow-md);
 }
 
 .pdf-textarea {
@@ -976,13 +1166,22 @@
   padding: 0.45rem 0;
 }
 
+/* The wrapper's :focus-within border is the focus cue; the global
+   textarea:focus inset ring and :focus-visible outline would draw a
+   second box inside it. */
+.pdf-textarea:focus,
+.pdf-textarea:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
 .pdf-send-btn {
   width: 36px;
   height: 36px;
   border: 0;
-  border-radius: 999px;
-  background: var(--text);
-  color: var(--on-ink);
+  border-radius: var(--radius-md);
+  background: var(--focus);
+  color: var(--on-focus);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1023,14 +1222,14 @@
   border: 1px solid var(--border);
   border-radius: var(--pdf-radius);
   padding: 1rem 1.1rem;
-  box-shadow: 0 2px 10px rgba(15, 17, 21, 0.03);
+  box-shadow: var(--shadow-sm);
   animation: pdfSoftIn 0.35s var(--pdf-ease) both;
   transition: transform var(--pdf-ease), box-shadow var(--pdf-ease);
 }
 
 .pdf-finding-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 10px 24px rgba(15, 17, 21, 0.06);
+  box-shadow: var(--shadow-md);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1039,7 +1238,6 @@
   .pdf-bubble,
   .pdf-finding-card,
   .pdf-suggestion-chip,
-  .pdf-dropzone,
   .pdf-history-item,
   .pdf-attach-btn,
   .pdf-mode-tab,
@@ -1123,7 +1321,7 @@
 
 .citation-pill::after {
   content: attr(data-ref);
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--font-sans);
   font-style: normal;
   color: var(--accent-strong);
   font-size: var(--fs-sm);
@@ -1313,10 +1511,6 @@
     border-left: none;
     padding-left: 0;
   }
-
-  .pdf-dropzone {
-    width: 100%;
-  }
 }
 
 
@@ -1329,7 +1523,7 @@
   display: block;
   margin: 0.85rem 0;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm, 6px);
+  border-radius: var(--radius-sm);
   overflow: hidden;
   background: #fff;
 }

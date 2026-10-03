@@ -22,9 +22,26 @@ from core.config import MAX_UPLOAD_BYTES, MAX_URL_FETCH_BYTES
 from core.limiter import limiter
 from core.database import db
 from core.file_validation import read_upload_capped, verify_pdf_signature, verify_upload_signature
-from core.object_store import PdfNotFound, open_pdf, owner_of, store_pdf
+from core.object_store import (
+    PdfNotFound,
+    content_digest,
+    find_stored_pdf,
+    open_pdf,
+    owner_of,
+    remember_stored_pdf,
+    store_pdf,
+)
 from core.processing_consent import consent_state, record_consent, user_allows_third_party
-from schemas import PdfChatSavePayload, ProcessingConsentPayload
+from core.saved_lists import (
+    LIST_SORT,
+    cursor_filter,
+    meta_update,
+    meta_view,
+    next_cursor,
+    parse_object_id,
+)
+from pymongo import ReturnDocument
+from schemas import PdfChatSavePayload, ProcessingConsentPayload, SavedItemPatch
 from core.ssrf_guard import safe_fetch
 
 logger = logging.getLogger(__name__)
@@ -83,6 +100,27 @@ async def extract_pdf_endpoint(request: Request, file: UploadFile = File(...), c
     contents = await read_upload_capped(file, MAX_UPLOAD_BYTES)
     verify_pdf_signature(contents)
 
+    # The same bytes uploaded again (PDF-4): reuse the stored file, and if a chat
+    # already holds it, hand that chat back instead of extracting the paper a
+    # second time and opening a duplicate. The client opens `existing_chat_id`.
+    user_id = current_user["user_id"]
+    digest = content_digest(contents)
+    file_id = await find_stored_pdf(str(user_id), digest)
+    if file_id:
+        existing = await db["pdf_chats"].find_one(
+            {"user_id": user_id, "file_id": file_id},
+            {"text": 1, "structure": 1},
+            sort=[("updated_at", -1)],
+        )
+        if existing:
+            return {
+                "text": existing.get("text") or "",
+                "structure": existing.get("structure"),
+                "file_id": file_id,
+                "existing_chat_id": str(existing["_id"]),
+                "reused": True,
+            }
+
     # Whether this file may be sent to LlamaCloud (1.16). Resolved per upload,
     # not cached on the client, so revoking consent takes effect on the very
     # next file rather than whenever the page is next reloaded.
@@ -96,7 +134,9 @@ async def extract_pdf_endpoint(request: Request, file: UploadFile = File(...), c
     # S3 when S3_BUCKET is set, GridFS otherwise (AWS-6). The id shape differs
     # between the two, which is why nothing downstream may parse it — it is
     # handed back to `open_pdf` exactly as stored.
-    file_id = await store_pdf(str(current_user["user_id"]), file.filename, contents)
+    if not file_id:
+        file_id = await store_pdf(str(user_id), file.filename, contents)
+        await remember_stored_pdf(str(user_id), digest, file_id)
 
     return {
         "text": text,
@@ -315,27 +355,22 @@ async def list_pdf_chats(
 ):
     user_id = current_user["user_id"]
     collection = db["pdf_chats"]
-    query = {"user_id": user_id}
-    if cursor:
-        try:
-            query["_id"] = {"$lt": ObjectId(cursor)}
-        except Exception:
-            raise HTTPException(status_code=400, detail="Invalid cursor.")
+    query = {"user_id": user_id, **cursor_filter(cursor)}
     docs = await (
         collection.find(
             query,
             {"text": 0, "structure": 0, "messages": 0, "user_id": 0},
         )
-        .sort("_id", -1)
+        .sort(LIST_SORT)
         .limit(limit)
         .to_list(length=limit)
     )
+    page_cursor = next_cursor(docs, limit)
     chats = []
     for doc in docs:
         doc["chat_id"] = str(doc.pop("_id"))
         chats.append(doc)
-    next_cursor = chats[-1]["chat_id"] if len(chats) == limit else None
-    return {"data": chats, "next_cursor": next_cursor}
+    return {"data": chats, "next_cursor": page_cursor}
 
 @router.get("/api/pdf-chats/{chat_id}")
 @limiter.limit("30/minute")
@@ -350,6 +385,20 @@ async def load_pdf_chat(request: Request, chat_id: str, current_user: dict = Dep
         return {"data": doc}
     except Exception:
         raise HTTPException(status_code=404, detail="Invalid chat ID.")
+
+@router.patch("/api/pdf-chats/{chat_id}")
+@limiter.limit("30/minute")
+async def update_pdf_chat_meta(request: Request, chat_id: str, payload: SavedItemPatch, current_user: dict = Depends(get_current_user)):
+    """Pin or rename a chat (ROW-1). The title is display-only; `filename` stays."""
+    doc = await db["pdf_chats"].find_one_and_update(
+        {"_id": parse_object_id(chat_id, "Chat"), "user_id": current_user["user_id"]},
+        meta_update(payload.pinned, payload.title),
+        projection={"pinned": 1, "title": 1},
+        return_document=ReturnDocument.AFTER,
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Chat not found.")
+    return {"chat_id": chat_id, **meta_view(doc)}
 
 @router.delete("/api/pdf-chats/{chat_id}")
 @limiter.limit("20/minute")

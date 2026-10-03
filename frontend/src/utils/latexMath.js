@@ -23,5 +23,7 @@ export function normalizeLatexDelimiters(md) {
 export const KATEX_REHYPE_OPTIONS = {
   strict: false,
   throwOnError: false,
-  errorColor: 'inherit',
+  // KaTeX paints unparseable source in this colour, with the parse error as
+  // its title. 'inherit' made broken maths look like ordinary text (ME-3, B7).
+  errorColor: 'var(--danger)',
 };

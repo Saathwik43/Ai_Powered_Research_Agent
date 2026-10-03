@@ -400,25 +400,23 @@
   top: 0;
   width: 7.16in;
   visibility: hidden;
+  /* Collapsed on screen: it still lays out (charts and diagrams render, which
+     PDF export waits for), but an invisible full-paper copy no longer extends
+     the page — it made the editor scroll ~8,000px past its content. */
+  height: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 @media print {
-  .manuscript-outline-panel, .manuscript-toolbar, .manuscript-revise-panel,
-  .manuscript-editor-footer, .manuscript-refs-toggle, .manuscript-refs-drawer,
-  .sidebar, .mobile-header, .mobile-overlay, button,
-  .manuscript-references-panel, .page-header,
-  .manuscript-config-block, .manuscript-gap-panel,
-  .manuscript-sidebar-column { display: none !important; }
+  /* SD-5 chrome: top bar, command bar, outline, tools panel, banners. */
+  .topbar, .manuscript-commandbar, .manuscript-outline, .manuscript-tools,
+  .manuscript-toolbar, .manuscript-doc-head, .manuscript-doc-footer, .manuscript-banner,
+  .manuscript-research-stages,
+  .sidebar, .mobile-header, .mobile-overlay, button, .page-header { display: none !important; }
 
-  .manuscript-editor-panel {
-    border: none !important;
-    background: transparent !important;
-    padding: 0 !important;
-    border-radius: 0 !important;
-  }
+  .manuscript-workspace { display: block !important; }
 
-  .manuscript-editor-panel > div:first-child { display: none !important; } /* section-name header row above the preview */
-
-  .paper-preview-print { position: static !important; left: auto !important; visibility: visible !important; width: 100% !important; box-shadow: none !important; border-radius: 0 !important; padding: 0 !important; margin: 0 !important; }
+  .paper-preview-print { position: static !important; left: auto !important; visibility: visible !important; height: auto !important; overflow: visible !important; width: 100% !important; box-shadow: none !important; border-radius: 0 !important; padding: 0 !important; margin: 0 !important; }
   .paper-preview-screen { display: none !important; }
 
   body, .main-content { margin: 0 !important; padding: 0 !important; max-width: 100% !important; }

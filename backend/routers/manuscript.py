@@ -29,6 +29,15 @@ from ai.venue_recommendation import recommend_venues
 from core.auth import get_current_user
 from core.limiter import limiter
 from core.database import db
+from core.saved_lists import (
+    LIST_SORT,
+    cursor_filter,
+    meta_update,
+    meta_view,
+    next_cursor,
+    parse_object_id,
+)
+from pymongo import ReturnDocument
 from services import usage_tracker
 from schemas import (
     GapAnalysisPayload,
@@ -37,6 +46,7 @@ from schemas import (
     ManuscriptEditPayload,
     ManuscriptPayload,
     ManuscriptRestorePayload,
+    SavedItemPatch,
     ManuscriptSavePayload,
     ManuscriptStreamPayload,
     ResearchPayload,
@@ -741,21 +751,31 @@ async def list_manuscript_drafts(
 ):
     user_id = current_user["user_id"]
     collection = db["manuscripts"]
-    query = {"user_id": user_id}
-    if cursor:
-        try:
-            query["_id"] = {"$lt": ObjectId(cursor)}
-        except Exception:
-            raise HTTPException(status_code=400, detail="Invalid cursor.")
+    query = {"user_id": user_id, **cursor_filter(cursor)}
     docs = await (
         collection.find(query, {"user_id": 0, "content": 0})
-        .sort("_id", -1)
+        .sort(LIST_SORT)
         .limit(limit)
         .to_list(length=limit)
     )
     drafts = [_public_draft(doc) for doc in docs]
-    next_cursor = str(docs[-1]["_id"]) if len(docs) == limit else None
-    return {"data": drafts, "next_cursor": next_cursor}
+    return {"data": drafts, "next_cursor": next_cursor(docs, limit)}
+
+
+@router.patch("/api/manuscript/drafts/{draft_id}")
+@limiter.limit("30/minute")
+async def update_manuscript_meta(request: Request, draft_id: str, payload: SavedItemPatch, current_user: dict = Depends(get_current_user)):
+    """Pin or rename a draft (ROW-1). The title is display-only: `topic` keys
+    the reference snapshot and is what the editor saves under."""
+    doc = await db["manuscripts"].find_one_and_update(
+        {"_id": parse_object_id(draft_id, "Draft"), "user_id": current_user["user_id"]},
+        meta_update(payload.pinned, payload.title),
+        projection={"pinned": 1, "title": 1},
+        return_document=ReturnDocument.AFTER,
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Draft not found.")
+    return {"id": draft_id, **meta_view(doc)}
 
 
 @router.delete("/api/manuscript/delete")

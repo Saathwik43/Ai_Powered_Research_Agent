@@ -1,10 +1,11 @@
 import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
-import { Menu } from 'lucide-react';
+import { Menu, X } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppProvider } from './context/AppContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { MotionConfig } from 'motion/react';
+import { TooltipProvider } from './components/ui/tooltip';
 import Sidebar from './components/Sidebar';
 import PageMeta from './components/PageMeta';
 import './App.css';
@@ -33,15 +34,15 @@ const SignupComplete = lazy(() =>
 const NotFound = lazy(() => import('./pages/NotFound'));
 
 const AppLoader = () => (
-  <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
-    <div style={{ width: 40, height: 40, border: '3px solid var(--border)', borderTopColor: 'var(--primary)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+  <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--canvas)' }}>
+    <div style={{ width: 28, height: 28, border: '2px solid var(--line)', borderTopColor: 'var(--focus)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
     <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
   </div>
 );
 
 const PageFallback = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '40vh' }}>
-    <div style={{ width: 32, height: 32, border: '3px solid var(--border)', borderTopColor: 'var(--primary)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+    <div style={{ width: 24, height: 24, border: '2px solid var(--line)', borderTopColor: 'var(--focus)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
   </div>
 );
 
@@ -80,17 +81,19 @@ const ProtectedLayout = () => {
     <>
       <div className="mobile-header">
         <button
-          onClick={() => setSidebarOpen(true)}
+          type="button"
+          onClick={() => setSidebarOpen((open) => !open)}
           className="btn btn-icon"
-          aria-label="Open navigation"
+          aria-label={sidebarOpen ? 'Close navigation' : 'Open navigation'}
+          aria-expanded={sidebarOpen}
         >
-          <Menu size={22} />
+          {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
         </button>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-          <img src="/9672704.webp" alt="Logo" style={{ width: 32, height: 32, borderRadius: '6px', objectFit: 'cover' }} />
-          <span style={{ fontWeight: 700, fontSize: 'var(--fs-base)', color: 'var(--text)' }}>Research Agent</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+          <img src="/9672704.webp" alt="Logo" style={{ width: 26, height: 26, borderRadius: 'var(--radius-sm)', objectFit: 'cover' }} />
+          <span style={{ fontFamily: 'var(--font-serif)', fontWeight: 600, fontSize: 'var(--fs-md)', color: 'var(--ink)' }}>Research Agent</span>
         </div>
-        <div style={{ width: 40 }} />
+        <div style={{ width: 32 }} />
       </div>
 
       <Sidebar
@@ -148,13 +151,15 @@ function AppRoutes() {
 function App() {
   return (
     <MotionConfig reducedMotion="user">
-      <ThemeProvider>
-        <AuthProvider>
-          <AppProvider>
-            <AppRoutes />
-          </AppProvider>
-        </AuthProvider>
-      </ThemeProvider>
+      <TooltipProvider delayDuration={200}>
+        <ThemeProvider>
+          <AuthProvider>
+            <AppProvider>
+              <AppRoutes />
+            </AppProvider>
+          </AuthProvider>
+        </ThemeProvider>
+      </TooltipProvider>
     </MotionConfig>
   );
 }

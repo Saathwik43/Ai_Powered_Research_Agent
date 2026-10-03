@@ -92,6 +92,8 @@ export function createApi(authFetch) {
     get: (path, options) => request(path, { method: 'GET', ...options }),
     post: (path, body, options) =>
       request(path, { method: 'POST', body: JSON.stringify(body ?? {}), ...options }),
+    patch: (path, body, options) =>
+      request(path, { method: 'PATCH', body: JSON.stringify(body ?? {}), ...options }),
     del: (path, options) => request(path, { method: 'DELETE', ...options }),
     /** Unparsed Response — for streams, downloads, and per-status handling. */
     raw: (path, { params, ...init } = {}) => authFetch(apiUrl(path, params), init),

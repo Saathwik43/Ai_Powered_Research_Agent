@@ -29,7 +29,7 @@ from core.paper_identity import (
 )
 from core import shared_store
 from core.ttl_cache import TTLCache
-from integrations import registry
+from integrations import query_expansion, registry
 from services import api_health, semantic_cache
 
 logger = logging.getLogger(__name__)
@@ -783,6 +783,15 @@ async def _execute_search(
 
     skipped: list[str] = []
 
+    # One plan for the whole fan-out (2.3). Each source is then sent the
+    # rendering its own query language honours — a Boolean OR of synonym
+    # variants where that was measured to help, the raw string everywhere else.
+    # `query` itself stays the identity of this search: the cache key above and
+    # `_rank_papers` below both keep using it, never a rendering.
+    plan = query_expansion.build_plan(query)
+    if plan.expanded:
+        logger.info("Query expansion for %r: %s", query, plan.as_dict())
+
     # Sources come from `integrations.registry` — one list, which is also the
     # order per-database yield is reported in. The callable is resolved through
     # this module's namespace, so patching e.g. `paper_search.arxiv_search`
@@ -801,7 +810,8 @@ async def _execute_search(
             circuit_open[source.name] = reason
             continue
         named.append((source.name, asyncio.create_task(
-            source.call(query, limit_per_source), name=source.name
+            source.call(plan.for_dialect(source.dialect), limit_per_source),
+            name=source.name,
         )))
 
     task_to_name = {task: name for name, task in named}

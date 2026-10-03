@@ -172,7 +172,7 @@
 
 .admin-subtitle {
   margin: 0 0 0.85rem;
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--font-sans);
   font-style: normal;
   font-size: 0.98rem;
   font-weight: 500;
@@ -962,7 +962,7 @@
 
 .admin-panel-hint {
   margin: 0.35rem 0 0;
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--font-sans);
   font-style: normal;
   font-size: 0.92rem;
   font-weight: 500;

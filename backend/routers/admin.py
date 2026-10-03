@@ -270,6 +270,8 @@ _USER_OWNED_COLLECTIONS = (
     # Outstanding refresh tokens for an account that no longer exists (1.14).
     "refresh_tokens",
     "pdf_chats",
+    # Content digests of the user's uploads (PDF-4) -- small, but still theirs.
+    "pdf_files",
     "sources",
     "literature",
 )

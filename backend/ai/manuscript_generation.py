@@ -100,7 +100,7 @@ Instructions:
 4. Keep all claims appropriately cautious and academically sound (e.g., use "suggests", "indicates", "may").
 5. Format the output in clean Markdown, using paragraphs, lists, or bold text only where academically appropriate.
 6. Make it comprehensive, detailed, and at least 3-4 paragraphs long.
-7. CRITICAL: Use LaTeX math ONLY with dollar delimiters: `$O_2$` / `$x^2$` inline and `$$ E = mc^2 $$` for display. Never use `\\(` `\\)` `\\[` `\\]` or wrap an equation in square brackets — those print as raw source instead of rendering.
+7. CRITICAL: Use LaTeX math ONLY with dollar delimiters: `$...$` inline and `$$...$$` for display. Never use `\\(` `\\)` `\\[` `\\]` or wrap an equation in square brackets — those print as raw source instead of rendering. The delimiters are syntax only: write an equation only when this topic or the cited evidence needs one, and never insert an illustrative formula that the paper's own argument does not use.
 8. CRITICAL: {cite_instruction} If no numbered reference list is provided, you may generate without citations but ensure academic rigor.
 9. IMPORTANT: If a provided reference doesn't directly support a claim, state the claim as general background without a citation marker rather than force-citing an irrelevant source.
 10. CRITICAL: DO NOT include a "References", "Bibliography", or "Works Cited" list at the end of the section. The references are compiled and managed externally."""

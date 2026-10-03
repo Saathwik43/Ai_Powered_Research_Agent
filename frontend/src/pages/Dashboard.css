@@ -1,1114 +1,815 @@
-/* Dashboard — Split Desk
-   Left browse rail · right stream · curved surfaces · soft motion */
+/* Topic Discovery — SD-13 layout, SD-14 tokens
+   One reading column: masthead, sticky search desk, then stacked panels.
+   The page's own left rail is gone; fields are a segmented control inside the
+   column, so the app sidebar is the only vertical navigation on screen.
 
-.dashboard-page {
-  --dash-ink: #0F1218;
-  --dash-ink-soft: #374151;
-  --dash-rust: var(--primary);
-  --dash-rust-deep: var(--primary);
-  --dash-forest: #15803D;
-  --dash-mute: #3F4A5A;
-  --dash-line: var(--border);
-  --dash-rule: #0F1218;
-  --dash-paper: var(--bg-card);
-  --dash-wash: var(--bg-elevated);
-  --dash-warm: var(--bg-elevated);
-  --dash-radius: 12px;
-  --dash-radius-sm: 8px;
-  --dash-radius-pill: 999px;
-  --dash-ease: 220ms cubic-bezier(0.22, 1, 0.36, 1);
-  color: var(--dash-ink);
+   This file owns layout only. SD-13 shipped a `.dsb`-scoped palette here as a
+   deliberate, recorded exception; SD-14 promoted every one of those values to
+   `:root` in `index.css` and deleted the block, so the exception is closed and
+   rule 6 holds again. Surfaces, rules, elevation, radius and the hover tint all
+   come from the global sheet below this line. */
+
+.dsb-page {
   max-width: var(--content-max);
   width: 100%;
   margin: 0 auto;
-  animation: dashRise 0.45s var(--dash-ease) both;
 }
 
-[data-theme="dark"] .dashboard-page {
-  --dash-ink: #F3F4F6;
-  --dash-ink-soft: #D1D5DB;
-  --dash-mute: #A7B0BF;
-  --dash-line: var(--border);
-  --dash-rule: #F3F4F6;
-  --dash-paper: var(--bg-card);
-  --dash-wash: var(--bg-elevated);
-  --dash-warm: var(--bg-elevated);
-  --dash-rust: var(--primary);
-  --dash-rust-deep: var(--primary);
-  --dash-forest: #22C55E;
+/* ── Panels ─────────────────────────────────────────────────────────────────
+   The shadcn Card is composed, not re-implemented. Its own `ring-1` is
+   replaced by a hairline-plus-elevation box-shadow (a ring *is* a box-shadow,
+   so the two cannot coexist), and the global `[class*="-card"]` border rule —
+   which matches Card because its class list contains `bg-card` — is overridden
+   here rather than fought per element. */
+.dsb-block {
+  margin-bottom: var(--space-5);
 }
 
-@keyframes dashRise {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes dashSoftIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-/* ── Masthead ── */
-.dashboard-masthead {
-  margin-bottom: 1.75rem;
-  padding-bottom: 1.25rem;
-  border-bottom: none;
-  position: relative;
-}
-
-.dashboard-masthead::after {
-  content: '';
-  display: block;
-  height: 3px;
-  width: 4.5rem;
-  margin-top: 1.1rem;
-  border-radius: 0;
-  background: var(--dash-rust);
-}
-
-.dashboard-kicker {
-  margin: 0 0 0.5rem;
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.65rem;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--dash-rust);
-}
-
-.dashboard-title {
-  margin: 0 0 0.35rem;
-  font-family: 'Source Serif 4', Georgia, serif;
-  font-size: clamp(1.85rem, 3.2vw, 2.4rem);
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  line-height: 1.15;
-  color: var(--dash-ink);
-}
-
-.dashboard-subtitle {
-  margin: 0 0 0.85rem;
-  font-family: 'Inter', system-ui, sans-serif;
-  font-style: normal;
-  font-size: 0.98rem;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-  color: var(--text-muted);
-  max-width: min(40rem, 100%);
-  line-height: 1.55;
-}
-
-.dashboard-inline-metrics {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.55rem 0.75rem;
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.72rem;
-  color: var(--dash-mute);
-}
-
-.dashboard-inline-metrics span {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-}
-
-.dashboard-metric-dot {
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: var(--dash-mute);
-  opacity: 0.6;
-}
-
-/* ── Split: rail | workspace ── */
-.dashboard-split {
-  display: grid;
-  grid-template-columns: minmax(200px, 240px) minmax(0, 1fr);
+.dsb [data-slot="card"] {
+  border: 0;
+  border-radius: var(--radius-xl);
+  background: var(--paper);
+  box-shadow: 0 0 0 1px var(--line), var(--shadow-md);
+  transition: box-shadow 220ms var(--ease-standard);
+  /* Card ships `gap-(--card-spacing)` + `py-(--card-spacing)`: a 16px flex gap
+     between the header and the content, on top of the header's own rule. That
+     gap is the empty band that opened under every panel heading. Spacing is set
+     per region below instead, so a panel of rows has no dead space in it. */
   gap: 0;
-  align-items: start;
+  padding-block: 0;
 }
 
-@media (min-width: 1440px) {
-  .dashboard-split {
-    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
-  }
-
-  .dashboard-workspace {
-    padding-left: 2.25rem;
-  }
+/* Header already spans the card — Card has no horizontal padding of its own.
+   A negative margin here used to "cancel" CardHeader's px, but it actually
+   bled the rule 16px past the card into the page gutter. Keep the inset in
+   lockstep with `.dsb-row` / `.dsb-pad` so the hairline and the rows share
+   one column. Flex, not the CardAction grid: the grid's `items-start` and
+   `row-span-2` shoved the badge off the title midline. */
+.dsb .dsb-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--line);
+  grid-template-columns: none;
 }
 
-@media (min-width: 1800px) {
-  .dashboard-split {
-    grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
-  }
+.dsb .dsb-head [data-slot="card-action"] {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  grid-column: auto;
+  grid-row: auto;
+  justify-self: auto;
+  align-self: center;
 }
 
-.dashboard-rail {
-  padding-right: 1.35rem;
-  margin-right: 0.35rem;
-  border-right: none;
+.dsb [data-slot="card-content"] {
+  padding-block: var(--space-4);
+}
+
+.dsb-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.dsb-title svg {
+  color: var(--ink-subtle);
+  stroke-width: 1.75;
+}
+
+/* The searched phrase is quoted material, so it is set in the serif. */
+.dsb-title em {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-weight: 500;
+}
+
+/* A panel whose content is a list or a table: the rows carry their own padding
+   and the last row's bottom padding is the panel's. */
+.dsb .dsb-body-flush {
+  padding: 0;
+}
+
+.dsb-pad {
+  padding: var(--space-3) var(--space-4);
+}
+
+.dsb-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-4);
+  font-size: var(--fs-base);
+  color: var(--ink-muted);
+}
+
+.dsb-mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Search desk ────────────────────────────────────────────────────────────
+   Sticks under the workspace context bar so the query stays reachable while
+   reading down a long result set. */
+.dsb-desk {
   position: sticky;
-  top: 1rem;
-  max-height: calc(100vh - 2rem);
+  top: var(--topbar-height);
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+  padding: var(--space-3) 0;
+  background: var(--canvas);
+  border-bottom: 1px solid var(--line);
+}
+
+.dsb-query {
+  display: flex;
+  align-items: stretch;
+}
+
+/* One surface for the field and its action — a free-floating Discover pill
+   next to a lifted input read as two controls fighting for the same job. */
+.dsb-query-field {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 42px;
+  padding: 3px 3px 3px 0;
+  border-radius: var(--radius-lg);
+  background: var(--paper);
+  box-shadow: var(--shadow-md);
+}
+
+.dsb-query-icon {
+  position: absolute;
+  left: var(--space-3);
+  color: var(--ink-subtle);
+  pointer-events: none;
+  transition: color 170ms var(--ease-standard);
+}
+
+.dsb-query-field:focus-within .dsb-query-icon {
+  color: var(--focus);
+}
+
+.dsb .dsb-query-input {
+  flex: 1 1 0;
+  width: 0; /* kill Input's `w-full` so Discover stays in the row */
+  min-width: 0;
+  height: 36px;
+  padding-left: calc(var(--space-3) * 2 + 16px);
+  padding-right: var(--space-2);
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  border-radius: var(--radius-lg);
+}
+
+/* The composite control draws ONE focus indicator, on the wrapper. The global
+   `input:focus-visible` outline in index.css was drawing a second one around
+   the input alone, which stopped short of the clear and Discover buttons and
+   cut the single surface into two. Not a removed focus indicator — it moves to
+   `.dsb-query-field:focus-within` below, which outlines the whole control. */
+.dsb .dsb-query-input:focus-visible {
+  border-color: transparent;
+  box-shadow: none;
+  outline: none;
+}
+
+.dsb-query-field:focus-within {
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--focus) 22%, transparent), var(--shadow-md);
+}
+
+.dsb-query-clear {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--ink-subtle);
+  cursor: pointer;
+  transition: background-color 140ms var(--ease-standard), color 140ms var(--ease-standard);
+}
+
+.dsb .dsb-query-go {
+  flex-shrink: 0;
+  height: 30px;
+  align-self: center;
+}
+
+.dsb-query-clear:hover {
+  background: var(--inset);
+  color: var(--ink);
+}
+
+.dsb-suggestions {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-1);
+  background: var(--paper);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 0 0 1px var(--line), var(--shadow-lg);
+  max-height: 16rem;
   overflow-y: auto;
 }
 
-.dashboard-rail::after {
-  content: '';
-  position: absolute;
-  top: 0.5rem;
-  right: 0;
-  bottom: 0.5rem;
-  width: 2px;
-  border-radius: var(--dash-radius-pill);
-  background: linear-gradient(180deg, var(--dash-line), transparent 92%);
-}
-
-.dashboard-workspace {
-  padding-left: 1.75rem;
-  min-width: 0;
-}
-
-/* ── Left rail ── */
-.dashboard-rail-section {
-  margin-bottom: 1.75rem;
-}
-
-.dashboard-rail-section:last-child {
-  margin-bottom: 0;
-}
-
-.dashboard-rail-heading-row {
+.dsb-suggestion {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.5rem;
-  margin-bottom: 0.55rem;
-}
-
-.dashboard-rail-heading {
-  margin: 0 0 0.55rem;
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.65rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--dash-mute);
-}
-
-.dashboard-rail-heading-row .dashboard-rail-heading {
-  margin-bottom: 0;
-}
-
-.dashboard-rail-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-
-.dashboard-rail-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.55rem;
-  width: 100%;
-  padding: 0.6rem 0.65rem;
-  border: 0;
-  border-radius: var(--dash-radius-sm);
-  background: transparent;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
   text-align: left;
-  cursor: pointer;
   font: inherit;
-  color: inherit;
-  transition: background var(--dash-ease), transform var(--dash-ease);
+  font-size: var(--fs-base);
+  color: var(--ink-muted);
+  cursor: pointer;
 }
 
-.dashboard-rail-item:hover {
-  background: var(--dash-wash);
-  transform: translateX(2px);
+.dsb-suggestion svg {
+  color: var(--ink-subtle);
 }
 
-.dashboard-rail-item:last-child {
-  border-bottom: none;
+/* Hover and arrow-key highlight are the same state, so they look the same. */
+.dsb-suggestion:hover,
+.dsb-suggestion.is-active {
+  background: var(--focus-soft);
+  color: var(--ink);
 }
 
-.dashboard-rail-item:hover {
-  color: var(--dash-rust-deep);
+/* ── Fields: one segmented control, replacing the page's second left rail ──── */
+.dsb-fields-scroll {
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 1px;
 }
 
-.dashboard-rail-item.is-active {
-  color: var(--dash-ink);
+.dsb-fields-scroll::-webkit-scrollbar {
+  display: none;
 }
 
-.dashboard-rail-item.is-active .dashboard-rail-icon {
-  color: var(--dash-rust);
+.dsb .dsb-fields {
+  gap: 0;
+  padding: 3px;
+  background: var(--inset);
+  border-radius: var(--radius-lg);
+  box-shadow: inset 0 0 0 1px var(--line);
 }
 
-.dashboard-rail-item.is-active .dashboard-rail-item-title {
-  font-weight: 700;
+/* Specificity here is deliberate: the toggle primitive ships
+   `data-[state=on]:bg-muted`, which would make the selected segment the
+   *recessed* colour. Apple's segmented control is the inverse — the active
+   segment is the raised surface sitting on a sunken track. */
+.dsb .dsb-fields .dsb-field {
+  height: 30px;
+  gap: var(--space-1);
+  padding: 0 var(--space-3);
+  border-radius: 7px;
+  background: transparent;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--ink-muted);
+  white-space: nowrap;
+  transition:
+    background-color 160ms var(--ease-standard),
+    color 160ms var(--ease-standard),
+    box-shadow 160ms var(--ease-standard);
 }
 
-.dashboard-rail-icon {
-  flex-shrink: 0;
-  margin-top: 0.15rem;
-  color: var(--dash-mute);
+.dsb .dsb-fields .dsb-field svg {
+  stroke-width: 1.75;
 }
 
-.dashboard-rail-item-body {
+.dsb .dsb-fields .dsb-field:hover {
+  background: var(--hover-tint);
+  color: var(--ink);
+}
+
+.dsb .dsb-fields .dsb-field[data-state="on"] {
+  background: var(--paper);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: 0 0 0 1px var(--line), 0 1px 2px rgba(20, 20, 20, 0.07);
+}
+
+[data-theme="dark"] .dsb .dsb-fields .dsb-field[data-state="on"] {
+  box-shadow: 0 0 0 1px var(--line-strong), 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.dsb .dsb-fields .dsb-field[data-state="on"] svg {
+  color: var(--focus);
+}
+
+/* ── Error strip ───────────────────────────────────────────────────────────── */
+.dsb-error {
   display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--bad-soft);
+  box-shadow: inset 2px 0 0 var(--bad), 0 0 0 1px var(--line);
+  font-size: var(--fs-base);
+  color: var(--bad);
+}
+
+.dsb-error.is-muted {
+  background: var(--inset);
+  box-shadow: inset 2px 0 0 var(--line-strong), 0 0 0 1px var(--line);
+  color: var(--ink-muted);
+}
+
+.dsb-error-text {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
   min-width: 0;
 }
 
-.dashboard-rail-item-title {
-  font-size: 0.82rem;
-  font-weight: 600;
-  line-height: 1.3;
-  color: var(--dash-ink);
+.dsb-error-dismiss {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  font-size: var(--fs-xs);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
 }
 
-.dashboard-rail-item-meta {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.62rem;
-  color: var(--dash-mute);
-}
-
-.dashboard-rail-empty {
-  margin: 0;
-  font-size: 0.78rem;
-  color: var(--dash-mute);
-  line-height: 1.45;
-}
-
-.dashboard-rail-list {
+/* ── Rows ───────────────────────────────────────────────────────────────────
+   One row rhythm for starting points, directions, the arXiv feed and saved
+   surveys, so four lists do not become four card styles. Separators are drawn
+   between siblings only, which keeps the panel's rounded corners clean. */
+.dsb-rows {
+  display: flex;
+  flex-direction: column;
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
-.dashboard-rail-survey {
+.dsb-rows > * + * {
+  border-top: 1px solid var(--line);
+}
+
+.dsb-idx {
+  flex-shrink: 0;
+  width: 2ch;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-subtle);
+}
+
+/* A row is one line with three columns: index, title (takes the slack), and a
+   right-anchored figure. Stacking the figure under the title left most of the
+   column empty and made a four-item list as tall as a paragraph. */
+.dsb-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  background: none;
+  border: none;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 140ms var(--ease-standard);
+}
+
+.dsb-row:hover {
+  background: var(--hover-tint);
+}
+
+.dsb-row-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-base);
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--ink);
+}
+
+.dsb-row-meta {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-subtle);
+}
+
+.dsb-row-go {
+  flex-shrink: 0;
+  color: var(--ink-subtle);
+  transition: transform 180ms var(--ease-standard), color 180ms var(--ease-standard);
+}
+
+.dsb-row:hover .dsb-row-go {
+  transform: translateX(2px);
+  color: var(--focus);
+}
+
+/* ── Ranked directions ─────────────────────────────────────────────────────── */
+.dsb-direction {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  cursor: pointer;
+  transition: background-color 140ms var(--ease-standard);
+}
+
+.dsb-direction:hover {
+  background: var(--hover-tint);
+}
+
+.dsb-direction:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.dsb-direction-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.dsb-direction-top {
   display: flex;
   align-items: flex-start;
-  gap: 0.25rem;
-  border-bottom: 1px solid var(--dash-line);
-  padding: 0.55rem 0;
+  justify-content: space-between;
+  gap: var(--space-3);
 }
 
-.dashboard-rail-survey:last-child {
-  border-bottom: none;
-}
-
-.dashboard-rail-survey-main {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  background: transparent;
-  padding: 0;
-  text-align: left;
-  cursor: pointer;
-  font: inherit;
-  color: inherit;
-}
-
-.dashboard-rail-survey-main:hover .dashboard-rail-survey-query {
-  color: var(--dash-rust-deep);
-}
-
-.dashboard-rail-survey-query {
-  display: block;
-  font-family: 'Source Serif 4', Georgia, serif;
-  font-size: 0.88rem;
+.dsb-direction-title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: var(--fs-lg);
   font-weight: 600;
   line-height: 1.3;
-  color: var(--dash-ink);
+  letter-spacing: -0.01em;
+  color: var(--ink);
 }
 
-.dashboard-rail-survey-meta {
-  display: block;
-  margin-top: 0.2rem;
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.62rem;
-  color: var(--dash-mute);
+.dsb-direction-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
 }
 
-.dashboard-rail-survey-delete {
+/* Four-step impact meter. Segments, not a bar: the value is ordinal. */
+.dsb-meter {
+  display: flex;
+  gap: 3px;
+}
+
+.dsb-meter-seg {
+  width: 22px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line-strong);
+  transition: background-color 200ms var(--ease-standard);
+}
+
+.dsb-meter-seg.is-on {
+  background: var(--focus);
+}
+
+.dsb-direction-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-1);
+}
+
+.dsb-link {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: 0;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--dash-mute);
-  padding: 0;
-  cursor: pointer;
-  flex-shrink: 0;
+  gap: var(--space-1);
+  font-size: var(--fs-xs);
+  color: var(--focus);
+  text-decoration: none;
 }
 
-.dashboard-rail-survey-delete:hover {
-  background: rgba(229, 28, 35, 0.1);
-  color: var(--danger, #B23A2E);
-}
-
-/* ── Shared text button ── */
-.dashboard-text-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  border: 0;
-  background: transparent;
-  padding: 0;
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.68rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--dash-rust-deep);
-  cursor: pointer;
-}
-
-.dashboard-text-btn:hover {
-  color: var(--dash-ink);
+.dsb-link:hover {
   text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
-/* ── Query bar (curved surface) ── */
-.dashboard-query {
-  display: flex;
-  align-items: stretch;
-  gap: 0;
-  margin-bottom: 1.5rem;
-  border: var(--border-width) solid var(--border-strong);
-  border-radius: var(--dash-radius);
-  background: var(--dash-paper);
-  box-shadow: var(--shadow-sm);
+/* ── Citations ─────────────────────────────────────────────────────────────── */
+.dsb-cite-title {
+  display: block;
+  margin: 0;
+  font-size: var(--fs-base);
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+a.dsb-cite-title:hover {
+  color: var(--focus);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.dsb-cite-meta {
+  display: block;
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--ink-subtle);
   overflow: hidden;
-  transition: border-color var(--dash-ease), box-shadow var(--dash-ease), transform var(--dash-ease);
-}
-
-.dashboard-query:focus-within {
-  border-color: var(--dash-ink);
-  box-shadow: 0 8px 24px rgba(18, 20, 26, 0.06);
-  transform: translateY(-1px);
-}
-
-.dashboard-query-field {
-  position: relative;
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  padding-left: 0.85rem;
-}
-
-.dashboard-query-icon {
-  position: absolute;
-  left: 0.95rem;
-  color: var(--dash-mute);
-  pointer-events: none;
-}
-
-.dashboard-query-input {
-  width: 100%;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  padding: 0.95rem 2.4rem 0.95rem 1.85rem;
-  font-size: 1rem;
-  color: var(--dash-ink);
-  outline: none;
-}
-
-.dashboard-query-input::placeholder {
-  color: #9A9690;
-}
-
-.dashboard-query-clear {
-  position: absolute;
-  right: 0.55rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--dash-mute);
-  cursor: pointer;
-}
-
-.dashboard-query-clear:hover {
-  background: var(--dash-wash);
-  color: var(--dash-ink);
-}
-
-.dashboard-query-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  border: 0;
-  border-left: 1px solid var(--dash-line);
-  background: var(--dash-wash);
-  padding: 0 1.15rem;
-  margin: 0.35rem;
-  border-radius: calc(var(--dash-radius) - 4px);
-  font-weight: 700;
-  font-size: 0.9rem;
-  color: var(--dash-ink);
-  cursor: pointer;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.dashboard-query-btn:hover:not(:disabled) {
-  background: var(--dash-ink);
-  color: var(--on-ink);
-  transform: scale(1.02);
+/* ── Paper table ────────────────────────────────────────────────────────────
+   The Table primitive brings its own scroll container; this block sets column
+   widths, alignment and the row hover only. Every paper field the search
+   endpoints already return is a column. */
+/* `fixed`, so the declared column widths are honoured and a long title wraps
+   inside its cell. Under the default `auto` layout a 90-character paper title
+   sets the column's min-content width, the table grows past the panel, and the
+   Read column is pushed out of sight behind the scroll container. */
+.dsb .dsb-table {
+  table-layout: fixed;
+  width: 100%;
+  font-size: var(--fs-base);
 }
 
-.dashboard-query-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.dsb .dsb-table thead th {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--ink-subtle);
 }
 
-.dashboard-query-btn-stop {
-  width: 46px;
-  min-width: 46px;
-  height: 46px;
-  padding: 0;
-  margin: 0.35rem;
-  border-radius: 50%;
-  border-left: 0;
-  background: var(--danger);
-  color: #fff;
-  justify-content: center;
-  gap: 0;
+.dsb .dsb-table tbody tr {
+  transition: background-color 140ms var(--ease-standard);
 }
 
-.dashboard-query-btn-stop:hover:not(:disabled) {
-  background: #b91c1c;
-  color: #fff;
-  transform: scale(1.04);
+.dsb .dsb-table tbody tr:hover {
+  background: var(--hover-tint);
 }
 
-.dashboard-suggestions {
-  position: absolute;
-  top: calc(100% + 0.4rem);
-  left: 0;
-  right: 0;
-  z-index: 40;
-  background: var(--dash-paper);
-  border: var(--border-width) solid var(--dash-line);
-  border-radius: var(--dash-radius);
+.dsb-table .col-num,
+.dsb-table .col-year,
+.dsb-table .col-cited {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.dsb-table .col-num {
+  width: 3rem;
+  color: var(--ink-subtle);
+}
+
+/* Takes the leftover width under `table-layout: fixed`. Must override the
+   shadcn TableCell `whitespace-nowrap` default — otherwise a long title
+   paints over Venue / Year / Cited instead of wrapping inside the cell. */
+.dsb-table .col-paper {
+  white-space: normal;
   overflow: hidden;
-  box-shadow: 0 12px 32px rgba(18, 20, 26, 0.08);
-  animation: dashSoftIn 0.2s var(--dash-ease) both;
+  vertical-align: top;
 }
 
-.dashboard-suggestion {
+.dsb-table .col-paper .dsb-cite-title {
+  /* Soft clamp: fixed layout already stops the spill; two lines keeps the
+     table dense while the native `title` on the link still carries the rest. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: break-word;
+}
+
+.dsb-table .col-year {
+  width: 4rem;
+}
+
+/* Counts are compared down the column, so they align on the right. */
+.dsb-table .col-cited {
+  width: 4.5rem;
+  text-align: right;
+}
+
+.dsb-table thead th.col-cited {
+  text-align: right;
+}
+
+.dsb-table .col-venue {
+  width: 12rem;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-muted);
+}
+
+.dsb-table .col-source {
+  width: 7rem;
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  color: var(--ink-subtle);
+  white-space: nowrap;
+}
+
+.dsb-table .col-links {
+  width: 9rem;
+}
+
+.dsb-links {
   display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  width: 100%;
-  padding: 0.7rem 0.95rem;
-  border: 0;
-  border-bottom: 1px solid var(--dash-line);
-  background: transparent;
-  text-align: left;
-  font-size: 0.85rem;
-  color: var(--dash-ink-soft);
-  cursor: pointer;
-  transition: background var(--dash-ease), padding-left var(--dash-ease);
-}
-
-.dashboard-suggestion:last-child {
-  border-bottom: none;
-}
-
-.dashboard-suggestion:hover {
-  background: var(--dash-wash);
-  color: var(--dash-ink);
-  padding-left: 1.1rem;
-}
-
-.dashboard-error {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  margin-bottom: 1.25rem;
-  padding: 0.65rem 0;
-  border-bottom: 1.5px solid var(--danger, #B23A2E);
-  color: var(--danger, #B23A2E);
-  font-size: 0.85rem;
-}
-
-.dashboard-error.is-muted {
-  border-bottom-color: var(--dash-line);
-  color: var(--dash-mute);
-}
-
-.dashboard-error-text {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  min-width: 0;
-}
-
-.dashboard-error-dismiss {
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  cursor: pointer;
-  opacity: 0.75;
-  flex-shrink: 0;
-}
-
-.dashboard-error-dismiss:hover {
-  opacity: 1;
-}
-
-/* ── Stream blocks (open sections) ── */
-.dashboard-stream-block {
-  margin-bottom: 2rem;
-}
-
-.dashboard-stream-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.75rem;
-  margin-bottom: 0.35rem;
-  padding-bottom: 0.55rem;
-  border-bottom: 1px solid var(--dash-rule);
-}
-
-.dashboard-stream-title {
-  margin: 0;
-  display: flex;
-  align-items: center;
   flex-wrap: wrap;
-  gap: 0.4rem;
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: var(--dash-ink);
+  gap: var(--space-2);
 }
 
-.dashboard-stream-title em {
-  font-family: 'Source Serif 4', Georgia, serif;
-  font-style: italic;
-  font-weight: 600;
-  color: var(--dash-rust-deep);
-}
-
-.dashboard-stream-tag {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.62rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--dash-mute);
-}
-
-.dashboard-stream-status {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin: 0.85rem 0 0;
-  font-size: 0.85rem;
-  color: var(--dash-mute);
-}
-
-.dashboard-stream-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.dashboard-stream-row {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 0.85rem;
-  align-items: center;
-  width: 100%;
-  padding: 0.85rem 0.9rem;
-  margin: 0.35rem 0;
-  border: 1px solid transparent;
-  border-radius: var(--dash-radius-sm);
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-  font: inherit;
-  color: inherit;
-  transition: background var(--dash-ease), border-color var(--dash-ease), transform var(--dash-ease), box-shadow var(--dash-ease);
-  animation: dashSoftIn 0.35s var(--dash-ease) both;
-}
-
-.dashboard-stream-row:hover {
-  background: var(--dash-paper);
-  border-color: var(--dash-line);
-  transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(18, 20, 26, 0.05);
-}
-
-.dashboard-stream-row:hover .dashboard-stream-row-title {
-  color: var(--dash-rust-deep);
-}
-
-.dashboard-stream-idx {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--dash-mute);
-}
-
-.dashboard-stream-main {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  min-width: 0;
-}
-
-.dashboard-stream-row-title {
-  font-weight: 700;
-  font-size: 0.92rem;
-  color: var(--dash-ink);
-  line-height: 1.3;
-}
-
-.dashboard-stream-row-meta {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.65rem;
-  color: var(--dash-mute);
-}
-
-.dashboard-stream-delta {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: var(--dash-forest);
-}
-
-/* ── Directions (result stream) ── */
-.dashboard-direction {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.85rem;
-  padding: 1rem 1rem;
-  margin: 0.45rem 0;
-  border: var(--border-width) solid var(--dash-line);
-  border-radius: var(--dash-radius);
-  background: var(--dash-paper);
-  cursor: pointer;
-  outline: none;
-  transition: border-color var(--dash-ease), transform var(--dash-ease), box-shadow var(--dash-ease);
-  animation: dashSoftIn 0.4s var(--dash-ease) both;
-}
-
-.dashboard-direction:hover,
-.dashboard-direction:focus-visible {
-  border-color: rgba(30, 79, 214, 0.35);
-  transform: translateY(-2px);
-  box-shadow: 0 10px 28px rgba(18, 20, 26, 0.06);
-}
-
-.dashboard-direction:hover .dashboard-direction-title,
-.dashboard-direction:focus-visible .dashboard-direction-title {
-  color: var(--dash-rust-deep);
-}
-
-.dashboard-direction.is-lead {
-  padding-top: 1.15rem;
-  border-color: rgba(30, 79, 214, 0.28);
-  background: var(--dash-paper);
-}
-
-.dashboard-direction.is-lead .dashboard-direction-title {
-  font-size: 1.25rem;
-}
-
-.dashboard-direction-body {
-  min-width: 0;
-}
-
-.dashboard-direction-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  margin-bottom: 0.3rem;
-}
-
-.dashboard-direction-label {
-  font-family: 'Inter', system-ui, sans-serif;
-  font-style: normal;
-  font-size: 0.78rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  text-transform: none;
-  color: var(--dash-mute);
-}
-
-.dashboard-direction.is-lead .dashboard-direction-label {
-  color: var(--dash-rust);
-}
-
-.dashboard-impact {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding: 0.1rem 0;
-  border-bottom: 1.5px solid currentColor;
-}
-
-.dashboard-impact.impact-very-high { color: var(--dash-ink); }
-.dashboard-impact.impact-high { color: var(--dash-rust-deep); }
-.dashboard-impact.impact-medium { color: var(--dash-forest); }
-.dashboard-impact.impact-low { color: var(--dash-mute); }
-
-.dashboard-direction-title {
-  margin: 0 0 0.55rem;
-  font-family: 'Source Serif 4', Georgia, serif;
-  font-size: 1.05rem;
-  font-weight: 600;
-  line-height: 1.35;
-  color: var(--dash-ink);
-}
-
-.dashboard-meter {
-  display: flex;
-  gap: 3px;
-  max-width: 88px;
-  margin-bottom: 0.5rem;
-}
-
-.dashboard-meter-seg {
-  flex: 1;
-  height: 4px;
-  border-radius: var(--dash-radius-pill);
-  background: var(--dash-line);
-}
-
-.dashboard-meter-seg.is-on {
-  background: var(--dash-ink);
-}
-
-.dashboard-direction.is-lead .dashboard-meter-seg.is-on {
-  background: var(--dash-rust);
-}
-
-.dashboard-direction-hint {
-  margin: 0 0 0.7rem;
-  font-family: 'Inter', system-ui, sans-serif;
-  font-style: normal;
-  font-size: 0.88rem;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-  color: var(--text-muted);
-  line-height: 1.5;
-}
-
-.dashboard-direction-actions {
-  display: flex;
-  align-items: center;
-  gap: 1.25rem;
-}
-
-.dashboard-action-primary {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  border: 0;
-  background: transparent;
-  padding: 0;
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--dash-ink);
-  cursor: pointer;
-}
-
-.dashboard-action-primary:hover {
-  color: var(--dash-rust-deep);
-  text-decoration: underline;
-}
-
-.dashboard-action-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--dash-rust-deep);
+.dsb-links a {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  color: var(--focus);
   text-decoration: none;
+  white-space: nowrap;
 }
 
-.dashboard-action-link:hover {
+.dsb-links a:hover {
   text-decoration: underline;
-  color: var(--dash-ink);
+  text-underline-offset: 2px;
 }
 
-/* ── Citations ── */
-.dashboard-cite-list {
+.dsb-more {
   display: flex;
-  flex-direction: column;
+  justify-content: center;
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--line);
 }
 
-.dashboard-cite-row {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 0.75rem;
+/* ── arXiv category feed ───────────────────────────────────────────────────── */
+/* Multi-line rows: the index aligns with the first line of the title, not with
+   the middle of the block, so the number column stays straight down the list. */
+.dsb-feed-item {
+  display: flex;
   align-items: flex-start;
-  padding: 0.85rem 0;
-  border-bottom: 1px solid var(--dash-line);
-  text-decoration: none;
-  color: inherit;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
 }
 
-.dashboard-cite-row:hover .dashboard-cite-title {
-  color: var(--dash-rust-deep);
+.dsb-direction .dsb-idx,
+.dsb-feed-item .dsb-idx {
+  padding-top: 3px;
 }
 
-.dashboard-cite-num {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: var(--dash-mute);
-  padding-top: 0.15rem;
-}
-
-.dashboard-cite-body {
+.dsb-feed-body {
+  flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
-.dashboard-cite-title {
-  display: block;
-  font-family: 'Source Serif 4', Georgia, serif;
-  font-size: 0.95rem;
-  font-weight: 600;
-  line-height: 1.4;
-  color: var(--dash-ink);
+.dsb-feed-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  margin: var(--space-1) 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  color: var(--ink-subtle);
 }
 
-.dashboard-cite-meta {
-  display: block;
-  margin-top: 0.2rem;
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.68rem;
-  color: var(--dash-mute);
-  line-height: 1.4;
+.dsb-feed-cat {
+  padding: 0 var(--space-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
 }
 
-.dashboard-cite-ext {
-  color: var(--dash-mute);
-  margin-top: 0.2rem;
+.dsb-feed-abstract {
+  margin: var(--space-1) 0 0;
+  font-size: var(--fs-xs);
+  line-height: 1.55;
+  color: var(--ink-muted);
 }
 
-.dashboard-load-more {
-  margin-top: 0.75rem;
-  border: 0;
-  border-bottom: 1.5px solid var(--dash-rule);
-  background: transparent;
-  padding: 0.45rem 0;
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--dash-ink);
+.dsb-feed-body .dsb-links {
+  margin-top: var(--space-2);
+}
+
+/* ── Saved surveys ─────────────────────────────────────────────────────────── */
+.dsb-survey {
+  display: flex;
+  align-items: stretch;
+  transition: background-color 140ms var(--ease-standard);
+}
+
+.dsb-survey:hover {
+  background: var(--hover-tint);
+}
+
+.dsb-survey-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: none;
+  border: none;
+  text-align: left;
+  font: inherit;
   cursor: pointer;
 }
 
-.dashboard-load-more:hover {
-  color: var(--dash-rust);
+/* The row's ⋯ menu (SavedItemActions, ROW-2) keeps this page's old rule:
+   dimmed, not hidden — a hover-only control is unreachable on touch. */
+.dsb-survey-menu {
+  align-self: center;
+  margin-right: var(--space-3);
 }
 
-/* ── Category feed ── */
-.dashboard-arxiv-code {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.65rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  color: var(--dash-paper);
-  background: var(--dash-ink);
-  padding: 0.2rem 0.4rem;
-}
-
-.dashboard-feed-item {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.75rem;
-  padding: 1rem 0;
-  border-bottom: 1px solid var(--dash-line);
-}
-
-.dashboard-feed-body {
-  min-width: 0;
-}
-
-.dashboard-feed-body .dashboard-cite-title {
-  margin: 0;
-  font-size: 0.95rem;
-}
-
-.dashboard-feed-abstract {
-  margin: 0.4rem 0 0;
-  font-size: 0.8rem;
-  color: var(--dash-ink-soft);
-  line-height: 1.5;
-}
-
-.dashboard-feed-links {
+/* ── Empty search ──────────────────────────────────────────────────────────── */
+.dsb-empty {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.85rem;
-  margin-top: 0.55rem;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-6) var(--space-5);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-xl);
+  background: var(--panel);
+  color: var(--ink-muted);
 }
 
-.dashboard-feed-links a {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.68rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--dash-rust-deep);
-  text-decoration: none;
+.dsb-empty svg {
+  color: var(--ink-subtle);
 }
 
-.dashboard-feed-links a:hover {
-  color: var(--dash-ink);
-  text-decoration: underline;
-}
-
-/* ── Empty search ── */
-.dashboard-empty-search {
-  padding: 2rem 0;
-  text-align: left;
-  color: var(--dash-mute);
-}
-
-.dashboard-empty-search h3 {
-  margin: 0.65rem 0 0.3rem;
-  font-family: 'Source Serif 4', Georgia, serif;
-  font-size: 1.15rem;
-  font-weight: 600;
-  color: var(--dash-ink);
-}
-
-.dashboard-empty-search p {
+.dsb-empty h3 {
   margin: 0;
-  font-family: 'Inter', system-ui, sans-serif;
-  font-style: normal;
-  font-size: 0.92rem;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-  color: var(--text-muted);
-  line-height: 1.5;
+  font-family: var(--font-serif);
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--ink);
 }
 
-/* ── Responsive ── */
-@media (max-width: 860px) {
-  .dashboard-split {
-    grid-template-columns: 1fr;
-  }
-
-  .dashboard-rail {
-    position: static;
-    max-height: none;
-    padding-right: 0;
-    padding-bottom: 1.25rem;
-    margin-bottom: 1.25rem;
-    border-right: none;
-    border-bottom: none;
-    overflow: visible;
-  }
-
-  .dashboard-rail::after {
-    display: none;
-  }
-
-  .dashboard-rail::before {
-    content: '';
-    display: block;
-    height: 2px;
-    width: 100%;
-    margin-top: 0.5rem;
-    border-radius: 999px;
-    background: linear-gradient(90deg, var(--dash-line), transparent);
-  }
-
-  .dashboard-rail-nav {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 0 1rem;
-  }
-
-  .dashboard-workspace {
-    padding-left: 0;
-  }
+.dsb-empty p {
+  margin: 0;
+  font-size: var(--fs-base);
 }
 
-@media (max-width: 520px) {
-  .dashboard-rail-nav {
-    grid-template-columns: 1fr;
-  }
-
-  .dashboard-query {
+/* ── Phone: the field strip keeps scrolling; Discover stays in the desk ── */
+@media (max-width: 560px) {
+  .dsb-direction-top {
     flex-direction: column;
-    border: 1.5px solid var(--dash-line);
-    gap: 0;
-  }
-
-  .dashboard-query-field {
-    border-bottom: none;
-  }
-
-  .dashboard-query-btn {
-    border-left: none;
-    margin: 0 0.55rem 0.55rem;
-    justify-content: center;
-    padding: 0.7rem 1rem;
-  }
-
-  .dashboard-rail::after {
-    display: none;
-  }
-
-  .dashboard-direction.is-lead .dashboard-direction-title {
-    font-size: 1.05rem;
-  }
-
-  .dashboard-stream-row {
-    grid-template-columns: 1fr;
-    gap: 0.35rem;
-  }
-
-  .dashboard-stream-row-meta {
-    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: var(--space-2);
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .dashboard-page,
-  .dashboard-stream-row,
-  .dashboard-direction,
-  .dashboard-suggestions,
-  .dashboard-query,
-  .dashboard-rail-item,
-  .dashboard-query-btn {
-    animation: none !important;
-    transition: none !important;
+/* Below 1100px the table drops to title + year + links. Venue, citations and
+   source move nowhere — they are still in the row, just not worth a column at
+   that width; the primitive's scroll container keeps them reachable. */
+@media (max-width: 1100px) {
+  .dsb-table .col-venue,
+  .dsb-table .col-source,
+  .dsb-table .col-cited {
+    display: none;
   }
 }

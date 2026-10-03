@@ -20,12 +20,19 @@ network calls. Late binding keeps the single list *and* the seam.
 
 ``sync`` marks a source whose client is blocking — GitHub reads checked-out
 repositories off disk — so the caller hands it to a thread rather than awaiting.
+
+``dialect`` names the query language a source actually honours (2.3). It belongs
+here for the same reason ``timeout`` does: it is a fact about the source, not
+about the search. What each dialect renders is ``integrations.query_expansion``'s
+business, and which sources earned one is recorded there with the measurements.
 """
 
 from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+
+from integrations.query_expansion import BOOLEAN, PLAIN, PUBMED
 
 
 @dataclass(frozen=True)
@@ -40,6 +47,10 @@ class Source:
     timeout: float = 15.0
     # True when the callable is a plain blocking function, not a coroutine one.
     sync: bool = False
+    # Query language this source honours: see integrations.query_expansion.
+    # `plain` is the safe default — it sends the user's raw string, which is
+    # what every source received before 2.3.
+    dialect: str = PLAIN
 
     def resolve(self):
         from integrations import paper_search
@@ -65,9 +76,9 @@ class Source:
 # per-source timeout and contributed zero papers.
 SOURCES: tuple[Source, ...] = (
     Source("SemanticScholar", "s2_search", timeout=12.0),
-    Source("OpenAlex", "openalex_search", timeout=12.0),
+    Source("OpenAlex", "openalex_search", timeout=12.0, dialect=BOOLEAN),
     Source("Crossref", "crossref_search", timeout=12.0),
-    Source("PubMed", "pubmed_search", timeout=10.0),
+    Source("PubMed", "pubmed_search", timeout=10.0, dialect=PUBMED),
     Source("arXiv", "arxiv_search", timeout=15.0),
     Source("OpenReview", "openreview_search", timeout=15.0),
     Source("ACLAnthology", "acl_search", timeout=15.0),

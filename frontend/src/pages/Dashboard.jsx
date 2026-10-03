@@ -1,10 +1,22 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { motion } from 'motion/react';
 import {
-  Search, TrendingUp, ArrowUpRight, ExternalLink, FileText, X, Trash2, ArrowRight,
-  Brain, Shield, Cpu, Database, Atom, Eye, BookOpen, Layers, Square
+  Search, TrendingUp, ArrowUpRight, ExternalLink, FileText, X, ArrowRight, Pin,
+  Brain, Shield, Cpu, Database, Atom, Eye, Square,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Spinner, SkeletonList } from '../components/Loader';
+import PageHeader from '../components/PageHeader';
+import TopBar from '../components/TopBar';
+import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
+import { Badge } from '../components/ui/badge';
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip';
+import { SavedItemMenu, RenameField } from '../components/SavedItemActions';
+import { displayName } from '../lib/savedItems';
 import { useNavigate } from 'react-router-dom';
 import {
   validateSearchQuery,
@@ -21,22 +33,28 @@ const DASH_STATE_KEY = 'dashboard:last-search';
 const DASH_STATE_TTL = 30 * 60_000;
 const SURVEY_LIST_KEY = 'literature:list';
 
-
-
+// `short` is the segmented-control label. The field used to be a row in a
+// second left rail, which cost ~230px of chrome next to the app sidebar for six
+// links; as a segmented control it sits in the reading column and the arXiv code
+// moves into the tooltip rather than taking a line of its own.
 const CATEGORIES = [
-  { title: 'Artificial Intelligence', subtitle: 'LLMs, agents & reasoning', arxiv: 'cs.AI', query: 'artificial intelligence', Icon: Brain },
-  { title: 'Cybersecurity', subtitle: 'Threat detection & privacy', arxiv: 'cs.CR', query: 'cybersecurity', Icon: Shield },
-  { title: 'Machine Learning', subtitle: 'Models, training & evaluation', arxiv: 'cs.LG', query: 'machine learning', Icon: Cpu },
-  { title: 'Data Science', subtitle: 'Analytics & big data', arxiv: 'cs.DS', query: 'data science', Icon: Database },
-  { title: 'Quantum Computing', subtitle: 'Qubits & algorithms', arxiv: 'quant-ph', query: 'quantum computing', Icon: Atom },
-  { title: 'Computer Vision', subtitle: 'Images, video & perception', arxiv: 'cs.CV', query: 'computer vision', Icon: Eye },
+  { title: 'Artificial Intelligence', short: 'AI', subtitle: 'LLMs, agents & reasoning', arxiv: 'cs.AI', query: 'artificial intelligence', Icon: Brain },
+  { title: 'Cybersecurity', short: 'Security', subtitle: 'Threat detection & privacy', arxiv: 'cs.CR', query: 'cybersecurity', Icon: Shield },
+  { title: 'Machine Learning', short: 'ML', subtitle: 'Models, training & evaluation', arxiv: 'cs.LG', query: 'machine learning', Icon: Cpu },
+  { title: 'Data Science', short: 'Data', subtitle: 'Analytics & big data', arxiv: 'cs.DS', query: 'data science', Icon: Database },
+  { title: 'Quantum Computing', short: 'Quantum', subtitle: 'Qubits & algorithms', arxiv: 'quant-ph', query: 'quantum computing', Icon: Atom },
+  { title: 'Computer Vision', short: 'Vision', subtitle: 'Images, video & perception', arxiv: 'cs.CV', query: 'computer vision', Icon: Eye },
 ];
 
-const TRENDING = [
-  { title: 'Machine Learning in Healthcare', field: 'cs.LG / q-bio', delta: '+12%' },
-  { title: 'Quantum Computing Algorithms', field: 'quant-ph / cs.CC', delta: '+8%' },
-  { title: 'LLM Alignment and Safety', field: 'cs.AI / cs.CL', delta: '+24%' },
-  { title: 'CRISPR Gene Editing', field: 'q-bio.GN', delta: '+18%' },
+// A curated list of starting queries, not a measurement. It previously carried
+// "+12%" / "+24%" deltas that no endpoint produced — invented signal, the same
+// problem as the hardcoded topic counter removed in SD-1. If a real trend
+// series is ever wanted it needs a backend ID of its own.
+const STARTING_POINTS = [
+  { title: 'Machine Learning in Healthcare', field: 'cs.LG / q-bio' },
+  { title: 'Quantum Computing Algorithms', field: 'quant-ph / cs.CC' },
+  { title: 'LLM Alignment and Safety', field: 'cs.AI / cs.CL' },
+  { title: 'CRISPR Gene Editing', field: 'q-bio.GN' },
 ];
 
 const impactScore = (i) => ({ 'Very High': 4, 'High': 3, 'Medium': 2, 'Low': 1 }[i] || 1);
@@ -48,29 +66,35 @@ const impactHint = (i) => ({
 }[i] || 'Open a survey to dig deeper.');
 const RELATED_PAGE_SIZE = 5;
 
-function AnimatedNumber({ value, duration = 900, prefix = '', suffix = '' }) {
-  const [displayValue, setDisplayValue] = useState(0);
+// One entrance curve for the whole page, so panels and rows share a rhythm
+// instead of each section inventing its own. `motion` is configured app-wide
+// with reducedMotion="user" (App.jsx), so this is inert under
+// prefers-reduced-motion and needs no per-page media query.
+const RISE_EASE = [0.2, 0.8, 0.2, 1];
+const rise = (i = 0) => ({
+  initial: { opacity: 0, y: 6 },
+  animate: { opacity: 1, y: 0 },
+  transition: { duration: 0.22, delay: Math.min(i, 8) * 0.03, ease: RISE_EASE },
+});
 
-  useEffect(() => {
-    let target = typeof value === 'number' ? value : parseFloat(value) || 0;
-    let startTime = null;
-    let frameId;
+// arXiv reports `citations: 0` because it has no citation index, not because a
+// paper has none. Unknown and genuinely-zero are indistinguishable here, so
+// both render as an em dash rather than as a measured zero.
+const citeCount = (paper) => (Number(paper?.citations) > 0 ? Number(paper.citations).toLocaleString() : '—');
 
-    const step = (timestamp) => {
-      if (!startTime) startTime = timestamp;
-      const progress = Math.min((timestamp - startTime) / duration, 1);
-      const ease = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
-      setDisplayValue(Math.floor(ease * target));
-      if (progress < 1) frameId = requestAnimationFrame(step);
-      else setDisplayValue(target);
-    };
-
-    frameId = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(frameId);
-  }, [value, duration]);
-
-  return <span>{prefix}{displayValue.toLocaleString()}{suffix}</span>;
-}
+// Every field below is already on the paper dicts the search endpoints return
+// (title, authors, year, venue, citations, source, doi, url, pdf_url). None of
+// this needs a backend change — the rows were simply not showing it.
+const paperLinks = (paper) => {
+  const links = [];
+  if (paper.url) links.push({ label: 'Abstract', href: paper.url });
+  if (paper.pdf_url) links.push({ label: 'PDF', href: paper.pdf_url });
+  if (paper.doi) links.push({ label: 'DOI', href: `https://doi.org/${paper.doi}` });
+  if (!links.length) {
+    links.push({ label: 'Scholar', href: `https://scholar.google.com/scholar?q=${encodeURIComponent(paper.title)}` });
+  }
+  return links;
+};
 
 export default function Dashboard() {
   const { api } = useAuth();
@@ -84,6 +108,9 @@ export default function Dashboard() {
   const [topic, setTopic] = useState(restored.topic || '');
   const [suggestions, setSuggestions] = useState([]);
   const [showSug, setShowSug] = useState(false);
+  // Highlighted suggestion for arrow-key navigation. -1 means "none", so Enter
+  // runs the typed query rather than a row the user never moved onto.
+  const [sugIndex, setSugIndex] = useState(-1);
   const [results, setResults] = useState(restored.results || []);
   const [relatedPapers, setRelatedPapers] = useState(restored.relatedPapers || []);
   const [visibleRelatedCount, setVisibleRelatedCount] = useState(RELATED_PAGE_SIZE);
@@ -96,6 +123,9 @@ export default function Dashboard() {
   const [hasSearched, setHasSearched] = useState(Boolean(restored.hasSearched));
   const [recentSurveys, setRecentSurveys] = useState([]);
   const [loadingRecent, setLoadingRecent] = useState(false);
+  // Survey whose name is being edited inline (ROW-2).
+  const [renamingSurveyId, setRenamingSurveyId] = useState(null);
+  const [surveyActionError, setSurveyActionError] = useState('');
 
   useEffect(() => {
     writeCache(DASH_STATE_KEY, { topic, results, relatedPapers, hasSearched }, DASH_STATE_TTL);
@@ -122,6 +152,7 @@ export default function Dashboard() {
   // acronym at all — "CNN" and "ML" returned nothing.
   const handleInputChange = useCallback((val) => {
     setTopic(val);
+    setSugIndex(-1);
     clearTimeout(debounce.current);
     if (!val.trim()) { setSuggestions([]); setShowSug(false); return; }
     debounce.current = setTimeout(() => {
@@ -137,6 +168,7 @@ export default function Dashboard() {
           const found = data.data || [];
           setSuggestions(found);
           setShowSug(found.length > 0);
+          setSugIndex(-1);
         } catch (e) {
           // A failed suggestion lookup is not worth surfacing — the user is
           // mid-typing and the search itself still works.
@@ -154,6 +186,13 @@ export default function Dashboard() {
     setPapersLoading(false);
   }, [stopDiscoverRequest]);
 
+  const closeFeed = useCallback(() => {
+    stopCategoryFeed();
+    setCatLoading(false);
+    setActiveCategory(null);
+    setCategoryPapers([]);
+  }, [stopCategoryFeed]);
+
   const clearSearch = useCallback(() => {
     stopDiscover();
     stopCategoryFeed();
@@ -162,6 +201,7 @@ export default function Dashboard() {
     setTopic('');
     setSuggestions([]);
     setShowSug(false);
+    setSugIndex(-1);
     setResults([]);
     setRelatedPapers([]);
     setError('');
@@ -185,6 +225,7 @@ export default function Dashboard() {
       clearTimeout(debounce.current);
       setTopic(check.query);
       setShowSug(false);
+      setSugIndex(-1);
       setLoading(true);
       setPapersLoading(true);
       setRelatedPapers([]);
@@ -282,6 +323,39 @@ export default function Dashboard() {
     });
   };
 
+  // The segmented control is the only field selector now, so "All" is where
+  // the old "Close feed" button used to be: it drops the arXiv feed and leaves
+  // the current search results standing.
+  const onFieldChange = (value) => {
+    if (!value) return;
+    if (value === 'all') { closeFeed(); return; }
+    const cat = CATEGORIES.find((c) => c.arxiv === value);
+    if (cat) openCategory(cat);
+  };
+
+  const onQueryKeyDown = (e) => {
+    const open = showSug && suggestions.length > 0;
+    if (e.key === 'ArrowDown' && open) {
+      e.preventDefault();
+      setSugIndex((i) => (i + 1) % suggestions.length);
+      return;
+    }
+    if (e.key === 'ArrowUp' && open) {
+      e.preventDefault();
+      setSugIndex((i) => (i <= 0 ? suggestions.length - 1 : i - 1));
+      return;
+    }
+    if (e.key === 'Enter') {
+      if (open && sugIndex >= 0) discover(suggestions[sugIndex]);
+      else discover();
+      return;
+    }
+    if (e.key === 'Escape') {
+      if (loading) stopDiscover();
+      else { setShowSug(false); setSugIndex(-1); }
+    }
+  };
+
   useEffect(() => {
     const h = (e) => { if (!inputWrap.current?.contains(e.target)) setShowSug(false); };
     document.addEventListener('mousedown', h);
@@ -301,128 +375,83 @@ export default function Dashboard() {
     setLoadingRecent(surveyQuery.loading);
   }, [surveyQuery.data, surveyQuery.loading]);
 
-  const deleteRecentSurvey = async (query, e) => {
-    e.stopPropagation();
-    if (!window.confirm(`Are you sure you want to delete the survey "${query}"?`)) return;
+  /** Confirmed by SavedItemMenu's dialog; a throw keeps the dialog open with it. */
+  const deleteSurvey = async (survey) => {
     try {
-      await api.del(`/api/literature/delete/${encodeURIComponent(query)}`);
-      setRecentSurveys((prev) => prev.filter((s) => s.query !== query));
-      invalidate(SURVEY_LIST_KEY);
+      await api.del(`/api/literature/delete/${encodeURIComponent(survey.query)}`);
     } catch (err) {
-      // The row stays; the list refreshes on the next visit.
+      // 404: already gone, which is what was asked for.
+      if (err?.status !== 404) throw new Error('That survey could not be deleted. Try again.');
     }
+    setRecentSurveys((prev) => prev.filter((s) => s.query !== survey.query));
+    invalidate(SURVEY_LIST_KEY);
+  };
+
+  /** Pin / rename (ROW-1). The list is shared with Literature Survey, so refetch it. */
+  const patchSurvey = async (survey, changes) => {
+    setSurveyActionError('');
+    try {
+      await api.patch(`/api/literature/surveys/${survey.id}`, changes);
+    } catch {
+      setSurveyActionError('title' in changes
+        ? 'That survey could not be renamed. Try again.'
+        : 'That survey could not be pinned. Try again.');
+    }
+    invalidate(SURVEY_LIST_KEY);
   };
 
   const showWelcome = !loading && results.length === 0 && !error && !activeCategory;
   const showResults = !loading && results.length > 0;
 
+  // Impact is an ordinal label, so it maps onto Badge's variants rather than a
+  // colour of its own.
+  const impactVariant = (impact) => (
+    { 'Very High': 'default', High: 'secondary', Medium: 'outline', Low: 'outline' }[impact]
+    || 'outline'
+  );
+
   return (
-    <div className="dashboard-page">
-      <header className="dashboard-masthead">
-        <p className="dashboard-kicker">Literature desk</p>
-        <h1 className="dashboard-title">Research Discovery</h1>
-        <p className="dashboard-subtitle">
-          Browse fields on the left. Search and read on the right.
-        </p>
-        <div className="dashboard-inline-metrics">
-          <span><BookOpen size={12} /> <AnimatedNumber value={14280} suffix="+" /> topics</span>
-          <span className="dashboard-metric-dot" aria-hidden="true" />
-          <span><Layers size={12} /> {CATEGORIES.length} fields</span>
-          <span className="dashboard-metric-dot" aria-hidden="true" />
-          <span><FileText size={12} /> {recentSurveys.length} surveys</span>
-        </div>
-      </header>
+    <div className="dsb">
+      <TopBar
+        crumbs={[{ label: 'Discover' }, { label: 'Topic Discovery' }]}
+        context={activeCategory ? `${activeCategory.arxiv} feed` : (hasSearched && topic) || undefined}
+      />
 
-      <div className="dashboard-split">
-        {/* ── Left rail: browse ── */}
-        <aside className="dashboard-rail">
-          <section className="dashboard-rail-section">
-            <h2 className="dashboard-rail-heading">Fields</h2>
-            <nav className="dashboard-rail-nav" aria-label="Research fields">
-              {CATEGORIES.map((cat) => {
-                const active = activeCategory?.arxiv === cat.arxiv;
-                return (
-                  <button
-                    key={cat.arxiv}
-                    type="button"
-                    className={`dashboard-rail-item${active ? ' is-active' : ''}`}
-                    onClick={() => openCategory(cat)}
-                  >
-                    <cat.Icon size={15} className="dashboard-rail-icon" />
-                    <span className="dashboard-rail-item-body">
-                      <span className="dashboard-rail-item-title">{cat.title}</span>
-                      <span className="dashboard-rail-item-meta">{cat.arxiv}</span>
-                    </span>
-                  </button>
-                );
-              })}
-            </nav>
-          </section>
+      <div className="dsb-page">
+        <PageHeader
+          kicker="Literature desk"
+          title="Topic Discovery"
+          lede="Search a field, method or question. Ranked directions first, then the papers behind them."
+          facts={[
+            <><FileText size={11} /> {recentSurveys.length} saved {recentSurveys.length === 1 ? 'survey' : 'surveys'}</>,
+            ...(results.length ? [<><TrendingUp size={11} /> {results.length} directions</>] : []),
+          ]}
+        />
 
-          <section className="dashboard-rail-section">
-            <div className="dashboard-rail-heading-row">
-              <h2 className="dashboard-rail-heading">Surveys</h2>
-              <button type="button" className="dashboard-text-btn" onClick={() => navigate('/literature-survey')}>
-                All
-              </button>
-            </div>
-            {loadingRecent ? (
-              <SkeletonList count={2} />
-            ) : recentSurveys.length === 0 ? (
-              <p className="dashboard-rail-empty">No surveys yet. Discover a topic to start one.</p>
-            ) : (
-              <ul className="dashboard-rail-list">
-                {recentSurveys.map((survey, i) => (
-                  <li key={i} className="dashboard-rail-survey">
-                    <button
-                      type="button"
-                      className="dashboard-rail-survey-main"
-                      onClick={() => navigate('/literature-survey', { state: { query: survey.query, autoSearch: true } })}
-                    >
-                      <span className="dashboard-rail-survey-query">{survey.query}</span>
-                      <span className="dashboard-rail-survey-meta">
-                        {survey.papers?.length || 0} papers
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      className="dashboard-rail-survey-delete"
-                      onClick={(e) => deleteRecentSurvey(survey.query, e)}
-                      aria-label="Delete survey"
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        </aside>
-
-        {/* ── Right workspace: search + stream ── */}
-        <div className="dashboard-workspace">
-          <div className="dashboard-query">
-            <div ref={inputWrap} className="dashboard-query-field">
-              <Search size={16} className="dashboard-query-icon" />
-              <input
-                className="dashboard-query-input"
+        {/* ── Search desk: sticks under the context bar so the query stays
+            reachable while reading down a long result set. ── */}
+        <div className="dsb-desk">
+          <div className="dsb-query">
+            <div ref={inputWrap} className="dsb-query-field">
+              <Search size={16} className="dsb-query-icon" />
+              <Input
+                className="dsb-query-input"
                 placeholder="Search a field, method, or research question…"
                 value={topic}
                 onChange={e => handleInputChange(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') discover();
-                  if (e.key === 'Escape') {
-                    if (loading) stopDiscover();
-                    else setShowSug(false);
-                  }
-                }}
+                onKeyDown={onQueryKeyDown}
                 onFocus={() => suggestions.length && setShowSug(true)}
                 aria-label="Discover research topics"
+                role="combobox"
+                aria-expanded={showSug}
+                aria-controls="dsb-suggestions"
+                aria-activedescendant={sugIndex >= 0 ? `dsb-sug-${sugIndex}` : undefined}
+                autoComplete="off"
               />
               {(topic || hasSearched) && (
                 <button
                   type="button"
-                  className="dashboard-query-clear"
+                  className="dsb-query-clear"
                   onClick={clearSearch}
                   aria-label="Clear search"
                   title="Clear search"
@@ -430,273 +459,461 @@ export default function Dashboard() {
                   <X size={14} />
                 </button>
               )}
+              {loading ? (
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className="dsb-query-go"
+                  onClick={stopDiscover}
+                  aria-label="Stop search"
+                  title="Stop"
+                >
+                  <Square size={12} fill="currentColor" /> Stop
+                </Button>
+              ) : (
+                <Button size="lg" className="dsb-query-go" onClick={() => discover()}>
+                  Discover
+                  <ArrowRight size={14} />
+                </Button>
+              )}
               {showSug && (
-                <div className="dashboard-suggestions">
+                <div className="dsb-suggestions" id="dsb-suggestions" role="listbox">
                   {suggestions.map((s, i) => (
-                    <button key={i} type="button" onMouseDown={() => discover(s)} className="dashboard-suggestion">
+                    <button
+                      key={i}
+                      id={`dsb-sug-${i}`}
+                      type="button"
+                      role="option"
+                      aria-selected={i === sugIndex}
+                      className={`dsb-suggestion${i === sugIndex ? ' is-active' : ''}`}
+                      onMouseEnter={() => setSugIndex(i)}
+                      onMouseDown={() => discover(s)}
+                    >
                       <Search size={12} /> {s}
                     </button>
                   ))}
                 </div>
               )}
             </div>
-            {loading ? (
-              <button
-                type="button"
-                className="dashboard-query-btn dashboard-query-btn-stop"
-                onClick={stopDiscover}
-                aria-label="Stop search"
-                title="Stop"
-              >
-                <Square size={14} fill="currentColor" />
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="dashboard-query-btn"
-                onClick={() => discover()}
-              >
-                Discover
-                <ArrowRight size={14} />
-              </button>
-            )}
           </div>
 
-          {error && (
-            <div className={`dashboard-error${error === 'Search stopped.' ? ' is-muted' : ''}`} role="alert">
-              <span className="dashboard-error-text"><X size={14} /> {error}</span>
-              <button type="button" className="dashboard-error-dismiss" onClick={() => setError('')} aria-label="Dismiss">
-                Dismiss
-              </button>
-            </div>
-          )}
+          <div className="dsb-fields-scroll">
+            <ToggleGroup
+              type="single"
+              spacing={0}
+              value={activeCategory?.arxiv || 'all'}
+              onValueChange={onFieldChange}
+              className="dsb-fields"
+              aria-label="Research fields"
+            >
+              <ToggleGroupItem value="all" className="dsb-field">All fields</ToggleGroupItem>
+              {CATEGORIES.map((cat) => (
+                <Tooltip key={cat.arxiv}>
+                  <TooltipTrigger asChild>
+                    <ToggleGroupItem value={cat.arxiv} className="dsb-field">
+                      <cat.Icon size={14} />
+                      {cat.short}
+                    </ToggleGroupItem>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {cat.title} · <span className="dsb-mono">{cat.arxiv}</span>
+                  </TooltipContent>
+                </Tooltip>
+              ))}
+            </ToggleGroup>
+          </div>
+        </div>
 
-          {loading && (
-            <div className="dashboard-stream-block">
-              <p className="dashboard-stream-status"><Spinner size={15} /> Scanning literature…</p>
-              <SkeletonList count={4} />
-            </div>
-          )}
+        {error && (
+          <div className={`dsb-error${error === 'Search stopped.' ? ' is-muted' : ''}`} role="alert">
+            <span className="dsb-error-text"><X size={14} /> {error}</span>
+            <button type="button" className="dsb-error-dismiss" onClick={() => setError('')} aria-label="Dismiss">
+              Dismiss
+            </button>
+          </div>
+        )}
 
-          {showWelcome && (
-            <section className="dashboard-stream-block">
-              <div className="dashboard-stream-head">
-                <h2 className="dashboard-stream-title">
-                  <TrendingUp size={15} /> Trending domains
-                </h2>
-                <span className="dashboard-stream-tag">Start here</span>
-              </div>
-              <ol className="dashboard-stream-list">
-                {TRENDING.map((item, idx) => (
-                  <li key={item.title}>
-                    <button type="button" className="dashboard-stream-row" onClick={() => discover(item.title)}>
-                      <span className="dashboard-stream-idx">{String(idx + 1).padStart(2, '0')}</span>
-                      <span className="dashboard-stream-main">
-                        <span className="dashboard-stream-row-title">{item.title}</span>
-                        <span className="dashboard-stream-row-meta">{item.field}</span>
-                      </span>
-                      <span className="dashboard-stream-delta">{item.delta}</span>
-                    </button>
-                  </li>
-                ))}
-              </ol>
-            </section>
-          )}
+        {loading && (
+          <motion.div {...rise()} className="dsb-block">
+            <Card>
+              <CardHeader className="dsb-head">
+                <CardTitle className="dsb-title">
+                  <Spinner size={15} /> Scanning literature…
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <SkeletonList count={4} />
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
 
-          {showResults && (
-            <>
-              <section className="dashboard-stream-block">
-                <div className="dashboard-stream-head">
-                  <h2 className="dashboard-stream-title">
+        {showWelcome && (
+          <motion.section {...rise()} className="dsb-block">
+            <Card>
+              <CardHeader className="dsb-head">
+                <CardTitle className="dsb-title">
+                  <TrendingUp size={15} /> Starting points
+                </CardTitle>
+                <CardAction>
+                  <Badge variant="outline">Curated, not ranked</Badge>
+                </CardAction>
+              </CardHeader>
+              <CardContent className="dsb-body-flush">
+                <ol className="dsb-rows">
+                  {STARTING_POINTS.map((item, idx) => (
+                    <motion.li key={item.title} {...rise(idx)}>
+                      {/* One line, not two stacked: the field code is a second
+                          column on the right rather than a sub-line, so the row
+                          uses the column's width instead of leaving half of it
+                          empty. */}
+                      <button type="button" className="dsb-row" onClick={() => discover(item.title)}>
+                        <span className="dsb-idx">{String(idx + 1).padStart(2, '0')}</span>
+                        <span className="dsb-row-title">{item.title}</span>
+                        <span className="dsb-row-meta">{item.field}</span>
+                        <ArrowRight size={14} className="dsb-row-go" />
+                      </button>
+                    </motion.li>
+                  ))}
+                </ol>
+              </CardContent>
+            </Card>
+          </motion.section>
+        )}
+
+        {showResults && (
+          <>
+            <motion.section {...rise()} className="dsb-block">
+              <Card>
+                <CardHeader className="dsb-head">
+                  <CardTitle className="dsb-title">
                     Directions for <em>{topic}</em>
-                  </h2>
-                  <span className="dashboard-stream-tag">{results.length} ranked</span>
-                </div>
-                <ol className="dashboard-stream-list">
-                  {results.map((t, i) => {
-                    const score = impactScore(t.impact);
-                    // Search the raw extracted phrase, not the Title-Cased
-                    // label — `title` is for display only.
-                    const surveyQuery = t.query || t.title;
-                    return (
-                      <li key={i}>
-                        <div
-                          className={`dashboard-direction${i === 0 ? ' is-lead' : ''}`}
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => navigate('/literature-survey', { state: { query: surveyQuery, autoSearch: true } })}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
-                              navigate('/literature-survey', { state: { query: surveyQuery, autoSearch: true } });
-                            }
-                          }}
-                        >
-                          <span className="dashboard-stream-idx">{String(i + 1).padStart(2, '0')}</span>
-                          <div className="dashboard-direction-body">
-                            <div className="dashboard-direction-top">
-                              <span className="dashboard-direction-label">
-                                {i === 0 ? 'Lead direction' : `Direction ${i + 1}`}
-                              </span>
-                              <span className={`dashboard-impact impact-${(t.impact || 'medium').toLowerCase().replace(/\s+/g, '-')}`}>
-                                {t.impact}
-                              </span>
-                            </div>
-                            <h3 className="dashboard-direction-title">{t.title}</h3>
-                            <div className="dashboard-meter" aria-hidden="true">
-                              {[1, 2, 3, 4].map((level) => (
-                                <span key={level} className={`dashboard-meter-seg${level <= score ? ' is-on' : ''}`} />
-                              ))}
-                            </div>
-                            <p className="dashboard-direction-hint">{impactHint(t.impact)}</p>
-                            <div className="dashboard-direction-actions">
-                              <button
-                                type="button"
-                                className="dashboard-action-primary"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  navigate('/literature-survey', {
-                                    state: { query: surveyQuery, autoSearch: true },
-                                  });
-                                }}
-                              >
-                                Start survey <ArrowRight size={12} />
-                              </button>
-                              <a
-                                href={`https://scholar.google.com/scholar?q=${encodeURIComponent(t.title)}`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="dashboard-action-link"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                Scholar <ExternalLink size={11} />
-                              </a>
+                  </CardTitle>
+                  <CardAction>
+                    <Badge variant="outline">{results.length} ranked</Badge>
+                  </CardAction>
+                </CardHeader>
+                <CardContent className="dsb-body-flush">
+                  <ol className="dsb-rows">
+                    {results.map((t, i) => {
+                      const score = impactScore(t.impact);
+                      // Search the raw extracted phrase, not the Title-Cased
+                      // label — `title` is for display only.
+                      const surveyQ = t.query || t.title;
+                      const openSurvey = () => navigate('/literature-survey', {
+                        state: { query: surveyQ, autoSearch: true },
+                      });
+                      return (
+                        <motion.li key={i} {...rise(i)}>
+                          <div
+                            className="dsb-direction"
+                            role="button"
+                            tabIndex={0}
+                            onClick={openSurvey}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                openSurvey();
+                              }
+                            }}
+                          >
+                            <span className="dsb-idx">{String(i + 1).padStart(2, '0')}</span>
+                            <div className="dsb-direction-body">
+                              <div className="dsb-direction-top">
+                                <h3 className="dsb-direction-title">{t.title}</h3>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Badge variant={impactVariant(t.impact)}>{t.impact}</Badge>
+                                  </TooltipTrigger>
+                                  <TooltipContent>{impactHint(t.impact)}</TooltipContent>
+                                </Tooltip>
+                              </div>
+                              <div className="dsb-direction-foot">
+                                <div
+                                  className="dsb-meter"
+                                  role="img"
+                                  aria-label={`Impact ${score} of 4`}
+                                >
+                                  {[1, 2, 3, 4].map((level) => (
+                                    <span key={level} className={`dsb-meter-seg${level <= score ? ' is-on' : ''}`} />
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="dsb-direction-actions">
+                                <Button
+                                  size="sm"
+                                  onClick={(e) => { e.stopPropagation(); openSurvey(); }}
+                                >
+                                  Start survey <ArrowRight size={12} />
+                                </Button>
+                                <a
+                                  href={`https://scholar.google.com/scholar?q=${encodeURIComponent(t.title)}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="dsb-link"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  Scholar <ExternalLink size={11} />
+                                </a>
+                              </div>
                             </div>
                           </div>
+                        </motion.li>
+                      );
+                    })}
+                  </ol>
+                </CardContent>
+              </Card>
+            </motion.section>
+
+            <motion.section {...rise(1)} className="dsb-block">
+              <Card>
+                <CardHeader className="dsb-head">
+                  <CardTitle className="dsb-title">
+                    <FileText size={15} /> Related papers
+                  </CardTitle>
+                  <CardAction>
+                    <Button
+                      variant="link"
+                      size="xs"
+                      onClick={() => navigate('/literature-survey', { state: { query: topic, autoSearch: true } })}
+                    >
+                      Literature survey <ArrowUpRight size={13} />
+                    </Button>
+                  </CardAction>
+                </CardHeader>
+                <CardContent className="dsb-body-flush">
+                  {papersLoading && (
+                    <p className="dsb-status"><Spinner size={15} /> Loading papers…</p>
+                  )}
+                  {!papersLoading && relatedPapers.length === 0 && (
+                    <p className="dsb-status">No related papers found for this query.</p>
+                  )}
+                  {!papersLoading && relatedPapers.length > 0 && (
+                    <>
+                      {/* Table ships its own `overflow-x-auto` container, so
+                          the page does not add a second scroller around it. */}
+                      <Table className="dsb-table">
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="col-num">#</TableHead>
+                              <TableHead className="col-paper">Paper</TableHead>
+                              <TableHead className="col-venue">Venue</TableHead>
+                              <TableHead className="col-year">Year</TableHead>
+                              <TableHead className="col-cited">Cited</TableHead>
+                              <TableHead className="col-source">Source</TableHead>
+                              <TableHead className="col-links">Read</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {relatedPapers.slice(0, visibleRelatedCount).map((paper, i) => (
+                              <TableRow key={paper.id || `${paper.title}-${i}`}>
+                                <TableCell className="col-num">[{i + 1}]</TableCell>
+                                <TableCell className="col-paper">
+                                  <a
+                                    className="dsb-cite-title"
+                                    href={paper.url || `https://scholar.google.com/scholar?q=${encodeURIComponent(paper.title)}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    title={paper.title}
+                                  >
+                                    {paper.title}
+                                  </a>
+                                  <span className="dsb-cite-meta">{paper.authors || 'Authors unavailable'}</span>
+                                </TableCell>
+                                <TableCell className="col-venue" title={paper.venue || ''}>
+                                  {paper.venue || '—'}
+                                </TableCell>
+                                <TableCell className="col-year">{paper.year || '—'}</TableCell>
+                                <TableCell className="col-cited">{citeCount(paper)}</TableCell>
+                                <TableCell className="col-source">{paper.source || '—'}</TableCell>
+                                <TableCell className="col-links">
+                                  <span className="dsb-links">
+                                    {paperLinks(paper).map((link) => (
+                                      <a key={link.label} href={link.href} target="_blank" rel="noreferrer">
+                                        {link.label}
+                                      </a>
+                                    ))}
+                                  </span>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                      </Table>
+                      {visibleRelatedCount < relatedPapers.length && (
+                        <div className="dsb-more">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setVisibleRelatedCount((n) => Math.min(n + RELATED_PAGE_SIZE, relatedPapers.length))}
+                          >
+                            Load more
+                            <span className="dsb-mono">{visibleRelatedCount}/{relatedPapers.length}</span>
+                          </Button>
                         </div>
+                      )}
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            </motion.section>
+          </>
+        )}
+
+        {activeCategory && (
+          <motion.section {...rise(2)} className="dsb-block">
+            <Card>
+              <CardHeader className="dsb-head">
+                <CardTitle className="dsb-title">
+                  Latest in {activeCategory.title}
+                  <Badge variant="outline" className="dsb-mono">{activeCategory.arxiv}</Badge>
+                </CardTitle>
+                <CardAction>
+                  <Button variant="link" size="xs" onClick={closeFeed}>
+                    <X size={13} /> Close feed
+                  </Button>
+                </CardAction>
+              </CardHeader>
+              <CardContent className="dsb-body-flush">
+                {catLoading && (
+                  <p className="dsb-status"><Spinner size={15} /> Loading archive…</p>
+                )}
+                {!catLoading && categoryPapers.length === 0 && (
+                  <p className="dsb-status">No recent papers in this category.</p>
+                )}
+                {!catLoading && categoryPapers.length > 0 && (
+                  <div className="dsb-rows">
+                    {categoryPapers.map((p, i) => (
+                      <motion.article key={i} {...rise(i)} className="dsb-feed-item">
+                        <span className="dsb-idx">{String(i + 1).padStart(2, '0')}</span>
+                        <div className="dsb-feed-body">
+                          <h3 className="dsb-cite-title">{p.title}</h3>
+                          <p className="dsb-cite-meta">{p.authors}</p>
+                          <p className="dsb-feed-facts">
+                            {p.published ? <span>{p.published}</span> : null}
+                            {p.venue ? <span>{p.venue}</span> : null}
+                            {(p.categories || []).slice(0, 3).map((c) => (
+                              <span key={c} className="dsb-feed-cat">{c}</span>
+                            ))}
+                          </p>
+                          {p.abstract && (
+                            <p className="dsb-feed-abstract">{p.abstract.substring(0, 160)}…</p>
+                          )}
+                          <div className="dsb-links">
+                            {paperLinks(p).map((link) => (
+                              <a key={link.label} href={link.href} target="_blank" rel="noreferrer">
+                                {link.label}
+                              </a>
+                            ))}
+                            <a
+                              href={`https://scholar.google.com/scholar?q=${encodeURIComponent(p.title)}`}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              Scholar
+                            </a>
+                          </div>
+                        </div>
+                      </motion.article>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </motion.section>
+        )}
+
+        {!results.length && !loading && !activeCategory && hasSearched && !error && (
+          <motion.div {...rise()} className="dsb-block">
+            <div className="dsb-empty">
+              <Search size={18} />
+              <h3>No results for &ldquo;{topic}&rdquo;</h3>
+              <p>Try a more specific field, or pick one of the fields above.</p>
+            </div>
+          </motion.div>
+        )}
+
+        {/* ── Saved surveys: the "continue where I left off" shelf. It was a
+            second-rail section; as the last panel it keeps one reading column
+            and still answers "what should I read next". ── */}
+        <motion.section {...rise(3)} className="dsb-block">
+          <Card>
+            <CardHeader className="dsb-head">
+              <CardTitle className="dsb-title">
+                <FileText size={15} /> Saved surveys
+              </CardTitle>
+              <CardAction>
+                <Button
+                  variant="link"
+                  size="xs"
+                  onClick={() => navigate('/literature-survey', { state: { tab: 'saved' } })}
+                >
+                  View all <ArrowUpRight size={13} />
+                </Button>
+              </CardAction>
+            </CardHeader>
+            <CardContent className="dsb-body-flush">
+              {loadingRecent ? (
+                <div className="dsb-pad">
+                  <SkeletonList count={2} />
+                </div>
+              ) : recentSurveys.length === 0 ? (
+                <p className="dsb-status">
+                  Saved literature surveys appear here. Discover a topic and start one to fill this shelf.
+                </p>
+              ) : (
+                <ul className="dsb-rows">
+                  {surveyActionError && (
+                    <li className="dsb-status" role="alert">{surveyActionError}</li>
+                  )}
+                  {recentSurveys.map((survey, i) => {
+                    const name = displayName(survey, 'query');
+                    return (
+                      <li key={survey.id || survey.query} className="dsb-survey group">
+                        {renamingSurveyId === survey.id ? (
+                          <div className="dsb-survey-main">
+                            <span className="dsb-idx">{String(i + 1).padStart(2, '0')}</span>
+                            <RenameField
+                              initial={name}
+                              label={`Rename ${name}`}
+                              onSubmit={(value) => { setRenamingSurveyId(null); patchSurvey(survey, { title: value }); }}
+                              onCancel={() => setRenamingSurveyId(null)}
+                            />
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            className="dsb-survey-main"
+                            title={survey.title ? `${name} (${survey.query})` : name}
+                            onClick={() => navigate('/literature-survey', { state: { query: survey.query, autoSearch: true } })}
+                          >
+                            <span className="dsb-idx">
+                              {survey.pinned ? <Pin size={12} aria-label="Pinned" /> : String(i + 1).padStart(2, '0')}
+                            </span>
+                            <span className="dsb-row-title">{name}</span>
+                            <span className="dsb-row-meta">{survey.papers?.length || 0} papers</span>
+                          </button>
+                        )}
+                        <SavedItemMenu
+                          className="dsb-survey-menu"
+                          name={name}
+                          kind="survey"
+                          pinned={survey.pinned === true}
+                          onTogglePin={survey.id ? () => patchSurvey(survey, { pinned: !survey.pinned }) : undefined}
+                          onRename={survey.id ? () => setRenamingSurveyId(survey.id) : undefined}
+                          onDelete={() => deleteSurvey(survey)}
+                          deleteDetail="and its saved papers will be removed."
+                        />
                       </li>
                     );
                   })}
-                </ol>
-              </section>
-
-              <section className="dashboard-stream-block">
-                <div className="dashboard-stream-head">
-                  <h2 className="dashboard-stream-title">
-                    <FileText size={15} /> Related papers
-                  </h2>
-                  <button type="button" className="dashboard-text-btn" onClick={() => navigate('/literature-survey', { state: { query: topic, autoSearch: true } })}>
-                    Literature survey <ArrowUpRight size={13} />
-                  </button>
-                </div>
-                {papersLoading && (
-                  <p className="dashboard-stream-status"><Spinner size={15} /> Loading papers…</p>
-                )}
-                {!papersLoading && relatedPapers.length === 0 && (
-                  <p className="dashboard-stream-status">No related papers found for this query.</p>
-                )}
-                {!papersLoading && relatedPapers.length > 0 && (
-                  <>
-                    <div className="dashboard-cite-list">
-                      {relatedPapers.slice(0, visibleRelatedCount).map((paper, i) => (
-                        <a
-                          key={paper.id || `${paper.title}-${i}`}
-                          href={paper.url || `https://scholar.google.com/scholar?q=${encodeURIComponent(paper.title)}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="dashboard-cite-row"
-                        >
-                          <span className="dashboard-cite-num">[{i + 1}]</span>
-                          <span className="dashboard-cite-body">
-                            <span className="dashboard-cite-title">{paper.title}</span>
-                            <span className="dashboard-cite-meta">
-                              {paper.authors || 'Authors unavailable'}
-                              {paper.year ? ` · ${paper.year}` : ''}
-                            </span>
-                          </span>
-                          <ExternalLink size={13} className="dashboard-cite-ext" />
-                        </a>
-                      ))}
-                    </div>
-                    {visibleRelatedCount < relatedPapers.length && (
-                      <button
-                        type="button"
-                        className="dashboard-load-more"
-                        onClick={() => setVisibleRelatedCount((n) => Math.min(n + RELATED_PAGE_SIZE, relatedPapers.length))}
-                      >
-                        Load more · {visibleRelatedCount}/{relatedPapers.length}
-                      </button>
-                    )}
-                  </>
-                )}
-              </section>
-            </>
-          )}
-
-          {activeCategory && (
-            <section className="dashboard-stream-block">
-              <div className="dashboard-stream-head">
-                <h2 className="dashboard-stream-title">
-                  <span className="dashboard-arxiv-code">{activeCategory.arxiv}</span>
-                  Latest in {activeCategory.title}
-                </h2>
-                <button
-                  type="button"
-                  className="dashboard-text-btn"
-                  onClick={() => { setActiveCategory(null); setCategoryPapers([]); }}
-                >
-                  <X size={13} /> Close feed
-                </button>
-              </div>
-              {catLoading && (
-                <p className="dashboard-stream-status"><Spinner size={15} /> Loading archive…</p>
+                </ul>
               )}
-              {!catLoading && categoryPapers.length === 0 && (
-                <p className="dashboard-stream-status">No recent papers in this category.</p>
-              )}
-              {!catLoading && categoryPapers.length > 0 && (
-                <div className="dashboard-cite-list">
-                  {categoryPapers.map((p, i) => (
-                    <article key={i} className="dashboard-feed-item">
-                      <span className="dashboard-cite-num">[{String(i + 1).padStart(2, '0')}]</span>
-                      <div className="dashboard-feed-body">
-                        <h3 className="dashboard-cite-title">{p.title}</h3>
-                        <p className="dashboard-cite-meta">{p.authors}</p>
-                        {p.abstract && (
-                          <p className="dashboard-feed-abstract">{p.abstract.substring(0, 160)}…</p>
-                        )}
-                        <div className="dashboard-feed-links">
-                          {p.url && (
-                            <a href={p.url} target="_blank" rel="noreferrer">Abstract</a>
-                          )}
-                          {p.pdf_url && (
-                            <a href={p.pdf_url} target="_blank" rel="noreferrer">PDF</a>
-                          )}
-                          <a
-                            href={`https://scholar.google.com/scholar?q=${encodeURIComponent(p.title)}`}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            Scholar
-                          </a>
-                        </div>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </section>
-          )}
-
-          {!results.length && !loading && !activeCategory && hasSearched && !error && (
-            <div className="dashboard-empty-search">
-              <Search size={22} />
-              <h3>No results for “{topic}”</h3>
-              <p>Try a more specific field, or pick one from the left rail.</p>
-            </div>
-          )}
-        </div>
+            </CardContent>
+          </Card>
+        </motion.section>
       </div>
+
     </div>
   );
 }
